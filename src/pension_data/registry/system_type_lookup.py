@@ -20,8 +20,15 @@ def _default_registry_seed_path() -> Path:
 
 
 def load_system_type_by_plan_id(seed_path: Path | None = None) -> dict[str, str]:
-    """Load a lowercase plan_id->system_type mapping from the registry seed."""
-    path = seed_path if seed_path is not None else _default_registry_seed_path()
+    """Load lowercase stable-id-derived identifiers to system_type from registry seed."""
+    if seed_path is not None:
+        path = seed_path
+    else:
+        try:
+            path = _default_registry_seed_path()
+        except ValueError:
+            # Installed/runtime contexts may not have a project-root pyproject.toml.
+            return {}
     if not path.exists() or not path.is_file():
         return {}
 

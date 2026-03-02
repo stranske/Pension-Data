@@ -164,11 +164,14 @@ def build_inventory_artifacts(
     system_type_by_plan_id: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
     """Build deterministic discovery inventory rows, plan-year coverage, and summaries."""
-    system_type_lookup = (
-        {key.lower(): value for key, value in load_system_type_by_plan_id().items()}
-        if system_type_by_plan_id is None
-        else {key.lower(): value for key, value in system_type_by_plan_id.items()}
-    )
+    if system_type_by_plan_id is None:
+        try:
+            raw_system_type_mapping: Mapping[str, str] = load_system_type_by_plan_id()
+        except (OSError, ValueError):
+            raw_system_type_mapping = {}
+    else:
+        raw_system_type_mapping = system_type_by_plan_id
+    system_type_lookup = {key.lower(): value for key, value in raw_system_type_mapping.items()}
     discovered_rows: list[DiscoveredInventoryRecord] = []
     for document in sorted(
         discovered_documents,

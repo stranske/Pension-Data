@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from pension_data.discovery.inventory import (
     DiscoveredDocumentInput,
     build_inventory_artifacts,
@@ -249,3 +251,21 @@ def test_annual_report_coverage_uses_discovered_annual_docs_when_source_rows_abs
         coverage_row["annual_report_source_url"] == "https://example.org/tx-2024-annual-report.pdf"
     )
     assert coverage_row["system_type"] == "public-pension"
+
+
+def test_inventory_artifacts_fall_back_when_registry_lookup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _raise_lookup_failure() -> dict[str, str]:
+        raise ValueError("no project root")
+
+    monkeypatch.setattr(
+        "pension_data.discovery.inventory.load_system_type_by_plan_id",
+        _raise_lookup_failure,
+    )
+    artifacts = build_inventory_artifacts(
+        source_records=_source_records(),
+        discovered_documents=[],
+        target_years=(2024,),
+    )
+    assert artifacts["annual_report_coverage_rows"]
