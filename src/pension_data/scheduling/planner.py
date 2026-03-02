@@ -36,9 +36,10 @@ def _with_seasonality_anchor(
     if target.month in seasonality_months:
         return target
 
+    base = max(target, as_of)
     candidates: list[datetime] = []
     for month in seasonality_months:
-        year = as_of.year if month >= as_of.month else as_of.year + 1
+        year = base.year if month >= base.month else base.year + 1
         candidates.append(datetime(year, month, 1, tzinfo=UTC))
     return min(candidates)
 
