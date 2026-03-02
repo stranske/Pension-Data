@@ -9,7 +9,6 @@ const { loadKeepaliveState, formatStateComment } = require('./keepalive_state');
 const { resolvePromptMode } = require('./keepalive_prompt_routing');
 const { classifyError, ERROR_CATEGORIES } = require('./error_classifier');
 const { formatFailureComment } = require('./failure_comment_formatter');
-const { buildIncidentRunbookSection } = require('./incident_runbook_links');
 const { detectConflicts } = require('./conflict_detector');
 const { parseTimeoutConfig } = require('./timeout_config');
 const { ensureRateLimitWrapped } = require('./github-rate-limited-wrapper');
@@ -3389,16 +3388,6 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
           ? agentSummary.slice(0, 300) + '...'
           : agentSummary;
         summaryLines.push('', `**${agentDisplayName} output:**`, `> ${truncatedSummary}`);
-      }
-
-      const runbookSectionLines = buildIncidentRunbookSection([
-        agentSummary,
-        summaryReason,
-        runResult,
-        errorRecovery,
-      ]);
-      if (runbookSectionLines.length > 0) {
-        summaryLines.push(...runbookSectionLines);
       }
 
       // Task reconciliation warning: agent made changes but didn't check off tasks
