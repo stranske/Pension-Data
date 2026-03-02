@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pension_data.db.models.artifacts import RawArtifactRecord
 from pension_data.ingest.artifacts import (
     RawArtifactIngestionInput,
     ingest_raw_artifacts,
@@ -39,6 +40,7 @@ def test_reingesting_same_content_does_not_create_duplicate_active_artifacts() -
     assert second_metrics.unchanged_count == 1
     assert len(second_records) == 1
     assert second_records[0].is_active
+    assert second_records[0].last_seen_at == "2026-03-03T00:00:00Z"
 
 
 def test_revised_content_creates_supersession_linked_artifact() -> None:
@@ -87,10 +89,18 @@ def test_failed_inputs_are_counted_and_skipped() -> None:
                 mime_type="application/pdf",
                 content_bytes=b"bad",
             ),
+            RawArtifactIngestionInput(
+                plan_id="CA-PERS",
+                plan_period="FY2024",
+                source_url="https://example.org/ca-2024.pdf",
+                fetched_at="   ",
+                mime_type="application/pdf",
+                content_bytes=b"bad",
+            ),
         ],
     )
     assert metrics.new_count == 1
-    assert metrics.failed_count == 1
+    assert metrics.failed_count == 2
     assert len(records) == 1
 
 
@@ -110,3 +120,39 @@ def test_lineage_query_returns_supersession_chain_for_audit() -> None:
     assert lineage[0].is_active is False
     assert lineage[1].is_active is True
     assert lineage[0].superseded_by_artifact_id == lineage[1].artifact_id
+
+
+def test_lineage_query_stops_when_supersession_cycle_is_present() -> None:
+    first = RawArtifactRecord(
+        artifact_id="artifact:a",
+        plan_id="CA-PERS",
+        plan_period="FY2024",
+        source_url="https://example.org/ca.pdf",
+        fetched_at="2026-03-01T00:00:00Z",
+        mime_type="application/pdf",
+        byte_size=1,
+        checksum_sha256="a" * 64,
+        is_active=False,
+        supersedes_artifact_id="artifact:b",
+        superseded_by_artifact_id="artifact:b",
+        first_seen_at="2026-03-01T00:00:00Z",
+        last_seen_at="2026-03-01T00:00:00Z",
+    )
+    second = RawArtifactRecord(
+        artifact_id="artifact:b",
+        plan_id="CA-PERS",
+        plan_period="FY2024",
+        source_url="https://example.org/ca.pdf",
+        fetched_at="2026-03-02T00:00:00Z",
+        mime_type="application/pdf",
+        byte_size=1,
+        checksum_sha256="b" * 64,
+        is_active=True,
+        supersedes_artifact_id="artifact:a",
+        superseded_by_artifact_id="artifact:a",
+        first_seen_at="2026-03-02T00:00:00Z",
+        last_seen_at="2026-03-02T00:00:00Z",
+    )
+
+    lineage = lineage_for_artifact(records=[first, second], artifact_id="artifact:a")
+    assert [row.artifact_id for row in lineage] == ["artifact:b", "artifact:a"]

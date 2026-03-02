@@ -71,7 +71,8 @@ def ingest_raw_artifacts(
             plan_period=item.plan_period,
             source_url=item.source_url,
         )
-        if not all(artifact_key) or not item.mime_type.strip():
+        fetched_at = item.fetched_at.strip()
+        if not all(artifact_key) or not item.mime_type.strip() or not fetched_at:
             failed_count += 1
             continue
 
@@ -79,22 +80,22 @@ def ingest_raw_artifacts(
         active_artifact_id = active_by_key.get(artifact_key)
         if active_artifact_id is None:
             artifact_id = _artifact_id(
-                artifact_key=artifact_key, checksum=checksum, fetched_at=item.fetched_at
+                artifact_key=artifact_key, checksum=checksum, fetched_at=fetched_at
             )
             records_by_id[artifact_id] = RawArtifactRecord(
                 artifact_id=artifact_id,
                 plan_id=item.plan_id.strip(),
                 plan_period=item.plan_period.strip(),
                 source_url=item.source_url.strip(),
-                fetched_at=item.fetched_at,
+                fetched_at=fetched_at,
                 mime_type=item.mime_type.strip(),
                 byte_size=len(item.content_bytes),
                 checksum_sha256=checksum,
                 is_active=True,
                 supersedes_artifact_id=None,
                 superseded_by_artifact_id=None,
-                first_seen_at=item.fetched_at,
-                last_seen_at=item.fetched_at,
+                first_seen_at=fetched_at,
+                last_seen_at=fetched_at,
             )
             active_by_key[artifact_key] = artifact_id
             new_count += 1
@@ -102,32 +103,36 @@ def ingest_raw_artifacts(
 
         active_row = records_by_id[active_artifact_id]
         if active_row.checksum_sha256 == checksum:
+            records_by_id[active_artifact_id] = replace(
+                active_row,
+                last_seen_at=fetched_at,
+            )
             unchanged_count += 1
             continue
 
         replacement_id = _artifact_id(
-            artifact_key=artifact_key, checksum=checksum, fetched_at=item.fetched_at
+            artifact_key=artifact_key, checksum=checksum, fetched_at=fetched_at
         )
         records_by_id[active_artifact_id] = replace(
             active_row,
             is_active=False,
             superseded_by_artifact_id=replacement_id,
-            last_seen_at=item.fetched_at,
+            last_seen_at=fetched_at,
         )
         records_by_id[replacement_id] = RawArtifactRecord(
             artifact_id=replacement_id,
             plan_id=item.plan_id.strip(),
             plan_period=item.plan_period.strip(),
             source_url=item.source_url.strip(),
-            fetched_at=item.fetched_at,
+            fetched_at=fetched_at,
             mime_type=item.mime_type.strip(),
             byte_size=len(item.content_bytes),
             checksum_sha256=checksum,
             is_active=True,
             supersedes_artifact_id=active_artifact_id,
             superseded_by_artifact_id=None,
-            first_seen_at=item.fetched_at,
-            last_seen_at=item.fetched_at,
+            first_seen_at=fetched_at,
+            last_seen_at=fetched_at,
         )
         active_by_key[artifact_key] = replacement_id
         superseded_count += 1
@@ -162,17 +167,26 @@ def lineage_for_artifact(
     if current is None:
         return []
 
-    # Walk to root artifact.
+    # Walk to root artifact, guarding against cycles.
+    visited_up: set[str] = {current.artifact_id}
     while current.supersedes_artifact_id is not None:
         parent = records_by_id.get(current.supersedes_artifact_id)
         if parent is None:
             break
+        if parent.artifact_id in visited_up:
+            break
+        visited_up.add(parent.artifact_id)
         current = parent
 
     lineage: list[RawArtifactRecord] = [current]
+    visited_down: set[str] = {current.artifact_id}
     while lineage[-1].superseded_by_artifact_id is not None:
-        child = records_by_id.get(lineage[-1].superseded_by_artifact_id or "")
+        child_id = lineage[-1].superseded_by_artifact_id or ""
+        if child_id in visited_down:
+            break
+        child = records_by_id.get(child_id)
         if child is None:
             break
+        visited_down.add(child.artifact_id)
         lineage.append(child)
     return lineage
