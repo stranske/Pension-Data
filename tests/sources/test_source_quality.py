@@ -49,13 +49,62 @@ def test_validate_source_map_record_rejects_unknown_mismatch_reason() -> None:
 def test_validate_source_map_record_requires_wrong_plan_identity_delta() -> None:
     same_identity = replace(
         _valid_record(),
-        official_resolution_state="available_non_official_only",
-        source_authority_tier="high-confidence-third-party",
+        official_resolution_state="available_official",
+        source_authority_tier="official",
         mismatch_reason="wrong_plan",
         observed_plan_identity="CA-PERS",
     )
     errors = validate_source_map_record(same_identity)
     assert "wrong_plan mismatch requires different expected/observed identities" in "\n".join(
+        errors
+    )
+
+
+def test_validate_source_map_record_allows_wrong_plan_with_available_official() -> None:
+    record = replace(
+        _valid_record(),
+        official_resolution_state="available_official",
+        source_authority_tier="official",
+        mismatch_reason="wrong_plan",
+        observed_plan_identity="CALPERS-ALT",
+    )
+    assert validate_source_map_record(record) == []
+
+
+def test_validate_source_map_record_requires_non_official_mismatch_state_alignment() -> None:
+    record = replace(
+        _valid_record(),
+        official_resolution_state="available_non_official_only",
+        source_authority_tier="high-confidence-third-party",
+        mismatch_reason=None,
+    )
+    errors = validate_source_map_record(record)
+    assert "available_non_official_only requires mismatch_reason of non_official_only" in "\n".join(
+        errors
+    )
+
+
+def test_validate_source_map_record_rejects_observed_identity_without_wrong_plan() -> None:
+    record = replace(
+        _valid_record(),
+        mismatch_reason="stale_period",
+        observed_plan_identity="CA-PERS-MISMATCH",
+    )
+    errors = validate_source_map_record(record)
+    assert "observed_plan_identity is only valid when mismatch_reason is wrong_plan" in "\n".join(
+        errors
+    )
+
+
+def test_validate_source_map_record_requires_stale_period_to_use_available_official() -> None:
+    record = replace(
+        _valid_record(),
+        official_resolution_state="not_found",
+        source_authority_tier="high-confidence-third-party",
+        mismatch_reason="stale_period",
+    )
+    errors = validate_source_map_record(record)
+    assert "stale_period mismatch requires official_resolution_state of available_official" in "\n".join(
         errors
     )
 

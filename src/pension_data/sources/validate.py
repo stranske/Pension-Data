@@ -465,12 +465,33 @@ def _validate_source_map_record(
         elif record.observed_plan_identity == record.expected_plan_identity:
             errors.append("wrong_plan mismatch requires different expected/observed identities")
 
+    if record.mismatch_reason != "wrong_plan" and record.observed_plan_identity is not None:
+        errors.append("observed_plan_identity is only valid when mismatch_reason is wrong_plan")
+
     if (
-        record.mismatch_reason is not None
-        and record.official_resolution_state == "available_official"
+        record.official_resolution_state == "available_non_official_only"
+        and record.mismatch_reason != "non_official_only"
     ):
         errors.append(
-            "mismatch_reason must be empty when official_resolution_state is available_official"
+            "available_non_official_only requires mismatch_reason of non_official_only"
+        )
+
+    if (
+        record.mismatch_reason in {"wrong_plan", "stale_period"}
+        and record.official_resolution_state != "available_official"
+    ):
+        errors.append(
+            f"{record.mismatch_reason} mismatch requires official_resolution_state "
+            "of available_official"
+        )
+
+    if (
+        record.mismatch_reason == "non_official_only"
+        and record.official_resolution_state != "available_non_official_only"
+    ):
+        errors.append(
+            "non_official_only mismatch requires official_resolution_state "
+            "of available_non_official_only"
         )
 
     normalized_overrides = _normalized_overrides(record, errors)
