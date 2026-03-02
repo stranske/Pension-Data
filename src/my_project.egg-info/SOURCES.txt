@@ -22,4 +22,5 @@ src/pension_data/sources/discovery.py
 src/pension_data/sources/schema.py
 src/pension_data/sources/validate.py
 tests/test_dependency_version_alignment.py
+tests/test_incident_runbook_links.py
 tests/test_main.py
