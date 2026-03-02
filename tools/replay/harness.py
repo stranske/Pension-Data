@@ -184,6 +184,7 @@ def _validate_snapshot(payload: object) -> ReplaySnapshot:
         raise ValueError("snapshot.documents must be a list")
 
     documents: list[SnapshotDocument] = []
+    seen_document_ids: set[str] = set()
     for index, row in enumerate(documents_raw):
         location = f"snapshot.documents[{index}]"
         if not isinstance(row, dict):
@@ -191,6 +192,9 @@ def _validate_snapshot(payload: object) -> ReplaySnapshot:
         document_id = row.get("document_id")
         if not isinstance(document_id, str) or not document_id.strip():
             raise ValueError(f"{location}.document_id must be a non-empty string")
+        if document_id in seen_document_ids:
+            raise ValueError(f"snapshot.documents contains duplicate document_id '{document_id}'")
+        seen_document_ids.add(document_id)
         fields_raw = row.get("fields")
         if not isinstance(fields_raw, dict):
             raise ValueError(f"{location}.fields must be an object")

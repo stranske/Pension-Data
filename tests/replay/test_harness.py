@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -124,3 +125,29 @@ def test_diff_reports_field_presence_changes() -> None:
     change = report["changes"][0]
     assert change["attribute"] == "field_presence"
     assert change["field"] == "manager_count"
+
+
+def test_load_snapshot_rejects_duplicate_document_ids(tmp_path: Path) -> None:
+    snapshot_path = tmp_path / "duplicate_ids.json"
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                "baseline_version": SUPPORTED_BASELINE_VERSION,
+                "generated_at": "2026-03-02T00:00:00+00:00",
+                "documents": [
+                    {
+                        "document_id": "doc-a",
+                        "fields": {"funded_ratio": {"value": 0.8, "confidence": 0.95, "evidence": "p1"}},
+                    },
+                    {
+                        "document_id": "doc-a",
+                        "fields": {"funded_ratio": {"value": 0.79, "confidence": 0.95, "evidence": "p2"}},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate document_id"):
+        load_snapshot(snapshot_path)
