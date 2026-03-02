@@ -94,4 +94,5 @@ def test_runner_requires_overwrite_for_existing_snapshot(tmp_path: Path) -> None
 
     assert run(args) == 0
     assert run(args) == 1
-    assert run([*args, "--overwrite"]) == 0
+    assert run([*args, "--overwrite"]) == 1
+    assert run([*args, "--overwrite", "--baseline-update-ticket", "#44"]) == 0

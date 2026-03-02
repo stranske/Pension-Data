@@ -71,12 +71,22 @@ console.log(JSON.stringify(lines));
 """
     output = _run_node(script)
     lines = json.loads(output)
-    assert "### 📚 Incident Runbooks" in lines
+    assert "### Incident Runbooks" in lines
     assert any(
         "parser_fallback_exhaustion" in line
         and "docs/runbooks/parser-fallback-exhaustion.md#parser-fallback-exhaustion" in line
         for line in lines
     )
+
+
+def test_detect_incident_runbooks_avoids_over_broad_matches() -> None:
+    script = """
+const { detectIncidentRunbooks } = require("./.github/scripts/incident_runbook_links");
+const result = detectIncidentRunbooks("source map referenced for docs index only");
+console.log(JSON.stringify(result.map((entry) => entry.id)));
+"""
+    output = _run_node(script)
+    assert json.loads(output) == []
 
 
 def test_keepalive_loop_wires_runbook_section_builder() -> None:

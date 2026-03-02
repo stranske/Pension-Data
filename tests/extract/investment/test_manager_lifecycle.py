@@ -63,7 +63,9 @@ def test_golden_manager_lifecycle_scenarios() -> None:
         previous_positions, previous_warnings = build_manager_fund_positions(
             _rows(payload["previous"])
         )
-        current_positions, current_warnings = build_manager_fund_positions(_rows(payload["current"]))
+        current_positions, current_warnings = build_manager_fund_positions(
+            _rows(payload["current"])
+        )
         events, lifecycle_warnings = infer_lifecycle_events(previous_positions, current_positions)
 
         assert _event_snapshot(events) == payload["expected_events"]

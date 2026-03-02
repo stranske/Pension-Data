@@ -472,9 +472,7 @@ def _validate_source_map_record(
         record.official_resolution_state == "available_non_official_only"
         and record.mismatch_reason != "non_official_only"
     ):
-        errors.append(
-            "available_non_official_only requires mismatch_reason of non_official_only"
-        )
+        errors.append("available_non_official_only requires mismatch_reason of non_official_only")
 
     if (
         record.mismatch_reason in {"wrong_plan", "stale_period"}

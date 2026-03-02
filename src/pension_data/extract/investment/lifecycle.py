@@ -144,9 +144,9 @@ def infer_lifecycle_events(
     current_period_by_plan: dict[str, str] = {}
     for position in current_ordered:
         prior_period = current_period_by_plan.get(position.plan_id)
-        if prior_period is None or _plan_period_sort_key(position.plan_period) > _plan_period_sort_key(
-            prior_period
-        ):
+        if prior_period is None or _plan_period_sort_key(
+            position.plan_period
+        ) > _plan_period_sort_key(prior_period):
             current_period_by_plan[position.plan_id] = position.plan_period
 
     events_by_key: dict[tuple[str, str, str, str], ManagerLifecycleEvent] = {}
