@@ -7,6 +7,13 @@ src/my_project.egg-info/SOURCES.txt
 src/my_project.egg-info/dependency_links.txt
 src/my_project.egg-info/requires.txt
 src/my_project.egg-info/top_level.txt
+src/pension_data/__init__.py
+src/pension_data/coverage/__init__.py
+src/pension_data/coverage/readiness.py
+src/pension_data/sources/__init__.py
+src/pension_data/sources/discovery.py
+src/pension_data/sources/schema.py
+src/pension_data/sources/validate.py
 tests/test_dependency_version_alignment.py
 tests/test_incident_runbook_links.py
 tests/test_main.py
