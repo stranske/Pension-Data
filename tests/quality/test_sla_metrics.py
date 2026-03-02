@@ -10,8 +10,8 @@ import pytest
 
 from pension_data.monitoring.telemetry import (
     aggregate_metric_window,
-    build_windowed_baseline_report,
     build_telemetry_table,
+    build_windowed_baseline_report,
     emit_extraction_sla_telemetry,
     emit_ingestion_sla_telemetry,
     emit_review_sla_telemetry,

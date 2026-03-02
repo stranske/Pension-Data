@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypedDict
 
 from pension_data.quality.sla_metrics import SLA_METRIC_CATALOG, SLAStage
 
@@ -20,6 +21,17 @@ class TelemetryRecord:
     value: float
     observed_at: datetime
     tags: dict[str, str]
+
+
+class BaselineReportRow(TypedDict):
+    """Structured row for per-window SLA baseline report output."""
+
+    window_start: str
+    window_end: str
+    run_ids: list[str]
+    stages: list[str]
+    record_count: int
+    metrics: dict[str, dict[str, float]]
 
 
 def emit_sla_telemetry(
@@ -222,13 +234,13 @@ def _window_bounds(record: TelemetryRecord) -> tuple[str, str]:
     return window_start, window_end
 
 
-def build_windowed_baseline_report(records: list[TelemetryRecord]) -> list[dict[str, object]]:
+def build_windowed_baseline_report(records: list[TelemetryRecord]) -> list[BaselineReportRow]:
     """Build baseline SLA summaries grouped by run window boundaries."""
     grouped: dict[tuple[str, str], list[TelemetryRecord]] = {}
     for record in records:
         grouped.setdefault(_window_bounds(record), []).append(record)
 
-    report_rows: list[dict[str, object]] = []
+    report_rows: list[BaselineReportRow] = []
     for window_start, window_end in sorted(grouped.keys()):
         window_records = grouped[(window_start, window_end)]
         run_ids = sorted(
