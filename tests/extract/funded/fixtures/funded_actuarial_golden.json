@@ -1,0 +1,67 @@
+{
+  "table_layout_complete": {
+    "plan_id": "CA-PERS",
+    "plan_period": "FY2024",
+    "raw": {
+      "source_document_id": "doc:ca:2024:funded",
+      "source_url": "https://example.gov/ca-2024-acfr.pdf",
+      "effective_date": "2024-06-30",
+      "ingestion_date": "2025-01-05",
+      "default_money_unit_scale": "million_usd",
+      "text_blocks": [
+        "Pension funded-status overview.",
+        "Actuarial valuation summary for FY2024."
+      ],
+      "table_rows": [
+        {"label": "Funded Ratio", "value": "78.4%", "evidence_ref": "p.45"},
+        {"label": "Actuarial Accrued Liability (AAL)", "value": "$640.0 million", "evidence_ref": "p.45"},
+        {"label": "Actuarial Value of Assets (AVA)", "value": "$501.8 million", "evidence_ref": "p.45"},
+        {"label": "Discount Rate", "value": "6.80%", "evidence_ref": "p.46"},
+        {"label": "Employer Contribution Rate", "value": "12.40%", "evidence_ref": "p.47"},
+        {"label": "Employee Contribution Rate", "value": "7.50%", "evidence_ref": "p.47"},
+        {"label": "Participant Count", "value": "325,000", "evidence_ref": "p.48"}
+      ]
+    }
+  },
+  "text_layout_missing_participants": {
+    "plan_id": "TX-ERS",
+    "plan_period": "FY2024",
+    "raw": {
+      "source_document_id": "doc:tx:2024:funded",
+      "source_url": "https://example.gov/tx-2024-acfr.pdf",
+      "effective_date": "2024-08-31",
+      "ingestion_date": "2025-01-20",
+      "default_money_unit_scale": "million_usd",
+      "text_blocks": [
+        "Funding ratio for FY2024 was 81.2 percent.",
+        "AAL reached 410.5 million USD while AVA reached 333.7 million USD.",
+        "Discount rate remains 6.75 percent and employer contribution rate was 11.1 percent.",
+        "Employee contribution rate was 7.1 percent."
+      ],
+      "table_rows": []
+    }
+  },
+  "ambiguous_metric_layout": {
+    "plan_id": "OR-SERS",
+    "plan_period": "FY2024",
+    "raw": {
+      "source_document_id": "doc:or:2024:funded",
+      "source_url": "https://example.gov/or-2024-acfr.pdf",
+      "effective_date": "2024-06-30",
+      "ingestion_date": "2025-02-01",
+      "default_money_unit_scale": "million_usd",
+      "text_blocks": [
+        "Funding ratio was 79.0 percent.",
+        "Discount rate was 6.5 percent."
+      ],
+      "table_rows": [
+        {"label": "Funded Ratio", "value": "76.5%", "evidence_ref": "p.52"},
+        {"label": "AAL", "value": "500 million", "evidence_ref": "p.52"},
+        {"label": "AVA", "value": "382 million", "evidence_ref": "p.52"},
+        {"label": "Employer Contribution Rate", "value": "10.8%", "evidence_ref": "p.53"},
+        {"label": "Employee Contribution Rate", "value": "6.2%", "evidence_ref": "p.53"},
+        {"label": "Participant Count", "value": "101000", "evidence_ref": "p.54"}
+      ]
+    }
+  }
+}
