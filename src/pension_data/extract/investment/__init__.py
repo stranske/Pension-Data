@@ -1,5 +1,14 @@
 """Investment extraction utilities."""
 
+from pension_data.extract.investment.lifecycle import (
+    ExplicitLifecycleSignal,
+    infer_lifecycle_events,
+)
+from pension_data.extract.investment.manager_positions import (
+    ExtractionWarning,
+    ManagerFundDisclosureInput,
+    build_manager_fund_positions,
+)
 from pension_data.extract.investment.risk_disclosures import (
     DerivativesDisclosureInput,
     RiskExtractionDiagnostic,
@@ -9,7 +18,12 @@ from pension_data.extract.investment.risk_disclosures import (
 
 __all__ = [
     "DerivativesDisclosureInput",
+    "ExplicitLifecycleSignal",
+    "ExtractionWarning",
+    "ManagerFundDisclosureInput",
     "RiskExtractionDiagnostic",
     "SecuritiesLendingDisclosureInput",
+    "build_manager_fund_positions",
     "extract_risk_exposure_observations",
+    "infer_lifecycle_events",
 ]
