@@ -1,0 +1,21 @@
+{
+  "view_name": "holdings_overlap",
+  "version": "v1",
+  "description": "Coverage-aware manager/fund overlap comparing a subject plan against peers for one period.",
+  "sql": "SELECT plan_id, plan_period, manager_name, fund_name, exposure_usd, disclosure_state FROM manager_fund_positions WHERE plan_period = :plan_period ORDER BY manager_name, fund_name, plan_id;",
+  "assumptions": [
+    "disclosure_state is one of disclosed, not_disclosed, known_not_invested",
+    "known_not_invested means explicit zero and is distinct from not_disclosed unknowns"
+  ],
+  "output_schema": [
+    {"name": "subject_plan_id", "type": "string"},
+    {"name": "counterparty_plan_id", "type": "string"},
+    {"name": "plan_period", "type": "string"},
+    {"name": "manager_name", "type": "string"},
+    {"name": "fund_name", "type": "string"},
+    {"name": "overlap_status", "type": "string"},
+    {"name": "overlap_usd", "type": "number|null"},
+    {"name": "subject_disclosure_state", "type": "string"},
+    {"name": "counterparty_disclosure_state", "type": "string"}
+  ]
+}

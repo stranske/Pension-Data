@@ -1,0 +1,19 @@
+{
+  "view_name": "allocation_peer_compare",
+  "version": "v1",
+  "description": "Subject-plan allocation by asset class compared with peer-group distribution for the same period.",
+  "sql": "SELECT plan_id, plan_period, peer_group, asset_class, allocation_pct FROM plan_allocation_metrics WHERE plan_period = :plan_period ORDER BY asset_class, plan_id;",
+  "assumptions": [
+    "allocation_pct is represented as a ratio in [0,1]",
+    "peer comparison excludes the subject plan from peer aggregates"
+  ],
+  "output_schema": [
+    {"name": "plan_id", "type": "string"},
+    {"name": "plan_period", "type": "string"},
+    {"name": "asset_class", "type": "string"},
+    {"name": "plan_allocation_pct", "type": "number"},
+    {"name": "peer_mean_pct", "type": "number|null"},
+    {"name": "peer_median_pct", "type": "number|null"},
+    {"name": "delta_vs_peer_mean_pct", "type": "number|null"}
+  ]
+}
