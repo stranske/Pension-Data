@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Literal
 
 from pension_data.db.models.consultant_attribution import (
@@ -41,6 +43,17 @@ _WARNING_MESSAGES: dict[ConsultantWarningCode, str] = {
     "ambiguous_naming": "Consultant naming is inconsistent across extracted rows.",
     "missing_topic": "Recommendation topic is missing and was marked as not_disclosed.",
 }
+_NON_DISCLOSED_NAMES = frozenset(
+    {
+        "n/a",
+        "na",
+        "none",
+        "not disclosed",
+        "not_disclosed",
+        "undisclosed",
+        "unknown",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,8 +125,36 @@ def _dedupe_refs(evidence_refs: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(ref.strip() for ref in evidence_refs if ref.strip()))
 
 
-def _source_metadata(source_url: str) -> dict[str, str]:
-    return {"source_url": source_url, "source_type": "annual_report"}
+def _stable_refs_from_mentions(mentions: Iterable[ConsultantMention]) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            {
+                ref.strip()
+                for mention in mentions
+                for ref in mention.evidence_refs
+                if ref.strip()
+            }
+        )
+    )
+
+
+def _primary_source_url(source_urls: Iterable[str]) -> str:
+    normalized = sorted({source_url.strip() for source_url in source_urls if source_url.strip()})
+    if normalized:
+        return normalized[0]
+    return "not_disclosed"
+
+
+def _source_metadata(source_url: str) -> MappingProxyType[str, str]:
+    return MappingProxyType({"source_url": source_url, "source_type": "annual_report"})
+
+
+_NOT_DISCLOSED_SOURCE_METADATA = _source_metadata("not_disclosed")
+
+
+def _is_disclosed_name(value: str | None) -> bool:
+    normalized_name = _normalize_name(value)
+    return bool(normalized_name) and normalized_name not in _NON_DISCLOSED_NAMES
 
 
 def normalize_board_decision_status(value: str | None) -> BoardDecisionStatus:
@@ -156,14 +197,8 @@ def extract_consultant_records(
             _clean_text(consultant_mention.consultant_name, fallback="not_disclosed")
             for consultant_mention in consultant_group
         }
+        merged_refs = _stable_refs_from_mentions(consultant_group)
         if len(display_names) > 1:
-            merged_refs = tuple(
-                dict.fromkeys(
-                    ref
-                    for consultant_mention in consultant_group
-                    for ref in _dedupe_refs(consultant_mention.evidence_refs)
-                )
-            )
             warnings.append(
                 ConsultantExtractionWarning(
                     code="ambiguous_naming",
@@ -181,14 +216,10 @@ def extract_consultant_records(
                 _bounded_confidence(consultant_mention.confidence)
                 for consultant_mention in consultant_group
             ),
-            evidence_refs=tuple(
-                dict.fromkeys(
-                    ref
-                    for consultant_mention in consultant_group
-                    for ref in _dedupe_refs(consultant_mention.evidence_refs)
-                )
+            evidence_refs=merged_refs,
+            source_metadata=_source_metadata(
+                _primary_source_url(consultant_mention.source_url for consultant_mention in consultant_group)
             ),
-            source_metadata=_source_metadata(consultant_group[0].source_url),
         )
         entities.append(entity)
 
@@ -202,7 +233,7 @@ def extract_consultant_records(
             role_description=_clean_text(
                 consultant_mention.role_description, fallback="not_disclosed"
             ),
-            is_disclosed=bool(_normalize_name(consultant_mention.consultant_name)),
+            is_disclosed=_is_disclosed_name(consultant_mention.consultant_name),
             confidence=_bounded_confidence(consultant_mention.confidence),
             evidence_refs=_dedupe_refs(consultant_mention.evidence_refs),
             source_metadata=_source_metadata(consultant_mention.source_url),
@@ -226,7 +257,7 @@ def extract_consultant_records(
                 is_disclosed=False,
                 confidence=0.0,
                 evidence_refs=(),
-                source_metadata={"source_url": "not_disclosed", "source_type": "annual_report"},
+                source_metadata=_NOT_DISCLOSED_SOURCE_METADATA,
             )
         )
         warnings.append(
@@ -291,7 +322,7 @@ def extract_consultant_records(
                 board_decision_status="not_disclosed",
                 confidence=0.0,
                 evidence_refs=(),
-                source_metadata={"source_url": "not_disclosed", "source_type": "annual_report"},
+                source_metadata=_NOT_DISCLOSED_SOURCE_METADATA,
             )
         )
 
@@ -327,7 +358,7 @@ def extract_consultant_records(
                 strength="speculative",
                 confidence=0.0,
                 evidence_refs=(),
-                source_metadata={"source_url": "not_disclosed", "source_type": "annual_report"},
+                source_metadata=_NOT_DISCLOSED_SOURCE_METADATA,
             )
         )
 

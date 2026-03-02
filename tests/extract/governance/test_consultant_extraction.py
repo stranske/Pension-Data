@@ -152,3 +152,51 @@ def test_extraction_output_is_reproducible() -> None:
     )
 
     assert first == second
+
+
+def test_non_disclosure_sentinels_do_not_mark_engagement_as_disclosed() -> None:
+    extracted = extract_consultant_records(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        consultant_mentions=[
+            ConsultantMention(
+                consultant_name="not disclosed",
+                role_description="Investment consultant",
+                confidence=0.6,
+                evidence_refs=("p7",),
+                source_url="https://example.org/ca-pers-2025.pdf",
+            )
+        ],
+        recommendation_mentions=[],
+        attribution_mentions=[],
+    )
+    assert not extracted["plan_consultant_engagements"][0].is_disclosed
+
+
+def test_entity_metadata_and_evidence_refs_are_deterministic_for_grouped_mentions() -> None:
+    extracted = extract_consultant_records(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        consultant_mentions=[
+            ConsultantMention(
+                consultant_name="Mercer",
+                role_description="advisor",
+                confidence=0.9,
+                evidence_refs=("p3", "p1"),
+                source_url="https://example.org/z-source.pdf",
+            ),
+            ConsultantMention(
+                consultant_name="MERCER",
+                role_description="advisor",
+                confidence=0.8,
+                evidence_refs=("p2",),
+                source_url="https://example.org/a-source.pdf",
+            ),
+        ],
+        recommendation_mentions=[],
+        attribution_mentions=[],
+    )
+
+    entity = extracted["consultant_entities"][0]
+    assert entity.evidence_refs == ("p1", "p2", "p3")
+    assert entity.source_metadata["source_url"] == "https://example.org/a-source.pdf"

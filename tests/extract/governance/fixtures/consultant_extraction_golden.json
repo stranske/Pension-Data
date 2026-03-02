@@ -1,7 +1,7 @@
 {
   "consultant_rich": {
-    "plan_id": "ca-pers",
-    "plan_period": "2025",
+    "plan_id": "CA-PERS",
+    "plan_period": "FY2025",
     "consultant_mentions": [
       {
         "consultant_name": "Mercer",
@@ -42,8 +42,8 @@
     ]
   },
   "consultant_sparse": {
-    "plan_id": "tx-ers",
-    "plan_period": "2025",
+    "plan_id": "TX-ERS",
+    "plan_period": "FY2025",
     "consultant_mentions": [],
     "recommendation_mentions": [],
     "attribution_mentions": []

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Literal
 
 BoardDecisionStatus = Literal["adopted", "partially_adopted", "rejected", "not_disclosed"]
@@ -16,7 +17,7 @@ class ConsultantEntity:
     normalized_name: str
     confidence: float
     evidence_refs: tuple[str, ...]
-    source_metadata: dict[str, str]
+    source_metadata: Mapping[str, str] = field(compare=False, hash=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +31,7 @@ class PlanConsultantEngagement:
     is_disclosed: bool
     confidence: float
     evidence_refs: tuple[str, ...]
-    source_metadata: dict[str, str]
+    source_metadata: Mapping[str, str] = field(compare=False, hash=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,4 +46,4 @@ class ConsultantRecommendation:
     board_decision_status: BoardDecisionStatus
     confidence: float
     evidence_refs: tuple[str, ...]
-    source_metadata: dict[str, str]
+    source_metadata: Mapping[str, str] = field(compare=False, hash=False)

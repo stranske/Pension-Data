@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Literal
 
 AttributionStrength = Literal["explicit", "implied", "speculative"]
@@ -20,4 +21,4 @@ class ConsultantAttributionObservation:
     strength: AttributionStrength
     confidence: float
     evidence_refs: tuple[str, ...]
-    source_metadata: dict[str, str]
+    source_metadata: Mapping[str, str] = field(compare=False, hash=False)
