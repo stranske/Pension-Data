@@ -10,12 +10,14 @@ import pytest
 
 from pension_data.monitoring.telemetry import (
     aggregate_metric_window,
+    build_windowed_baseline_report,
     build_telemetry_table,
     emit_extraction_sla_telemetry,
     emit_ingestion_sla_telemetry,
     emit_review_sla_telemetry,
     emit_sla_telemetry,
     emit_workflow_sla_telemetry,
+    write_baseline_report_artifacts,
     write_telemetry_artifact,
     write_telemetry_table_artifacts,
 )
@@ -134,6 +136,104 @@ def test_emit_telemetry_and_build_baseline_report(tmp_path: Path) -> None:
     summary = aggregate_metric_window(records)
     assert summary["completeness_rate"]["avg"] == 0.95
     assert summary["parse_warning_rate"]["max"] == 0.05
+
+
+def test_build_windowed_baseline_report_groups_records_per_window() -> None:
+    observed_at = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)
+    window_a = emit_workflow_sla_telemetry(
+        {
+            "completeness_rate": 0.90,
+            "parse_warning_rate": 0.10,
+            "review_queue_latency_hours": 5.0,
+        },
+        observed_at=observed_at,
+        tags={
+            "run_id": "run-1",
+            "window_start": "2026-03-01T00:00:00+00:00",
+            "window_end": "2026-03-02T00:00:00+00:00",
+        },
+    )
+    window_b = emit_workflow_sla_telemetry(
+        {
+            "completeness_rate": 0.95,
+            "parse_warning_rate": 0.03,
+            "review_queue_latency_hours": 3.5,
+        },
+        observed_at=observed_at,
+        tags={
+            "run_id": "run-2",
+            "window_start": "2026-03-02T00:00:00+00:00",
+            "window_end": "2026-03-03T00:00:00+00:00",
+        },
+    )
+    flattened = [
+        *window_a["ingestion"],
+        *window_a["extraction"],
+        *window_a["review"],
+        *window_b["ingestion"],
+        *window_b["extraction"],
+        *window_b["review"],
+    ]
+
+    report = build_windowed_baseline_report(flattened)
+    assert len(report) == 2
+    assert report[0]["window_start"] == "2026-03-01T00:00:00+00:00"
+    assert report[0]["window_end"] == "2026-03-02T00:00:00+00:00"
+    assert report[0]["run_ids"] == ["run-1"]
+    assert report[0]["record_count"] == 3
+    assert report[0]["metrics"]["completeness_rate"]["avg"] == 0.90
+    assert report[1]["window_start"] == "2026-03-02T00:00:00+00:00"
+    assert report[1]["window_end"] == "2026-03-03T00:00:00+00:00"
+    assert report[1]["run_ids"] == ["run-2"]
+    assert report[1]["record_count"] == 3
+    assert report[1]["metrics"]["review_queue_latency_hours"]["avg"] == 3.5
+
+
+def test_build_windowed_baseline_report_handles_missing_window_tags() -> None:
+    observed_at = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)
+    records = emit_sla_telemetry(
+        {"completeness_rate": 0.95},
+        observed_at=observed_at,
+        tags={"run_id": "run-9"},
+    )
+
+    report = build_windowed_baseline_report(records)
+    assert report[0]["window_start"] == "unknown"
+    assert report[0]["window_end"] == "unknown"
+    assert report[0]["run_ids"] == ["run-9"]
+    assert report[0]["metrics"]["completeness_rate"]["avg"] == 0.95
+
+
+def test_write_baseline_report_artifacts_writes_json_and_csv(tmp_path: Path) -> None:
+    observed_at = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)
+    staged = emit_workflow_sla_telemetry(
+        {
+            "completeness_rate": 0.95,
+            "parse_warning_rate": 0.05,
+            "review_queue_latency_hours": 4.0,
+        },
+        observed_at=observed_at,
+        tags={
+            "run_id": "run-10",
+            "window_start": "2026-03-01T00:00:00+00:00",
+            "window_end": "2026-03-02T00:00:00+00:00",
+        },
+    )
+    flattened = [record for records in staged.values() for record in records]
+    paths = write_baseline_report_artifacts(tmp_path / "telemetry", flattened)
+
+    persisted_json = json.loads(paths["json"].read_text(encoding="utf-8"))
+    assert len(persisted_json) == 1
+    assert persisted_json[0]["window_start"] == "2026-03-01T00:00:00+00:00"
+    assert persisted_json[0]["window_end"] == "2026-03-02T00:00:00+00:00"
+    assert persisted_json[0]["run_ids"] == ["run-10"]
+    assert persisted_json[0]["metrics"]["review_queue_latency_hours"]["avg"] == 4.0
+
+    csv_rows = paths["csv"].read_text(encoding="utf-8").splitlines()
+    assert csv_rows[0] == "window_start,window_end,run_ids,stages,metric,count,min,max,avg"
+    assert any("completeness_rate" in row for row in csv_rows[1:])
+    assert any("parse_warning_rate" in row for row in csv_rows[1:])
+    assert any("review_queue_latency_hours" in row for row in csv_rows[1:])
 
 
 def test_write_telemetry_table_artifacts_persists_dimension_columns(tmp_path: Path) -> None:

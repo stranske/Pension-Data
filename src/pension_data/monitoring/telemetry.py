@@ -214,3 +214,93 @@ def aggregate_metric_window(records: list[TelemetryRecord]) -> dict[str, dict[st
             "avg": sum(values) / count,
         }
     return summary
+
+
+def _window_bounds(record: TelemetryRecord) -> tuple[str, str]:
+    window_start = record.tags.get("window_start", "") or "unknown"
+    window_end = record.tags.get("window_end", "") or "unknown"
+    return window_start, window_end
+
+
+def build_windowed_baseline_report(records: list[TelemetryRecord]) -> list[dict[str, object]]:
+    """Build baseline SLA summaries grouped by run window boundaries."""
+    grouped: dict[tuple[str, str], list[TelemetryRecord]] = {}
+    for record in records:
+        grouped.setdefault(_window_bounds(record), []).append(record)
+
+    report_rows: list[dict[str, object]] = []
+    for window_start, window_end in sorted(grouped.keys()):
+        window_records = grouped[(window_start, window_end)]
+        run_ids = sorted(
+            {
+                run_id
+                for run_id in (record.tags.get("run_id", "") for record in window_records)
+                if run_id
+            }
+        )
+        stages = sorted(
+            {
+                stage
+                for stage in (record.tags.get("stage", "") for record in window_records)
+                if stage
+            }
+        )
+        report_rows.append(
+            {
+                "window_start": window_start,
+                "window_end": window_end,
+                "run_ids": run_ids,
+                "stages": stages,
+                "record_count": len(window_records),
+                "metrics": aggregate_metric_window(window_records),
+            }
+        )
+    return report_rows
+
+
+def write_baseline_report_artifacts(
+    output_dir: Path, records: list[TelemetryRecord]
+) -> dict[str, Path]:
+    """Persist per-window baseline SLA report artifacts as JSON and CSV."""
+    report_rows = build_windowed_baseline_report(records)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    json_path = output_dir / "sla_baseline_report.json"
+    json_path.write_text(json.dumps(report_rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    csv_path = output_dir / "sla_baseline_report.csv"
+    fieldnames = [
+        "window_start",
+        "window_end",
+        "run_ids",
+        "stages",
+        "metric",
+        "count",
+        "min",
+        "max",
+        "avg",
+    ]
+    with csv_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for report_row in report_rows:
+            metric_rows = report_row["metrics"]
+            if not isinstance(metric_rows, dict):
+                continue
+            for metric_name in sorted(metric_rows.keys()):
+                stats = metric_rows[metric_name]
+                writer.writerow(
+                    {
+                        "window_start": report_row["window_start"],
+                        "window_end": report_row["window_end"],
+                        "run_ids": json.dumps(report_row["run_ids"], sort_keys=True),
+                        "stages": json.dumps(report_row["stages"], sort_keys=True),
+                        "metric": metric_name,
+                        "count": stats["count"],
+                        "min": stats["min"],
+                        "max": stats["max"],
+                        "avg": stats["avg"],
+                    }
+                )
+
+    return {"json": json_path, "csv": csv_path}
