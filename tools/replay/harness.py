@@ -1,4 +1,9 @@
-"""Replay harness utilities for golden-corpus regression detection."""
+"""Replay harness utilities for golden-corpus regression detection.
+
+Snapshot versioning uses two layers:
+- ``schema_version`` controls the JSON envelope shape for compatibility checks.
+- ``baseline_version`` controls baseline semantics expected by diff tooling.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +14,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, TypedDict
 
+REPLAY_BASELINE_ARTIFACT_TYPE = "pension_replay_baseline"
+SUPPORTED_ARTIFACT_SCHEMA_VERSION = 1
 SUPPORTED_BASELINE_VERSION = "v1"
 
 
@@ -55,7 +62,10 @@ class SnapshotDocument(TypedDict):
 class ReplaySnapshot(TypedDict):
     """Replay snapshot for baselining and regression checks."""
 
+    artifact_type: str
+    schema_version: int
     baseline_version: str
+    parser_id: str
     generated_at: str
     documents: list[SnapshotDocument]
 
@@ -115,6 +125,7 @@ def build_snapshot(
     replay_results: list[ReplayResult],
     *,
     baseline_version: str = SUPPORTED_BASELINE_VERSION,
+    parser_id: str = "unknown",
     generated_at: datetime | None = None,
 ) -> ReplaySnapshot:
     """Build JSON-friendly replay snapshot from run output."""
@@ -132,7 +143,10 @@ def build_snapshot(
             }
         )
     return {
+        "artifact_type": REPLAY_BASELINE_ARTIFACT_TYPE,
+        "schema_version": SUPPORTED_ARTIFACT_SCHEMA_VERSION,
         "baseline_version": baseline_version,
+        "parser_id": parser_id,
         "generated_at": timestamp,
         "documents": documents,
     }
@@ -169,11 +183,29 @@ def _validate_field_payload(payload: object, *, location: str) -> FieldPayload:
 def _validate_snapshot(payload: object) -> ReplaySnapshot:
     if not isinstance(payload, dict):
         raise ValueError("snapshot payload must be a JSON object")
+
+    if payload.get("artifact_type") != REPLAY_BASELINE_ARTIFACT_TYPE:
+        raise ValueError(
+            "snapshot artifact_type must equal "
+            f"'{REPLAY_BASELINE_ARTIFACT_TYPE}' for this replay harness"
+        )
+
+    schema_version = payload.get("schema_version")
+    if schema_version != SUPPORTED_ARTIFACT_SCHEMA_VERSION:
+        raise ValueError(
+            "snapshot schema_version must equal "
+            f"{SUPPORTED_ARTIFACT_SCHEMA_VERSION} for this replay harness"
+        )
+
     if payload.get("baseline_version") != SUPPORTED_BASELINE_VERSION:
         raise ValueError(
             "snapshot baseline_version must equal "
             f"'{SUPPORTED_BASELINE_VERSION}' for this replay harness"
         )
+
+    parser_id = payload.get("parser_id")
+    if not isinstance(parser_id, str) or not parser_id.strip():
+        raise ValueError("snapshot.parser_id must be a non-empty string")
 
     generated_at = payload.get("generated_at")
     if not isinstance(generated_at, str):
@@ -208,7 +240,10 @@ def _validate_snapshot(payload: object) -> ReplaySnapshot:
         documents.append({"document_id": document_id, "fields": fields})
 
     return {
+        "artifact_type": REPLAY_BASELINE_ARTIFACT_TYPE,
+        "schema_version": SUPPORTED_ARTIFACT_SCHEMA_VERSION,
         "baseline_version": SUPPORTED_BASELINE_VERSION,
+        "parser_id": parser_id,
         "generated_at": generated_at,
         "documents": documents,
     }

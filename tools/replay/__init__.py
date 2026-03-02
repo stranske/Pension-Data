@@ -1,6 +1,8 @@
 """Replay harness for golden-corpus regression checks."""
 
 from tools.replay.harness import (
+    REPLAY_BASELINE_ARTIFACT_TYPE,
+    SUPPORTED_ARTIFACT_SCHEMA_VERSION,
     SUPPORTED_BASELINE_VERSION,
     CorpusDocument,
     DiffReport,
@@ -17,6 +19,8 @@ from tools.replay.harness import (
 from tools.replay.runner import load_corpus, load_parser, run
 
 __all__ = [
+    "REPLAY_BASELINE_ARTIFACT_TYPE",
+    "SUPPORTED_ARTIFACT_SCHEMA_VERSION",
     "SUPPORTED_BASELINE_VERSION",
     "CorpusDocument",
     "DiffReport",

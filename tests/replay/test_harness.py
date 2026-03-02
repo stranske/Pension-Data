@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 from tools.replay.harness import (
+    REPLAY_BASELINE_ARTIFACT_TYPE,
+    SUPPORTED_ARTIFACT_SCHEMA_VERSION,
     SUPPORTED_BASELINE_VERSION,
     CorpusDocument,
     FieldExtraction,
@@ -63,6 +65,20 @@ def test_snapshot_write_requires_explicit_overwrite(tmp_path: Path) -> None:
     write_snapshot(output_path, snapshot, overwrite=True)
     loaded = load_snapshot(output_path)
     assert loaded == snapshot
+
+
+def test_snapshot_includes_versioned_artifact_metadata() -> None:
+    replay_results = run_replay([CorpusDocument(document_id="doc-a", content="alpha")], _parser)
+    snapshot = build_snapshot(
+        replay_results,
+        parser_id="tests.replay.fixtures_parser:parser",
+        generated_at=datetime(2026, 3, 2, 0, 0, tzinfo=UTC),
+    )
+
+    assert snapshot["artifact_type"] == REPLAY_BASELINE_ARTIFACT_TYPE
+    assert snapshot["schema_version"] == SUPPORTED_ARTIFACT_SCHEMA_VERSION
+    assert snapshot["baseline_version"] == SUPPORTED_BASELINE_VERSION
+    assert snapshot["parser_id"] == "tests.replay.fixtures_parser:parser"
 
 
 def test_diff_classifies_expected_and_unexpected_drift() -> None:
@@ -134,16 +150,23 @@ def test_load_snapshot_rejects_duplicate_document_ids(tmp_path: Path) -> None:
     snapshot_path.write_text(
         json.dumps(
             {
+                "artifact_type": REPLAY_BASELINE_ARTIFACT_TYPE,
+                "schema_version": SUPPORTED_ARTIFACT_SCHEMA_VERSION,
                 "baseline_version": SUPPORTED_BASELINE_VERSION,
+                "parser_id": "tests.replay.fixtures_parser:parser",
                 "generated_at": "2026-03-02T00:00:00+00:00",
                 "documents": [
                     {
                         "document_id": "doc-a",
-                        "fields": {"funded_ratio": {"value": 0.8, "confidence": 0.95, "evidence": "p1"}},
+                        "fields": {
+                            "funded_ratio": {"value": 0.8, "confidence": 0.95, "evidence": "p1"}
+                        },
                     },
                     {
                         "document_id": "doc-a",
-                        "fields": {"funded_ratio": {"value": 0.79, "confidence": 0.95, "evidence": "p2"}},
+                        "fields": {
+                            "funded_ratio": {"value": 0.79, "confidence": 0.95, "evidence": "p2"}
+                        },
                     },
                 ],
             }
@@ -152,4 +175,24 @@ def test_load_snapshot_rejects_duplicate_document_ids(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="duplicate document_id"):
+        load_snapshot(snapshot_path)
+
+
+def test_load_snapshot_rejects_unsupported_schema_version(tmp_path: Path) -> None:
+    snapshot_path = tmp_path / "schema_v2.json"
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                "artifact_type": REPLAY_BASELINE_ARTIFACT_TYPE,
+                "schema_version": 2,
+                "baseline_version": SUPPORTED_BASELINE_VERSION,
+                "parser_id": "tests.replay.fixtures_parser:parser",
+                "generated_at": "2026-03-02T00:00:00+00:00",
+                "documents": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="schema_version"):
         load_snapshot(snapshot_path)

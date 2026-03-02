@@ -67,6 +67,10 @@ def test_runner_generates_deterministic_snapshot_for_corpus_order(tmp_path: Path
     first_payload = json.loads(first_snapshot.read_text(encoding="utf-8"))
     second_payload = json.loads(second_snapshot.read_text(encoding="utf-8"))
     assert first_payload == second_payload
+    assert first_payload["artifact_type"] == "pension_replay_baseline"
+    assert first_payload["schema_version"] == 1
+    assert first_payload["baseline_version"] == "v1"
+    assert first_payload["parser_id"] == parser_path
     assert [row["document_id"] for row in first_payload["documents"]] == ["doc-a", "doc-b"]
 
 

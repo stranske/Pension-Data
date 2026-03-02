@@ -158,7 +158,7 @@ def run(argv: list[str] | None = None) -> int:
         replay_parser = load_parser(args.parser)
         generated_at = _parse_iso_datetime(args.generated_at) if args.generated_at else None
         replay_results = run_replay(corpus, replay_parser)
-        snapshot = build_snapshot(replay_results, generated_at=generated_at)
+        snapshot = build_snapshot(replay_results, parser_id=args.parser, generated_at=generated_at)
         write_snapshot(args.snapshot_out, snapshot, overwrite=args.overwrite)
     except (
         FileExistsError,
