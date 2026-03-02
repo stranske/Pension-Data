@@ -78,6 +78,7 @@ class AnomalyRecord:
     period: str
     metric: str
     shift: float
+    score: float
     severity: Severity
     confidence: float
     priority: Priority
@@ -102,6 +103,30 @@ def _priority_for_anomaly(
     if severity == "critical":
         return "high" if confidence >= thresholds.min_confidence_for_medium_priority else "medium"
     return "medium" if confidence >= thresholds.min_confidence_for_medium_priority else "low"
+
+
+def _score_anomaly(
+    *,
+    shift: float,
+    confidence: float,
+    warning: float,
+    critical: float,
+) -> float:
+    """Return a bounded risk score for deterministic ranking and triage."""
+    if critical == warning:
+        threshold_span = 1.0
+    else:
+        threshold_span = max(critical - warning, 1e-9)
+
+    if shift < warning:
+        normalized_shift = 0.0
+    elif shift >= critical:
+        normalized_shift = 1.0 + ((shift - critical) / threshold_span)
+    else:
+        normalized_shift = (shift - warning) / threshold_span
+
+    capped_confidence = max(0.0, min(1.0, confidence))
+    return round(normalized_shift * (0.5 + 0.5 * capped_confidence), 6)
 
 
 def _build_evidence_context(
@@ -142,6 +167,12 @@ def _detect_funded_shift(
         confidence=confidence,
         thresholds=thresholds,
     )
+    score = _score_anomaly(
+        shift=shift,
+        confidence=confidence,
+        warning=thresholds.funded_shift_warning,
+        critical=thresholds.funded_shift_critical,
+    )
     evidence_context = _build_evidence_context(previous=previous, current=current)
     return [
         AnomalyRecord(
@@ -150,6 +181,7 @@ def _detect_funded_shift(
             period=current.period,
             metric="funded_ratio",
             shift=shift,
+            score=score,
             severity=severity,
             confidence=confidence,
             priority=priority,
@@ -186,6 +218,12 @@ def _detect_allocation_shifts(
             confidence=confidence,
             thresholds=thresholds,
         )
+        score = _score_anomaly(
+            shift=shift,
+            confidence=confidence,
+            warning=thresholds.allocation_shift_warning,
+            critical=thresholds.allocation_shift_critical,
+        )
         evidence_context = _build_evidence_context(previous=previous, current=current)
         anomalies.append(
             AnomalyRecord(
@@ -196,6 +234,7 @@ def _detect_allocation_shifts(
                 period=current.period,
                 metric=f"allocation:{asset_class}",
                 shift=shift,
+                score=score,
                 severity=severity,
                 confidence=confidence,
                 priority=priority,
@@ -239,5 +278,5 @@ def detect_anomalies(
 
     return sorted(
         anomalies,
-        key=lambda row: (row.plan_id, row.period, row.metric, row.severity, row.anomaly_id),
+        key=lambda row: (row.plan_id, row.period, -row.score, row.metric, row.anomaly_id),
     )

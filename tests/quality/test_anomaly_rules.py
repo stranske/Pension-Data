@@ -63,6 +63,7 @@ def test_material_funded_shift_is_flagged_with_evidence_context() -> None:
     assert len(funded) == 1
     assert funded[0].severity == "critical"
     assert funded[0].priority == "high"
+    assert funded[0].score > 1.0
     assert funded[0].evidence_context["previous_period"] == "2024"
     assert funded[0].evidence_context["current_period"] == "2025"
 
@@ -121,6 +122,7 @@ def test_low_confidence_anomaly_is_annotated_with_lower_priority() -> None:
     assert len(funded) == 1
     assert funded[0].severity == "critical"
     assert funded[0].priority == "medium"
+    assert funded[0].score > 0.0
 
 
 def test_allocation_shift_thresholds_and_review_queue_routing() -> None:
@@ -159,6 +161,34 @@ def test_allocation_shift_thresholds_and_review_queue_routing() -> None:
     assert queue_items[0].priority in {"high", "medium"}
     assert "shift" in queue_items[0].reason
     assert queue_items[0].created_at == datetime(2026, 1, 2, 0, 0, tzinfo=UTC)
+
+
+def test_higher_shift_gets_higher_score_and_sorts_first_within_period() -> None:
+    points = [
+        _point(
+            plan_id="or-pension",
+            period="2024",
+            observed_at=datetime(2025, 1, 1, tzinfo=UTC),
+            funded_ratio=0.88,
+            equity=0.40,
+            fixed_income=0.50,
+            confidence=0.90,
+        ),
+        _point(
+            plan_id="or-pension",
+            period="2025",
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+            funded_ratio=0.72,
+            equity=0.58,
+            fixed_income=0.32,
+            confidence=0.90,
+        ),
+    ]
+
+    anomalies = detect_anomalies(points)
+    assert anomalies
+    assert anomalies[0].score >= anomalies[1].score
+    assert anomalies[0].period == anomalies[1].period == "2025"
 
 
 def test_anomaly_thresholds_reject_out_of_range_values() -> None:
