@@ -111,9 +111,16 @@ def _safe_ratio(numerator: float, denominator: float) -> float:
     return numerator / denominator
 
 
+def _to_utc_or_error(value: datetime, *, field_name: str) -> datetime:
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        msg = f"{field_name} must be a timezone-aware datetime"
+        raise ValueError(msg)
+    return value.astimezone(UTC)
+
+
 def _hours_between(started_at: datetime, published_at: datetime) -> float:
-    started = started_at.astimezone(UTC)
-    published = published_at.astimezone(UTC)
+    started = _to_utc_or_error(started_at, field_name="run_started_at")
+    published = _to_utc_or_error(published_at, field_name="source_published_at")
     hours = (started - published).total_seconds() / 3600
     return max(hours, 0.0)
 

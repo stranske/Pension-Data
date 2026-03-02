@@ -37,7 +37,7 @@ def emit_sla_telemetry(
                 metric=metric,
                 value=float(metrics[metric]),
                 observed_at=observed_utc,
-                tags=base_tags,
+                tags=dict(base_tags),
             )
         )
     return records

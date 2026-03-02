@@ -6,6 +6,8 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from pension_data.monitoring.telemetry import (
     aggregate_metric_window,
     emit_extraction_sla_telemetry,
@@ -130,6 +132,39 @@ def test_emit_telemetry_and_build_baseline_report(tmp_path: Path) -> None:
     summary = aggregate_metric_window(records)
     assert summary["completeness_rate"]["avg"] == 0.95
     assert summary["parse_warning_rate"]["max"] == 0.05
+
+
+def test_emit_sla_telemetry_uses_distinct_tag_dict_per_record() -> None:
+    observed_at = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)
+    records = emit_sla_telemetry(
+        {"completeness_rate": 0.95, "parse_warning_rate": 0.05},
+        observed_at=observed_at,
+        tags={"cohort": "state"},
+    )
+    records[0].tags["cohort"] = "mutated"
+    assert records[1].tags["cohort"] == "state"
+
+
+def test_compute_sla_metrics_rejects_naive_datetimes() -> None:
+    snapshot = RunQualitySnapshot(
+        records_total=10,
+        records_complete=9,
+        source_published_at=datetime(2026, 3, 1, 0, 0),
+        run_started_at=datetime(2026, 3, 2, 0, 0, tzinfo=UTC),
+        review_queue_items=1,
+        review_queue_wait_hours_sum=1.0,
+        parse_warning_count=1,
+        source_mismatch_count=1,
+        unresolved_official_source_count=1,
+        total_pages=10,
+        cited_facts=5,
+        manager_disclosure_total=5,
+        manager_disclosure_covered=4,
+        consultant_disclosure_total=5,
+        consultant_disclosure_covered=4,
+    )
+    with pytest.raises(ValueError, match="source_published_at"):
+        compute_sla_metrics(snapshot)
 
 
 def test_stage_emitters_filter_metrics_and_apply_stage_tag() -> None:
