@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from tools.ci_quality.sla_gate import (
     build_report,
     evaluate_sla,
@@ -118,3 +120,33 @@ def test_sla_gate_tracks_noncritical_breach_summaries(tmp_path: Path) -> None:
     assert report["failed_critical_metrics"] == []
     assert report["failed_noncritical_metrics"] == ["review_queue_latency_hours"]
     assert report["reason_counts"] == {"threshold_breach": 1}
+
+
+@pytest.mark.parametrize(
+    "payload", [{"completeness_rate": True}, {"completeness_rate": float("nan")}]
+)
+def test_load_metrics_rejects_bool_and_nonfinite_values(
+    tmp_path: Path, payload: dict[str, object]
+) -> None:
+    metrics_path = tmp_path / "metrics.json"
+    _write_json(metrics_path, payload)
+
+    with pytest.raises(ValueError, match="must be a finite numeric value"):
+        load_metrics(metrics_path)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"completeness_rate": {"op": ">=", "value": False, "critical": True}},
+        {"completeness_rate": {"op": ">=", "value": float("inf"), "critical": True}},
+    ],
+)
+def test_load_thresholds_rejects_bool_and_nonfinite_values(
+    tmp_path: Path, payload: dict[str, object]
+) -> None:
+    thresholds_path = tmp_path / "thresholds.json"
+    _write_json(thresholds_path, payload)
+
+    with pytest.raises(ValueError, match="must be a finite numeric value"):
+        load_thresholds(thresholds_path)

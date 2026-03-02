@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Literal, TypedDict
 
@@ -41,6 +42,16 @@ class SLAGateReport(TypedDict):
     breaches: list[Breach]
 
 
+def _require_finite_number(value: object, *, error_message: str) -> float:
+    """Validate value is a finite number and reject bools explicitly."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(error_message)
+    numeric_value = float(value)
+    if not math.isfinite(numeric_value):
+        raise ValueError(error_message)
+    return numeric_value
+
+
 def load_metrics(metrics_path: Path) -> dict[str, float]:
     """Load numeric SLA metrics map."""
     payload = json.loads(metrics_path.read_text(encoding="utf-8"))
@@ -50,9 +61,9 @@ def load_metrics(metrics_path: Path) -> dict[str, float]:
     for key, value in payload.items():
         if not isinstance(key, str):
             raise ValueError("metric name must be a string")
-        if not isinstance(value, (int, float)):
-            raise ValueError(f"metric '{key}' must be numeric")
-        metrics[key] = float(value)
+        metrics[key] = _require_finite_number(
+            value, error_message=f"metric '{key}' must be a finite numeric value"
+        )
     return metrics
 
 
@@ -72,13 +83,14 @@ def load_thresholds(thresholds_path: Path) -> dict[str, ThresholdRule]:
         critical = raw_rule.get("critical", True)
         if op not in {">=", "<=", ">", "<", "=="}:
             raise ValueError(f"threshold op for '{metric}' must be one of >= <= > < ==")
-        if not isinstance(value, (int, float)):
-            raise ValueError(f"threshold value for '{metric}' must be numeric")
+        threshold_value = _require_finite_number(
+            value, error_message=f"threshold value for '{metric}' must be a finite numeric value"
+        )
         if not isinstance(critical, bool):
             raise ValueError(f"threshold critical for '{metric}' must be boolean")
         rules[metric] = {
             "op": op,
-            "value": float(value),
+            "value": threshold_value,
             "critical": critical,
         }
     return rules
