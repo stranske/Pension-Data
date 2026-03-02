@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal, Protocol, TypeVar
 
 RelationshipCompleteness = Literal["complete", "partial", "not_disclosed"]
@@ -60,6 +61,19 @@ class _HasBitemporalContext(Protocol):
 
 
 TFact = TypeVar("TFact", bound=_HasBitemporalContext)
+
+
+def _parse_iso_temporal(value: str, *, field_name: str) -> datetime:
+    candidate = value.strip()
+    if not candidate:
+        raise ValueError(f"{field_name} must be a non-empty ISO-8601 date or datetime string")
+    normalized = f"{candidate[:-1]}+00:00" if candidate.endswith("Z") else candidate
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError as exc:  # pragma: no cover - defensive parse guard
+        raise ValueError(
+            f"{field_name} must be an ISO-8601 date or datetime string: {value!r}"
+        ) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,13 +186,24 @@ def query_bitemporal_as_of(
     ingestion_date: str,
 ) -> list[TFact]:
     """Return rows valid at an as-of effective and ingestion timestamp."""
+    as_of_effective = _parse_iso_temporal(effective_date, field_name="effective_date")
+    as_of_ingestion = _parse_iso_temporal(ingestion_date, field_name="ingestion_date")
+
+    eligible_rows: list[TFact] = []
+    for row in facts:
+        row_effective = _parse_iso_temporal(
+            row.context.effective_date,
+            field_name="row.context.effective_date",
+        )
+        row_ingestion = _parse_iso_temporal(
+            row.context.ingestion_date,
+            field_name="row.context.ingestion_date",
+        )
+        if row_effective <= as_of_effective and row_ingestion <= as_of_ingestion:
+            eligible_rows.append(row)
+
     return sorted(
-        [
-            row
-            for row in facts
-            if row.context.effective_date <= effective_date
-            and row.context.ingestion_date <= ingestion_date
-        ],
+        eligible_rows,
         key=lambda row: (
             row.context.plan_id,
             row.context.plan_period,

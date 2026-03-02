@@ -130,4 +130,16 @@ WHERE beginning_aum_normalized IS NOT NULL
   AND employer_contributions_normalized IS NOT NULL
   AND employee_contributions_normalized IS NOT NULL
   AND benefit_payments_normalized IS NOT NULL
-  AND refunds_normalized IS NOT NULL;
+  AND refunds_normalized IS NOT NULL
+  AND beginning_aum_normalized_unit IS NOT NULL
+  AND ending_aum_normalized_unit IS NOT NULL
+  AND employer_contributions_normalized_unit IS NOT NULL
+  AND employee_contributions_normalized_unit IS NOT NULL
+  AND benefit_payments_normalized_unit IS NOT NULL
+  AND refunds_normalized_unit IS NOT NULL
+  AND TRIM(beginning_aum_normalized_unit) <> ''
+  AND TRIM(ending_aum_normalized_unit) <> ''
+  AND TRIM(employer_contributions_normalized_unit) <> ''
+  AND TRIM(employee_contributions_normalized_unit) <> ''
+  AND TRIM(benefit_payments_normalized_unit) <> ''
+  AND TRIM(refunds_normalized_unit) <> '';
