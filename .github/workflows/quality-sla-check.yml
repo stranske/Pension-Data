@@ -1,0 +1,51 @@
+name: Quality SLA Gate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      metrics_path:
+        description: Optional path to SLA metrics JSON
+        required: false
+        type: string
+      thresholds_path:
+        description: Optional path to SLA thresholds JSON
+        required: false
+        type: string
+
+jobs:
+  sla-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run SLA quality gate
+        env:
+          METRICS_PATH: ${{ github.event.inputs.metrics_path }}
+          THRESHOLDS_PATH: ${{ github.event.inputs.thresholds_path }}
+        run: |
+          set -euo pipefail
+          python tools/ci_quality/sla_gate.py \
+            --metrics "${METRICS_PATH:-tools/ci_quality/fixtures/sla_metrics_ok.json}" \
+            --thresholds "${THRESHOLDS_PATH:-tools/ci_quality/fixtures/sla_thresholds.json}" \
+            --report-out artifacts/ci_quality/sla_gate_report.json
+
+      - name: Upload SLA gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sla-quality-report
+          path: artifacts/ci_quality/sla_gate_report.json
+          if-no-files-found: warn

@@ -1,0 +1,22 @@
+{
+  "completeness_rate": {
+    "op": ">=",
+    "value": 0.95,
+    "critical": true
+  },
+  "freshness_lag_hours": {
+    "op": "<=",
+    "value": 12.0,
+    "critical": true
+  },
+  "review_queue_latency_hours": {
+    "op": "<=",
+    "value": 12.0,
+    "critical": true
+  },
+  "parse_warning_rate": {
+    "op": "<=",
+    "value": 0.08,
+    "critical": false
+  }
+}

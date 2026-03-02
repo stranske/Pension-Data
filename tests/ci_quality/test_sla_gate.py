@@ -1,0 +1,77 @@
+"""Tests for SLA threshold CI quality gate."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from tools.ci_quality.sla_gate import (
+    build_report,
+    evaluate_sla,
+    load_metrics,
+    load_thresholds,
+    run_gate,
+)
+
+
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_sla_gate_passes_when_all_critical_thresholds_hold(tmp_path: Path) -> None:
+    metrics_path = tmp_path / "metrics.json"
+    thresholds_path = tmp_path / "thresholds.json"
+    report_path = tmp_path / "report.json"
+    _write_json(
+        metrics_path,
+        {
+            "completeness_rate": 0.98,
+            "freshness_lag_hours": 8.0,
+            "review_queue_latency_hours": 6.0,
+        },
+    )
+    _write_json(
+        thresholds_path,
+        {
+            "completeness_rate": {"op": ">=", "value": 0.95, "critical": True},
+            "freshness_lag_hours": {"op": "<=", "value": 12.0, "critical": True},
+            "review_queue_latency_hours": {"op": "<=", "value": 12.0, "critical": False},
+        },
+    )
+
+    assert run_gate(metrics_path=metrics_path, thresholds_path=thresholds_path, report_path=report_path)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "pass"
+    assert report["critical_breach_count"] == 0
+
+
+def test_sla_gate_fails_on_missing_or_breached_critical_metrics(tmp_path: Path) -> None:
+    metrics_path = tmp_path / "metrics.json"
+    thresholds_path = tmp_path / "thresholds.json"
+    _write_json(
+        metrics_path,
+        {
+            "completeness_rate": 0.80,
+            "freshness_lag_hours": 18.0,
+        },
+    )
+    _write_json(
+        thresholds_path,
+        {
+            "completeness_rate": {"op": ">=", "value": 0.95, "critical": True},
+            "freshness_lag_hours": {"op": "<=", "value": 12.0, "critical": True},
+            "review_queue_latency_hours": {"op": "<=", "value": 12.0, "critical": True},
+        },
+    )
+
+    metrics = load_metrics(metrics_path)
+    thresholds = load_thresholds(thresholds_path)
+    breaches = evaluate_sla(metrics, thresholds)
+    report = build_report(breaches)
+
+    assert report["status"] == "fail"
+    assert report["critical_breach_count"] == 3
+    assert {breach["reason"] for breach in report["breaches"]} == {
+        "threshold_breach",
+        "missing_metric",
+    }

@@ -1,0 +1,6 @@
+{
+  "completeness_rate": 0.97,
+  "freshness_lag_hours": 10.0,
+  "review_queue_latency_hours": 7.0,
+  "parse_warning_rate": 0.02
+}

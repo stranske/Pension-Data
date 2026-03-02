@@ -1,0 +1,52 @@
+name: Quality Replay Gate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      diff_path:
+        description: Optional path to replay diff JSON
+        required: false
+        type: string
+      max_unexpected:
+        description: Maximum allowed unexpected drift count
+        required: false
+        default: "0"
+        type: string
+
+jobs:
+  replay-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run replay quality gate
+        env:
+          DIFF_PATH: ${{ github.event.inputs.diff_path }}
+          MAX_UNEXPECTED: ${{ github.event.inputs.max_unexpected }}
+        run: |
+          set -euo pipefail
+          python tools/ci_quality/replay_gate.py \
+            --diff "${DIFF_PATH:-tools/ci_quality/fixtures/replay_diff_clean.json}" \
+            --max-unexpected "${MAX_UNEXPECTED:-0}" \
+            --report-out artifacts/ci_quality/replay_gate_report.json
+
+      - name: Upload replay gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: replay-quality-report
+          path: artifacts/ci_quality/replay_gate_report.json
+          if-no-files-found: warn
