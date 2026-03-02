@@ -24,27 +24,20 @@ def load_replay_diff(diff_path: Path) -> tuple[int, int]:
     """Load replay diff and return total and unexpected change counts."""
     payload = load_replay_payload(diff_path)
 
-    if "unexpected_changes" in payload:
-        unexpected = payload["unexpected_changes"]
-        if not isinstance(unexpected, int):
-            raise ValueError("replay diff unexpected_changes must be an integer")
-    else:
-        changes = payload.get("changes", [])
-        if not isinstance(changes, list):
-            raise ValueError("replay diff changes must be a list")
-        unexpected = 0
-        for item in changes:
-            if not isinstance(item, dict):
-                continue
-            if item.get("classification") == "unexpected_drift":
-                unexpected += 1
+    declared_unexpected = payload.get("unexpected_changes")
+    if declared_unexpected is not None and not isinstance(declared_unexpected, int):
+        raise ValueError("replay diff unexpected_changes must be an integer")
+
+    computed_total, computed_unexpected = _compute_counts_from_changes(payload)
+
+    unexpected = (
+        declared_unexpected if isinstance(declared_unexpected, int) else computed_unexpected
+    )
 
     total = payload.get("total_changes")
-    if isinstance(total, int):
-        total_changes = total
-    else:
-        changes = payload.get("changes", [])
-        total_changes = len(changes) if isinstance(changes, list) else unexpected
+    if total is not None and not isinstance(total, int):
+        raise ValueError("replay diff total_changes must be an integer")
+    total_changes = total if isinstance(total, int) else computed_total
     return total_changes, unexpected
 
 
@@ -63,6 +56,34 @@ def _extract_changes(payload: dict[str, object]) -> list[dict[str, object]]:
     if not isinstance(raw_changes, list):
         raise ValueError("replay diff changes must be a list")
     return [item for item in raw_changes if isinstance(item, dict)]
+
+
+def _compute_counts_from_changes(payload: dict[str, object]) -> tuple[int, int]:
+    changes = _extract_changes(payload)
+    unexpected = sum(1 for item in changes if item.get("classification") == "unexpected_drift")
+    return len(changes), unexpected
+
+
+def validate_summary_consistency(payload: dict[str, object]) -> list[str]:
+    """Validate summary fields against detailed replay changes."""
+    violations: list[str] = []
+    computed_total, computed_unexpected = _compute_counts_from_changes(payload)
+
+    declared_total = payload.get("total_changes")
+    if isinstance(declared_total, int) and declared_total != computed_total:
+        violations.append(
+            "replay diff total_changes does not match number of detailed changes: "
+            f"{declared_total} != {computed_total}"
+        )
+
+    declared_unexpected = payload.get("unexpected_changes")
+    if isinstance(declared_unexpected, int) and declared_unexpected != computed_unexpected:
+        violations.append(
+            "replay diff unexpected_changes does not match unexpected_drift entries: "
+            f"{declared_unexpected} != {computed_unexpected}"
+        )
+
+    return violations
 
 
 def summarize_replay_changes(payload: dict[str, object]) -> dict[str, int]:
@@ -124,12 +145,16 @@ def write_report(report_path: Path, report: ReplayGateReport) -> None:
 
 def run_gate(*, diff_path: Path, max_unexpected: int, report_path: Path | None = None) -> bool:
     """Run replay quality gate and optionally emit artifact report."""
+    if max_unexpected < 0:
+        raise ValueError("max_unexpected must be >= 0")
+
     payload = load_replay_payload(diff_path)
     total_changes, unexpected_changes = load_replay_diff(diff_path)
     violations = evaluate_replay_diff(
         unexpected_changes=unexpected_changes,
         max_unexpected=max_unexpected,
     )
+    violations.extend(validate_summary_consistency(payload))
     report = build_report(
         total_changes=total_changes,
         unexpected_changes=unexpected_changes,
