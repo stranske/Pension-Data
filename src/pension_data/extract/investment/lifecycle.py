@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from pension_data.db.models.investment_positions import PlanManagerFundPosition
@@ -31,6 +32,13 @@ def _normalize_token(value: str | None) -> str:
     if value is None:
         return ""
     return " ".join(value.strip().lower().split())
+
+
+def _plan_period_sort_key(plan_period: str) -> tuple[int, str]:
+    normalized = plan_period.strip().upper()
+    year_match = re.search(r"(19|20)\d{2}", normalized)
+    parsed_year = int(year_match.group(0)) if year_match else -1
+    return parsed_year, normalized
 
 
 def _merge_evidence_refs(*refs: tuple[str, ...]) -> tuple[str, ...]:
@@ -72,7 +80,12 @@ def _event_key(event: ManagerLifecycleEvent) -> tuple[str, str, str, str]:
 def _should_include_for_inference(position: PlanManagerFundPosition) -> bool:
     if position.known_not_invested:
         return False
-    return position.is_disclosed
+    if not position.is_disclosed:
+        return False
+
+    manager_token = _normalize_token(position.manager_name)
+    fund_token = _normalize_token(position.fund_name)
+    return bool(manager_token or fund_token)
 
 
 def _warning_for_non_disclosure(position: PlanManagerFundPosition) -> ExtractionWarning:
@@ -98,7 +111,7 @@ def infer_lifecycle_events(
         previous_positions,
         key=lambda row: (
             row.plan_id,
-            row.plan_period,
+            _plan_period_sort_key(row.plan_period),
             _normalize_token(row.manager_name),
             _normalize_token(row.fund_name),
         ),
@@ -107,7 +120,7 @@ def infer_lifecycle_events(
         current_positions,
         key=lambda row: (
             row.plan_id,
-            row.plan_period,
+            _plan_period_sort_key(row.plan_period),
             _normalize_token(row.manager_name),
             _normalize_token(row.fund_name),
         ),
@@ -131,7 +144,9 @@ def infer_lifecycle_events(
     current_period_by_plan: dict[str, str] = {}
     for position in current_ordered:
         prior_period = current_period_by_plan.get(position.plan_id)
-        if prior_period is None or position.plan_period > prior_period:
+        if prior_period is None or _plan_period_sort_key(position.plan_period) > _plan_period_sort_key(
+            prior_period
+        ):
             current_period_by_plan[position.plan_id] = position.plan_period
 
     events_by_key: dict[tuple[str, str, str, str], ManagerLifecycleEvent] = {}
@@ -184,7 +199,7 @@ def infer_lifecycle_events(
         explicit_signals,
         key=lambda row: (
             row.plan_id,
-            row.plan_period,
+            _plan_period_sort_key(row.plan_period),
             _normalize_token(row.manager_name),
             _normalize_token(row.fund_name),
             row.event_type,
@@ -206,7 +221,7 @@ def infer_lifecycle_events(
         events_by_key.values(),
         key=lambda row: (
             row.plan_id,
-            row.plan_period,
+            _plan_period_sort_key(row.plan_period),
             _normalize_token(row.manager_name),
             _normalize_token(row.fund_name),
             row.event_type,
@@ -216,7 +231,7 @@ def infer_lifecycle_events(
         warnings,
         key=lambda row: (
             row.plan_id,
-            row.plan_period,
+            _plan_period_sort_key(row.plan_period),
             _normalize_token(row.manager_name),
             _normalize_token(row.fund_name),
             row.code,

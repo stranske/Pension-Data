@@ -201,3 +201,63 @@ def test_lifecycle_output_is_reproducible_on_rerun() -> None:
 
     assert first_events == second_events
     assert first_warnings == second_warnings
+
+
+def test_exit_inference_uses_latest_period_with_mixed_period_formats() -> None:
+    previous_positions, _ = build_manager_fund_positions(
+        [
+            ManagerFundDisclosureInput(
+                plan_id="plan-mix",
+                plan_period="FY2024",
+                manager_name="Legacy Manager",
+                fund_name="Legacy Fund",
+                commitment=20.0,
+                unfunded=3.0,
+                market_value=15.0,
+                confidence=0.82,
+                evidence_refs=("p1",),
+            )
+        ]
+    )
+    current_positions, _ = build_manager_fund_positions(
+        [
+            ManagerFundDisclosureInput(
+                plan_id="plan-mix",
+                plan_period="2025",
+                manager_name="Current Manager",
+                fund_name="Current Fund",
+                commitment=25.0,
+                unfunded=2.0,
+                market_value=19.0,
+                confidence=0.9,
+                evidence_refs=("p2",),
+            )
+        ]
+    )
+
+    events, _ = infer_lifecycle_events(previous_positions, current_positions)
+    exited = [event for event in events if event.event_type == "exited"]
+    assert exited
+    assert exited[0].plan_period == "2025"
+
+
+def test_partial_rows_with_blank_identifiers_are_not_used_for_lifecycle_events() -> None:
+    current_positions, _ = build_manager_fund_positions(
+        [
+            ManagerFundDisclosureInput(
+                plan_id="plan-blank",
+                plan_period="2025",
+                manager_name="",
+                fund_name="",
+                commitment=10.0,
+                unfunded=None,
+                market_value=None,
+                confidence=0.8,
+                evidence_refs=("p3",),
+            )
+        ]
+    )
+
+    events, warnings = infer_lifecycle_events([], current_positions)
+    assert events == []
+    assert warnings == []
