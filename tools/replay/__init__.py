@@ -16,6 +16,7 @@ from tools.replay.harness import (
     run_replay,
     write_snapshot,
 )
+from tools.replay.diff_runner import run as run_diff
 from tools.replay.runner import load_corpus, load_parser, run
 
 __all__ = [
@@ -33,6 +34,7 @@ __all__ = [
     "load_snapshot",
     "load_corpus",
     "load_parser",
+    "run_diff",
     "run_replay",
     "run",
     "write_snapshot",

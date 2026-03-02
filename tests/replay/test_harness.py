@@ -129,6 +129,7 @@ def test_diff_classifies_expected_and_unexpected_drift() -> None:
     )
 
     assert report["total_changes"] == 2
+    assert report["expected_changes"] == 1
     assert report["unexpected_changes"] == 1
     assert {change["classification"] for change in report["changes"]} == {
         "expected_change",
@@ -161,6 +162,8 @@ def test_diff_reports_field_presence_changes() -> None:
 
     report = diff_snapshots(baseline=baseline, current=current)
     assert report["total_changes"] == 1
+    assert report["expected_changes"] == 0
+    assert report["unexpected_changes"] == 1
     change = report["changes"][0]
     assert change["attribute"] == "field_presence"
     assert change["field"] == "manager_count"

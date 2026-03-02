@@ -85,6 +85,7 @@ class DiffReport(TypedDict):
     """Structured replay diff report."""
 
     total_changes: int
+    expected_changes: int
     unexpected_changes: int
     changes: list[FieldDiff]
 
@@ -131,8 +132,7 @@ def build_snapshot(
     """Build JSON-friendly replay snapshot from run output."""
     if baseline_version != SUPPORTED_BASELINE_VERSION:
         raise ValueError(
-            "baseline_version must be "
-            f"'{SUPPORTED_BASELINE_VERSION}' for this replay harness"
+            "baseline_version must be " f"'{SUPPORTED_BASELINE_VERSION}' for this replay harness"
         )
     timestamp = (generated_at or datetime.now(UTC)).astimezone(UTC).isoformat()
     ordered_results = sorted(replay_results, key=lambda item: item.document_id)
@@ -322,9 +322,11 @@ def diff_snapshots(
                         }
                     )
 
+    expected_changes = sum(1 for item in changes if item["classification"] == "expected_change")
     unexpected_changes = sum(1 for item in changes if item["classification"] == "unexpected_drift")
     return {
         "total_changes": len(changes),
+        "expected_changes": expected_changes,
         "unexpected_changes": unexpected_changes,
         "changes": changes,
     }
