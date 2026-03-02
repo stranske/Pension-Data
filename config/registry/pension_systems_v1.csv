@@ -1,0 +1,7 @@
+stable_id,legal_name,short_name,system_type,jurisdiction,jurisdiction_type,in_state_employee_universe,in_sampled_50
+ps-ca-calpers,California Public Employees' Retirement System,CalPERS,public-pension,California,state,true,true
+ps-ny-nyscrf,New York State and Local Retirement System,NYSLRS,public-pension,New York,state,true,true
+ps-tx-ers,Employees Retirement System of Texas,ERS Texas,public-pension,Texas,state,true,true
+ps-il-trs,Teachers' Retirement System of the State of Illinois,Illinois TRS,teacher-pension,Illinois,state,true,true
+ps-co-pera,Colorado Public Employees' Retirement Association,COPERA,public-pension,Colorado,state,true,false
+ps-as-gerf,American Samoa Government Employees Retirement Fund,AS GERF,public-pension,American Samoa,territory,false,false

@@ -1,0 +1,1 @@
+"""Database-facing domain models."""
