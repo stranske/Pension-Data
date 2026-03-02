@@ -21,6 +21,7 @@ def _read(path: Path) -> str:
 
 
 def test_incident_class_index_exists_and_lists_all_classes() -> None:
+    assert INCIDENT_CLASSES_DOC.exists(), "missing incident classes doc: INCIDENT_CLASSES.md"
     text = _read(INCIDENT_CLASSES_DOC)
     for incident_class, runbook in RUNBOOKS.items():
         assert incident_class in text
@@ -40,6 +41,7 @@ def test_runbooks_exist_and_are_nonempty() -> None:
 
 
 def test_pipeline_links_cover_all_incident_classes() -> None:
+    assert PIPELINE_LINKS_DOC.exists(), "missing pipeline runbook links doc: PIPELINE_RUNBOOK_LINKS.md"
     text = _read(PIPELINE_LINKS_DOC)
     for incident_class, filename in RUNBOOKS.items():
         assert incident_class in text
