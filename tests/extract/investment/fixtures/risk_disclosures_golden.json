@@ -1,0 +1,50 @@
+{
+  "with_disclosures": {
+    "plan_id": "CA-PERS",
+    "plan_period": "FY2025",
+    "derivatives_disclosures": [
+      {
+        "usage_type": "interest rate swaps",
+        "policy_limit_value": 200.0,
+        "realized_exposure_value": 120.0,
+        "value_unit": "million_usd",
+        "as_reported_text": "Notional exposure 120 (in millions) against 200 policy cap.",
+        "source_kind": "table",
+        "confidence": 0.91,
+        "evidence_refs": ["p40", "p41"],
+        "source_url": "https://example.org/ca-pers-2025.pdf"
+      },
+      {
+        "usage_type": "overlay futures",
+        "policy_limit_value": null,
+        "realized_exposure_value": 0.14,
+        "value_unit": "ratio",
+        "as_reported_text": "Realized overlay utilization was 14% of NAV.",
+        "source_kind": "narrative",
+        "confidence": 0.77,
+        "evidence_refs": ["p45"],
+        "source_url": "https://example.org/ca-pers-2025.pdf"
+      }
+    ],
+    "securities_lending_disclosures": [
+      {
+        "program_name": "domestic equity lending",
+        "policy_limit_value": 80.0,
+        "realized_exposure_value": 52.0,
+        "collateral_value": 56.0,
+        "value_unit": "million_usd",
+        "as_reported_text": "Lending balance 52 with collateral 56 against 80 policy limit.",
+        "source_kind": "table",
+        "confidence": 0.89,
+        "evidence_refs": ["p48"],
+        "source_url": "https://example.org/ca-pers-2025.pdf"
+      }
+    ]
+  },
+  "without_disclosures": {
+    "plan_id": "TX-ERS",
+    "plan_period": "FY2025",
+    "derivatives_disclosures": [],
+    "securities_lending_disclosures": []
+  }
+}
