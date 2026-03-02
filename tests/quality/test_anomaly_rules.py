@@ -169,7 +169,11 @@ def test_allocation_shift_thresholds_and_review_queue_routing() -> None:
     assert queue_items[0].priority in {"high", "medium"}
     assert "shift" in queue_items[0].reason
     assert queue_items[0].created_at == datetime(2026, 1, 2, 0, 0, tzinfo=UTC)
-    assert queue_items[0].evidence_context["metric_evidence"]["metric"].startswith("allocation:")
+    metric_evidence = queue_items[0].evidence_context["metric_evidence"]
+    assert isinstance(metric_evidence, dict)
+    metric = metric_evidence["metric"]
+    assert isinstance(metric, str)
+    assert metric.startswith("allocation:")
 
 
 def test_higher_shift_gets_higher_score_and_sorts_first_within_period() -> None:

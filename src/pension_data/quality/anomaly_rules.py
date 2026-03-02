@@ -113,10 +113,7 @@ def _score_anomaly(
     critical: float,
 ) -> float:
     """Return a bounded risk score for deterministic ranking and triage."""
-    if critical == warning:
-        threshold_span = 1.0
-    else:
-        threshold_span = max(critical - warning, 1e-9)
+    threshold_span = 1.0 if critical == warning else max(critical - warning, 1e-9)
 
     if shift < warning:
         normalized_shift = 0.0
