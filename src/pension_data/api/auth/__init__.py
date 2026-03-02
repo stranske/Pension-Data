@@ -11,18 +11,27 @@ from pension_data.api.auth.middleware import (
     authenticate_request,
 )
 from pension_data.api.auth.scopes import (
+    DOMAIN_SCOPES,
+    InvalidOperationError,
+    InvalidScopeError,
     SCOPE_ADMIN,
     SCOPE_EXPORT,
     SCOPE_NL,
     SCOPE_QUERY,
+    has_scope,
+    normalize_scopes,
+    required_scope_for_operation,
 )
 from pension_data.api.auth.store import APIKeyStore
 
 __all__ = [
     "APIKeyStore",
+    "DOMAIN_SCOPES",
     "AuthContext",
     "AuthError",
     "InvalidAPIKeyError",
+    "InvalidOperationError",
+    "InvalidScopeError",
     "MissingAPIKeyError",
     "RevokedAPIKeyError",
     "SCOPE_ADMIN",
@@ -32,4 +41,7 @@ __all__ = [
     "ScopeDeniedError",
     "authenticate_request",
     "build_audit_event",
+    "has_scope",
+    "normalize_scopes",
+    "required_scope_for_operation",
 ]

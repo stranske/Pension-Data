@@ -7,9 +7,7 @@ from typing import Any
 
 from pension_data.api.auth.middleware import AuthContext
 
-RESERVED_AUDIT_KEYS = frozenset(
-    {"operation", "api_key_id", "api_key_label", "api_key_scopes"}
-)
+RESERVED_AUDIT_KEYS = frozenset({"operation", "api_key_id", "api_key_label", "api_key_scopes"})
 
 
 def build_audit_event(
@@ -23,8 +21,7 @@ def build_audit_event(
         conflicting_keys = sorted(RESERVED_AUDIT_KEYS.intersection(event))
         if conflicting_keys:
             raise ValueError(
-                "event contains reserved auth audit key(s): "
-                + ", ".join(conflicting_keys)
+                "event contains reserved auth audit key(s): " + ", ".join(conflicting_keys)
             )
 
     payload: dict[str, Any] = dict(event or {})
