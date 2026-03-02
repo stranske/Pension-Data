@@ -16,7 +16,7 @@ gh pr checks --watch
 ```
 
 ```bash
-pytest -q -k "anomaly or sla or quality"
+pytest -q tests/test_main.py tests/test_dependency_version_alignment.py
 ```
 
 ## Remediation Steps
@@ -32,4 +32,3 @@ pytest -q -k "anomaly or sla or quality"
 - Queue depth trend flattens to normal operating range.
 - Alert volume returns to expected baseline.
 - High-severity anomaly rate remains visible and actionable.
-

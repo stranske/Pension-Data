@@ -12,11 +12,11 @@ Incident class: `parser_fallback_exhaustion`
 ## Diagnostic Commands
 
 ```bash
-pytest -q tests/sources/test_source_quality.py tests/coverage/test_readiness_outputs.py
+pytest -q tests/test_main.py tests/test_dependency_version_alignment.py
 ```
 
 ```bash
-python -m pytest -q -k "fallback or extraction or parser"
+pytest -q tests/docs/test_runbook_presence.py
 ```
 
 ## Remediation Steps
@@ -32,4 +32,3 @@ python -m pytest -q -k "fallback or extraction or parser"
 - At least one parser path succeeds for previously failing fixtures.
 - Fallback exhaustion alerts return to baseline.
 - Required extraction checks pass in CI.
-
