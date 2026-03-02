@@ -153,7 +153,19 @@ def test_saved_view_sql_definitions_execute_against_seeded_data() -> None:
         assert funding_columns == [field.name for field in funding_definition.output_schema]
         funding_rows = funding_cursor.fetchall()
         assert funding_rows
-        assert funding_rows[1][3] == 0.030000000000000027
+        plan_id_idx = funding_columns.index("plan_id")
+        plan_period_idx = funding_columns.index("plan_period")
+        funded_ratio_change_idx = funding_columns.index("funded_ratio_change")
+        ca_pers_fy2025_row = next(
+            (
+                row
+                for row in funding_rows
+                if row[plan_id_idx] == "CA-PERS" and row[plan_period_idx] == "FY2025"
+            ),
+            None,
+        )
+        assert ca_pers_fy2025_row is not None
+        assert ca_pers_fy2025_row[funded_ratio_change_idx] == pytest.approx(0.03)
 
         allocation_definition = definitions["allocation_peer_compare:v1"]
         allocation_cursor = connection.execute(

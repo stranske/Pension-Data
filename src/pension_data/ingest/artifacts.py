@@ -46,7 +46,7 @@ def _normalize_utc_timestamp(value: str) -> str | None:
         return None
     if parsed.tzinfo is None:
         return None
-    return parsed.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return parsed.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def ingest_raw_artifacts(
