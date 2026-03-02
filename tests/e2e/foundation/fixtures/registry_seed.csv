@@ -1,0 +1,3 @@
+stable_id,legal_name,short_name,system_type,jurisdiction,jurisdiction_type,in_state_employee_universe,in_sampled_50
+CA-PERS,California Public Employees' Retirement System,CalPERS,public-pension,California,state,true,true
+TX-ERS,Employees Retirement System of Texas,ERS Texas,public-pension,Texas,state,true,true
