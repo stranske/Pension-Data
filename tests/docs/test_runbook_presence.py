@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -24,8 +25,14 @@ def test_incident_class_index_exists_and_lists_all_classes() -> None:
     assert INCIDENT_CLASSES_DOC.exists(), "missing incident classes doc: INCIDENT_CLASSES.md"
     text = _read(INCIDENT_CLASSES_DOC)
     for incident_class, runbook in RUNBOOKS.items():
-        assert incident_class in text
+        assert f"`{incident_class}`" in text
         assert runbook in text
+
+
+def test_incident_class_index_lists_exact_canonical_set() -> None:
+    text = _read(INCIDENT_CLASSES_DOC)
+    class_ids = set(re.findall(r"`([a-z0-9_]+)`", text))
+    assert class_ids == set(RUNBOOKS)
 
 
 def test_runbooks_exist_and_are_nonempty() -> None:
