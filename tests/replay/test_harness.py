@@ -81,6 +81,16 @@ def test_snapshot_includes_versioned_artifact_metadata() -> None:
     assert snapshot["parser_id"] == "tests.replay.fixtures_parser:parser"
 
 
+def test_snapshot_defaults_to_deterministic_generated_at_when_not_provided() -> None:
+    replay_results = run_replay([CorpusDocument(document_id="doc-a", content="alpha")], _parser)
+    first = build_snapshot(replay_results)
+    second = build_snapshot(replay_results)
+
+    assert first["generated_at"] == "1970-01-01T00:00:00+00:00"
+    assert second["generated_at"] == "1970-01-01T00:00:00+00:00"
+    assert first == second
+
+
 def test_build_snapshot_rejects_unsupported_baseline_version() -> None:
     replay_results = run_replay([CorpusDocument(document_id="doc-a", content="alpha")], _parser)
     with pytest.raises(ValueError, match="baseline_version"):

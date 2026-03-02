@@ -17,6 +17,7 @@ from typing import Literal, TypedDict
 REPLAY_BASELINE_ARTIFACT_TYPE = "pension_replay_baseline"
 SUPPORTED_ARTIFACT_SCHEMA_VERSION = 1
 SUPPORTED_BASELINE_VERSION = "v1"
+DEFAULT_DETERMINISTIC_GENERATED_AT = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,7 +135,7 @@ def build_snapshot(
         raise ValueError(
             "baseline_version must be " f"'{SUPPORTED_BASELINE_VERSION}' for this replay harness"
         )
-    timestamp = (generated_at or datetime.now(UTC)).astimezone(UTC).isoformat()
+    timestamp = (generated_at or DEFAULT_DETERMINISTIC_GENERATED_AT).astimezone(UTC).isoformat()
     ordered_results = sorted(replay_results, key=lambda item: item.document_id)
     if len(ordered_results) != len({item.document_id for item in ordered_results}):
         raise ValueError("replay_results contains duplicate document_id values")
