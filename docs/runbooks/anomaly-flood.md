@@ -12,12 +12,20 @@ Incident class: `anomaly_flood`
 ## Diagnostic Commands
 
 ```bash
-gh pr checks --watch
+gh run view "$RUN_ID" --log > /tmp/anomaly-flood.log
+rg -n "anomaly_flood|anomaly rate|queue depth|alert|suppression" /tmp/anomaly-flood.log
 ```
+Expected signal: first-seen timestamp, queue pressure, and noisy anomaly classes are visible in one view.
+
+```bash
+gh pr checks
+```
+Expected signal: identifies which checks are currently failing/noisy so triage can prioritize impact.
 
 ```bash
 pytest -q tests/test_main.py tests/test_dependency_version_alignment.py
 ```
+Expected signal: core tests remain stable while temporary suppression/throttling changes are evaluated.
 
 ## Remediation Steps
 
