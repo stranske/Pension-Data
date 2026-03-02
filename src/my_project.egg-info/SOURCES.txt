@@ -19,6 +19,7 @@ src/pension_data/registry/cohort.py
 src/pension_data/registry/loader.py
 src/pension_data/sources/__init__.py
 src/pension_data/sources/discovery.py
+src/pension_data/sources/lint.py
 src/pension_data/sources/schema.py
 src/pension_data/sources/validate.py
 tests/test_dependency_version_alignment.py
