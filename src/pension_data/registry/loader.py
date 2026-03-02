@@ -6,8 +6,9 @@ import csv
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import cast
 
-from pension_data.db.models.registry import PensionSystemRecord
+from pension_data.db.models.registry import JurisdictionType, PensionSystemRecord, SystemType
 
 REQUIRED_COLUMNS: tuple[str, ...] = (
     "stable_id",
@@ -19,6 +20,8 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
     "in_state_employee_universe",
     "in_sampled_50",
 )
+VALID_SYSTEM_TYPES: tuple[SystemType, ...] = ("public-pension", "teacher-pension")
+VALID_JURISDICTION_TYPES: tuple[JurisdictionType, ...] = ("state", "territory")
 
 
 class RegistryValidationError(ValueError):
@@ -41,6 +44,29 @@ def parse_bool(value: str, *, column: str) -> bool:
     raise RegistryValidationError(f"column '{column}' must be a boolean, got '{value}'")
 
 
+def parse_system_type(value: str, *, row_number: int) -> SystemType:
+    """Parse and validate registry system_type literals."""
+    normalized = value.strip()
+    if normalized not in VALID_SYSTEM_TYPES:
+        expected = ", ".join(VALID_SYSTEM_TYPES)
+        raise RegistryValidationError(
+            f"row {row_number} has invalid system_type '{value}'; expected one of: {expected}"
+        )
+    return cast(SystemType, normalized)
+
+
+def parse_jurisdiction_type(value: str, *, row_number: int) -> JurisdictionType:
+    """Parse and validate registry jurisdiction_type literals."""
+    normalized = value.strip()
+    if normalized not in VALID_JURISDICTION_TYPES:
+        expected = ", ".join(VALID_JURISDICTION_TYPES)
+        raise RegistryValidationError(
+            f"row {row_number} has invalid jurisdiction_type '{value}'; "
+            f"expected one of: {expected}"
+        )
+    return cast(JurisdictionType, normalized)
+
+
 def _require_columns(row: Mapping[str, str], *, row_number: int) -> None:
     missing = [
         column
@@ -58,8 +84,8 @@ def _record_from_row(row: Mapping[str, str], *, row_number: int) -> PensionSyste
     legal_name = row["legal_name"].strip()
     short_name = row["short_name"].strip()
     jurisdiction = row["jurisdiction"].strip()
-    jurisdiction_type = row["jurisdiction_type"].strip()
-    system_type = row["system_type"].strip()
+    jurisdiction_type = parse_jurisdiction_type(row["jurisdiction_type"], row_number=row_number)
+    system_type = parse_system_type(row["system_type"], row_number=row_number)
     stable_id = row["stable_id"].strip()
     identity_key = normalize_identity_key(jurisdiction, legal_name, system_type)
     return PensionSystemRecord(
