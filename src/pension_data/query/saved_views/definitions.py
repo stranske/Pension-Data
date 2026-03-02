@@ -95,6 +95,13 @@ def load_saved_view_definitions(config_dir: Path | None = None) -> dict[str, Sav
                     field_type=_require_str(row, "type"),
                 )
             )
+        if not output_schema:
+            msg = f"`output_schema` must not be empty: {path}"
+            raise ValueError(msg)
+        output_names = {field.name for field in output_schema}
+        if len(output_names) != len(output_schema):
+            msg = f"`output_schema` contains duplicate field names: {path}"
+            raise ValueError(msg)
 
         definition = SavedViewDefinition(
             view_name=_require_str(payload, "view_name"),
@@ -108,5 +115,9 @@ def load_saved_view_definitions(config_dir: Path | None = None) -> dict[str, Sav
             msg = f"Duplicate saved view key: {definition.key}"
             raise ValueError(msg)
         definitions[definition.key] = definition
+
+    if not definitions:
+        msg = f"No saved view definition artifacts found in {definition_dir}"
+        raise ValueError(msg)
 
     return definitions
