@@ -14,6 +14,14 @@ class APIKeyNotFoundError(KeyError):
     """Raised when a key ID does not exist in storage."""
 
 
+class APIKeyLifecycleError(ValueError):
+    """Raised when a requested key lifecycle transition is invalid."""
+
+
+class APIKeyInactiveError(APIKeyLifecycleError):
+    """Raised when rotating an API key that is no longer active."""
+
+
 class _UnsetLabelType:
     """Sentinel type to distinguish omitted label from explicit None."""
 
@@ -105,6 +113,8 @@ class APIKeyStore:
     ) -> tuple[str, APIKeyRecord]:
         """Rotate key material while preserving historical linkage metadata."""
         existing = self.get_by_id(key_id)
+        if existing.status != "active":
+            raise APIKeyInactiveError(f"cannot rotate non-active key '{key_id}'")
         self.revoke_key(key_id)
         next_scopes = scopes if scopes is not None else existing.scopes
         next_label = existing.label if isinstance(label, _UnsetLabelType) else label

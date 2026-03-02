@@ -52,6 +52,11 @@ def test_normalize_scopes_rejects_unknown_scope() -> None:
         normalize_scopes([SCOPE_QUERY, "unknown:scope"])
 
 
+def test_normalize_scopes_rejects_empty_scope_set() -> None:
+    with pytest.raises(InvalidScopeError, match="at least one scope is required"):
+        normalize_scopes([])
+
+
 def test_has_scope_allows_admin_global_access() -> None:
     assert has_scope(granted_scopes=(SCOPE_ADMIN,), required_scope=SCOPE_QUERY) is True
 

@@ -8,6 +8,7 @@ from pension_data.api.auth import (
     SCOPE_ADMIN,
     SCOPE_EXPORT,
     SCOPE_QUERY,
+    APIKeyInactiveError,
     APIKeyStore,
     AuthError,
     InvalidAPIKeyError,
@@ -123,6 +124,27 @@ def test_key_rotation_allows_explicit_label_clear() -> None:
     _, first_record = store.create_key(scopes=(SCOPE_QUERY,), label="first")
     _, rotated = store.rotate_key(first_record.key_id, label=None)
     assert rotated.label is None
+
+
+def test_revocation_is_idempotent_and_preserves_metadata() -> None:
+    store = APIKeyStore()
+    _, record = store.create_key(scopes=(SCOPE_QUERY,), label="integration-key")
+    first_revocation = store.revoke_key(record.key_id)
+    second_revocation = store.revoke_key(record.key_id)
+
+    assert first_revocation.status == "revoked"
+    assert first_revocation.revoked_reason == "manual"
+    assert first_revocation.revoked_at is not None
+    assert second_revocation == first_revocation
+
+
+def test_rotation_rejects_revoked_keys() -> None:
+    store = APIKeyStore()
+    _, record = store.create_key(scopes=(SCOPE_QUERY,), label="integration-key")
+    store.revoke_key(record.key_id)
+
+    with pytest.raises(APIKeyInactiveError, match="cannot rotate non-active key"):
+        store.rotate_key(record.key_id)
 
 
 def test_auth_error_base_class_is_exported() -> None:

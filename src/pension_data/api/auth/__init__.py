@@ -23,9 +23,15 @@ from pension_data.api.auth.scopes import (
     required_scope_for_operation,
 )
 from pension_data.api.auth.store import APIKeyStore
+from pension_data.api.auth.store import APIKeyInactiveError
+from pension_data.api.auth.store import APIKeyLifecycleError
+from pension_data.api.auth.store import APIKeyNotFoundError
 
 __all__ = [
     "APIKeyStore",
+    "APIKeyInactiveError",
+    "APIKeyLifecycleError",
+    "APIKeyNotFoundError",
     "DOMAIN_SCOPES",
     "AuthContext",
     "AuthError",

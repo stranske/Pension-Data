@@ -37,6 +37,8 @@ class InvalidOperationError(ValueError):
 def normalize_scopes(scopes: tuple[str, ...] | list[str] | set[str]) -> tuple[str, ...]:
     """Normalize and validate scope sets into deterministic sorted tuples."""
     normalized = tuple(sorted(set(scopes)))
+    if not normalized:
+        raise InvalidScopeError("at least one scope is required")
     invalid = [scope for scope in normalized if scope not in ALL_SCOPES]
     if invalid:
         raise InvalidScopeError(f"unknown scopes: {', '.join(invalid)}")
