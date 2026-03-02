@@ -1,5 +1,6 @@
 """Replay harness for golden-corpus regression checks."""
 
+from tools.replay.diff_runner import run as run_diff
 from tools.replay.harness import (
     REPLAY_BASELINE_ARTIFACT_TYPE,
     SUPPORTED_ARTIFACT_SCHEMA_VERSION,
@@ -16,7 +17,6 @@ from tools.replay.harness import (
     run_replay,
     write_snapshot,
 )
-from tools.replay.diff_runner import run as run_diff
 from tools.replay.runner import load_corpus, load_parser, run
 
 __all__ = [
