@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
-from pension_data.coverage.readiness import build_publication_artifacts, build_readiness_artifacts
+from pension_data.coverage.readiness import (
+    build_publication_artifacts,
+    build_readiness_artifacts,
+    write_coverage_artifacts,
+)
 from pension_data.quality.anomaly_rules import TimeSeriesPoint
 from pension_data.sources.schema import SourceMapRecord
 
@@ -109,6 +114,7 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "plan_id": "CA-PERS",
             "plan_period": "FY2024",
             "cohort": "state",
+            "system_type": "state",
             "official_resolution_state": "available_official",
             "source_authority_tier": "official",
             "mismatch_reason": "",
@@ -118,6 +124,7 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "plan_id": "OR-SERS",
             "plan_period": "FY2024",
             "cohort": "state",
+            "system_type": "state",
             "official_resolution_state": "available_official",
             "source_authority_tier": "official",
             "mismatch_reason": "stale_period",
@@ -127,6 +134,7 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "plan_id": "TX-ERS",
             "plan_period": "FY2024",
             "cohort": "state",
+            "system_type": "state",
             "official_resolution_state": "available_non_official_only",
             "source_authority_tier": "high-confidence-third-party",
             "mismatch_reason": "non_official_only",
@@ -136,6 +144,7 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "plan_id": "WA-SRS",
             "plan_period": "FY2024",
             "cohort": "state",
+            "system_type": "state",
             "official_resolution_state": "available_official",
             "source_authority_tier": "official",
             "mismatch_reason": "wrong_plan",
@@ -145,6 +154,7 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "plan_id": "AS-GERF",
             "plan_period": "FY2024",
             "cohort": "territory",
+            "system_type": "territory",
             "official_resolution_state": "not_found",
             "source_authority_tier": "high-confidence-third-party",
             "mismatch_reason": "",
@@ -163,6 +173,26 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
         },
         {
             "cohort": "territory",
+            "total_plan_periods": 1,
+            "unresolved_official_count": 1,
+            "mismatch_count": 0,
+            "unresolved_official_rate": 1.0,
+            "mismatch_rate": 0.0,
+            "stale_period_rate": 0.0,
+        },
+    ]
+    assert artifacts["summary_by_system_type"] == [
+        {
+            "system_type": "state",
+            "total_plan_periods": 4,
+            "unresolved_official_count": 1,
+            "mismatch_count": 3,
+            "unresolved_official_rate": 0.25,
+            "mismatch_rate": 0.75,
+            "stale_period_rate": 0.25,
+        },
+        {
+            "system_type": "territory",
             "total_plan_periods": 1,
             "unresolved_official_count": 1,
             "mismatch_count": 0,
@@ -209,7 +239,24 @@ def test_publication_artifacts_do_not_block_when_anomaly_routing_fails(
 
     assert artifacts["readiness_rows"]
     assert artifacts["summary_by_cohort"]
+    assert artifacts["summary_by_system_type"]
     assert artifacts["anomaly_rows"] == []
     assert artifacts["review_queue_rows"] == []
     assert artifacts["anomaly_routing_status"] == "degraded"
     assert artifacts["anomaly_routing_error"] == "RuntimeError: simulated anomaly failure"
+
+
+def test_write_coverage_artifacts_is_deterministic_for_json_and_csv(tmp_path: Path) -> None:
+    artifacts = build_readiness_artifacts(_fixture_records())
+    first_paths = write_coverage_artifacts(artifacts, output_root=tmp_path / "run-1")
+    second_paths = write_coverage_artifacts(artifacts, output_root=tmp_path / "run-2")
+
+    first_files = {
+        name: Path(path).read_text(encoding="utf-8") for name, path in first_paths.items()
+    }
+    second_files = {
+        name: Path(path).read_text(encoding="utf-8") for name, path in second_paths.items()
+    }
+    assert first_files == second_files
+    assert "blocked_source" in first_files["readiness_rows_json"]
+    assert "system_type,total_plan_periods" in first_files["summary_by_system_type_csv"]

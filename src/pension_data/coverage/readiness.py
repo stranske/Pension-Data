@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import csv
+import json
 from collections import defaultdict
+from collections.abc import Mapping
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal
 
 from pension_data.quality.anomaly_rules import (
@@ -33,6 +37,7 @@ def build_readiness_artifacts(records: list[SourceMapRecord]) -> dict[str, objec
             "plan_id": record.plan_id,
             "plan_period": record.plan_period,
             "cohort": record.cohort,
+            "system_type": record.cohort,
             "official_resolution_state": record.official_resolution_state,
             "source_authority_tier": record.source_authority_tier,
             "mismatch_reason": record.mismatch_reason or "",
@@ -40,22 +45,33 @@ def build_readiness_artifacts(records: list[SourceMapRecord]) -> dict[str, objec
         }
         for record in records
     ]
-    readiness_rows.sort(key=lambda row: (row["cohort"], row["plan_id"], row["plan_period"]))
+    readiness_rows.sort(
+        key=lambda row: (row["cohort"], row["system_type"], row["plan_id"], row["plan_period"])
+    )
 
     totals_by_cohort: defaultdict[str, int] = defaultdict(int)
     unresolved_official_by_cohort: defaultdict[str, int] = defaultdict(int)
     mismatches_by_cohort: defaultdict[str, int] = defaultdict(int)
     stale_period_by_cohort: defaultdict[str, int] = defaultdict(int)
+    totals_by_system_type: defaultdict[str, int] = defaultdict(int)
+    unresolved_official_by_system_type: defaultdict[str, int] = defaultdict(int)
+    mismatches_by_system_type: defaultdict[str, int] = defaultdict(int)
+    stale_period_by_system_type: defaultdict[str, int] = defaultdict(int)
 
     for record in records:
         cohort = record.cohort
+        system_type = record.cohort
         totals_by_cohort[cohort] += 1
+        totals_by_system_type[system_type] += 1
         if record.official_resolution_state != "available_official":
             unresolved_official_by_cohort[cohort] += 1
+            unresolved_official_by_system_type[system_type] += 1
         if record.mismatch_reason is not None:
             mismatches_by_cohort[cohort] += 1
+            mismatches_by_system_type[system_type] += 1
         if record.mismatch_reason == "stale_period":
             stale_period_by_cohort[cohort] += 1
+            stale_period_by_system_type[system_type] += 1
 
     cohorts = sorted(totals_by_cohort.keys())
     summary_rows: list[dict[str, float | int | str]] = []
@@ -76,9 +92,111 @@ def build_readiness_artifacts(records: list[SourceMapRecord]) -> dict[str, objec
             }
         )
 
+    system_types = sorted(totals_by_system_type.keys())
+    summary_by_system_type: list[dict[str, float | int | str]] = []
+    for system_type in system_types:
+        total = totals_by_system_type[system_type]
+        unresolved = unresolved_official_by_system_type[system_type]
+        mismatches = mismatches_by_system_type[system_type]
+        stale_period = stale_period_by_system_type[system_type]
+        summary_by_system_type.append(
+            {
+                "system_type": system_type,
+                "total_plan_periods": total,
+                "unresolved_official_count": unresolved,
+                "mismatch_count": mismatches,
+                "unresolved_official_rate": round(unresolved / total, 6),
+                "mismatch_rate": round(mismatches / total, 6),
+                "stale_period_rate": round(stale_period / total, 6),
+            }
+        )
+
     return {
         "readiness_rows": readiness_rows,
         "summary_by_cohort": summary_rows,
+        "summary_by_system_type": summary_by_system_type,
+    }
+
+
+def _write_json(path: Path, payload: object) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _write_csv(path: Path, *, rows: list[dict[str, object]], fieldnames: tuple[str, ...]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field, "") for field in fieldnames})
+
+
+def write_coverage_artifacts(
+    artifacts: Mapping[str, object], *, output_root: Path
+) -> dict[str, str]:
+    """Write deterministic machine-readable coverage artifacts under `artifacts/coverage`."""
+    readiness_rows = artifacts.get("readiness_rows")
+    summary_by_cohort = artifacts.get("summary_by_cohort")
+    summary_by_system_type = artifacts.get("summary_by_system_type")
+    if not isinstance(readiness_rows, list):
+        raise ValueError("artifacts['readiness_rows'] must be a list")
+    if not isinstance(summary_by_cohort, list):
+        raise ValueError("artifacts['summary_by_cohort'] must be a list")
+    if not isinstance(summary_by_system_type, list):
+        raise ValueError("artifacts['summary_by_system_type'] must be a list")
+
+    coverage_dir = output_root / "coverage"
+    coverage_dir.mkdir(parents=True, exist_ok=True)
+
+    readiness_json = coverage_dir / "readiness_rows.json"
+    readiness_csv = coverage_dir / "readiness_rows.csv"
+    cohort_json = coverage_dir / "summary_by_cohort.json"
+    cohort_csv = coverage_dir / "summary_by_cohort.csv"
+    system_type_json = coverage_dir / "summary_by_system_type.json"
+    system_type_csv = coverage_dir / "summary_by_system_type.csv"
+
+    _write_json(readiness_json, readiness_rows)
+    _write_json(cohort_json, summary_by_cohort)
+    _write_json(system_type_json, summary_by_system_type)
+    _write_csv(
+        readiness_csv,
+        rows=readiness_rows,
+        fieldnames=(
+            "plan_id",
+            "plan_period",
+            "cohort",
+            "system_type",
+            "official_resolution_state",
+            "source_authority_tier",
+            "mismatch_reason",
+            "readiness_state",
+        ),
+    )
+    summary_fields = (
+        "total_plan_periods",
+        "unresolved_official_count",
+        "mismatch_count",
+        "unresolved_official_rate",
+        "mismatch_rate",
+        "stale_period_rate",
+    )
+    _write_csv(
+        cohort_csv,
+        rows=summary_by_cohort,
+        fieldnames=("cohort", *summary_fields),
+    )
+    _write_csv(
+        system_type_csv,
+        rows=summary_by_system_type,
+        fieldnames=("system_type", *summary_fields),
+    )
+
+    return {
+        "readiness_rows_json": str(readiness_json),
+        "readiness_rows_csv": str(readiness_csv),
+        "summary_by_cohort_json": str(cohort_json),
+        "summary_by_cohort_csv": str(cohort_csv),
+        "summary_by_system_type_json": str(system_type_json),
+        "summary_by_system_type_csv": str(system_type_csv),
     }
 
 
