@@ -1,0 +1,22 @@
+{
+  "total_changes": 2,
+  "unexpected_changes": 2,
+  "changes": [
+    {
+      "document_id": "doc-a",
+      "field": "funded_ratio",
+      "attribute": "value",
+      "baseline": 0.8,
+      "current": 0.74,
+      "classification": "unexpected_drift"
+    },
+    {
+      "document_id": "doc-b",
+      "field": "manager_count",
+      "attribute": "value",
+      "baseline": 17,
+      "current": 21,
+      "classification": "unexpected_drift"
+    }
+  ]
+}
