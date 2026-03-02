@@ -37,7 +37,7 @@ def load_replay_diff(diff_path: Path) -> tuple[int, int]:
     total = payload.get("total_changes")
     if total is not None and not isinstance(total, int):
         raise ValueError("replay diff total_changes must be an integer")
-    total_changes = total if isinstance(total, int) else computed_total
+    total_changes = total if isinstance(total, int) else max(computed_total, unexpected)
     return total_changes, unexpected
 
 

@@ -131,3 +131,10 @@ def test_replay_gate_rejects_negative_tolerance(tmp_path: Path) -> None:
     _write_json(diff_path, {"changes": []})
     with pytest.raises(ValueError, match="max_unexpected must be >= 0"):
         run_gate(diff_path=diff_path, max_unexpected=-1)
+
+
+def test_load_replay_diff_uses_unexpected_as_total_fallback(tmp_path: Path) -> None:
+    diff_path = tmp_path / "diff.json"
+    _write_json(diff_path, {"unexpected_changes": 2})
+    total, unexpected = load_replay_diff(diff_path)
+    assert (total, unexpected) == (2, 2)
