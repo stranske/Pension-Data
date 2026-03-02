@@ -7,8 +7,11 @@ SET
   benchmark_version = COALESCE(NULLIF(benchmark_version, ''), 'v1'),
   ingestion_date = COALESCE(NULLIF(ingestion_date, ''), effective_date)
 WHERE
-  plan_period = ''
+  plan_period IS NULL
+  OR plan_period = ''
+  OR benchmark_version IS NULL
   OR benchmark_version = ''
+  OR ingestion_date IS NULL
   OR ingestion_date = '';
 
 UPDATE staging_cash_flows
@@ -17,6 +20,9 @@ SET
   benchmark_version = COALESCE(NULLIF(benchmark_version, ''), 'v1'),
   ingestion_date = COALESCE(NULLIF(ingestion_date, ''), effective_date)
 WHERE
-  plan_period = ''
+  plan_period IS NULL
+  OR plan_period = ''
+  OR benchmark_version IS NULL
   OR benchmark_version = ''
+  OR ingestion_date IS NULL
   OR ingestion_date = '';

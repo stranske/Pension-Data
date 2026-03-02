@@ -256,6 +256,75 @@ def test_curated_rows_build_successfully_for_all_metric_families() -> None:
     assert cash_rows[0].beginning_aum_normalized == 1_000
 
 
+def test_curated_holding_and_fee_rows_preserve_manager_dimensions() -> None:
+    known_plan_ids = {"CA-PERS"}
+    holding_rows = curated_holding_rows(
+        holding_facts=[
+            HoldingFact(
+                context=_context(
+                    effective_date="2024-06-30",
+                    ingestion_date="2025-01-01",
+                ),
+                manager_name="Manager A",
+                fund_name="Fund X",
+                vehicle_name="Vehicle 1",
+                metric_name="market_value",
+                metric_value=_value(as_reported=100.0, normalized=100.0, unit="usd"),
+                relationship_completeness="complete",
+                confidence=0.9,
+                evidence_refs=("p.1",),
+            ),
+            HoldingFact(
+                context=_context(
+                    effective_date="2024-06-30",
+                    ingestion_date="2025-01-01",
+                ),
+                manager_name="Manager B",
+                fund_name="Fund Y",
+                vehicle_name="Vehicle 2",
+                metric_name="market_value",
+                metric_value=_value(as_reported=120.0, normalized=120.0, unit="usd"),
+                relationship_completeness="complete",
+                confidence=0.9,
+                evidence_refs=("p.2",),
+            ),
+        ],
+        known_plan_ids=known_plan_ids,
+    )
+    assert len(holding_rows) == 2
+    assert {row.manager_name for row in holding_rows} == {"Manager A", "Manager B"}
+
+    fee_rows = curated_fee_rows(
+        fee_facts=[
+            FeeFact(
+                context=_context(
+                    effective_date="2024-06-30",
+                    ingestion_date="2025-01-01",
+                ),
+                fee_category="investment_management",
+                manager_name="Manager A",
+                metric_value=_value(as_reported=0.002, normalized=0.002, unit="ratio"),
+                confidence=0.85,
+                evidence_refs=("p.3",),
+            ),
+            FeeFact(
+                context=_context(
+                    effective_date="2024-06-30",
+                    ingestion_date="2025-01-01",
+                ),
+                fee_category="investment_management",
+                manager_name="Manager B",
+                metric_value=_value(as_reported=0.003, normalized=0.003, unit="ratio"),
+                confidence=0.85,
+                evidence_refs=("p.4",),
+            ),
+        ],
+        known_plan_ids=known_plan_ids,
+    )
+    assert len(fee_rows) == 2
+    assert {row.manager_name for row in fee_rows} == {"Manager A", "Manager B"}
+
+
 def test_migration_files_include_required_bitemporal_columns_and_cash_flow_fields() -> None:
     migration_path = (
         ROOT / "src" / "pension_data" / "db" / "migrations" / "20260302_001_core_fact_staging.sql"

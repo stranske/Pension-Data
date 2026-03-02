@@ -29,6 +29,9 @@ class CuratedMetricRow:
     metric_name: str
     normalized_value: float
     normalized_unit: str
+    manager_name: str | None
+    fund_name: str | None
+    vehicle_name: str | None
     effective_date: str
     ingestion_date: str
     benchmark_version: str
@@ -78,6 +81,9 @@ def _dedupe_metric_rows(rows: Sequence[CuratedMetricRow]) -> list[CuratedMetricR
             row.plan_period,
             row.metric_family,
             row.metric_name,
+            row.manager_name or "",
+            row.fund_name or "",
+            row.vehicle_name or "",
             row.effective_date,
             row.ingestion_date,
             row.benchmark_version,
@@ -92,6 +98,9 @@ def _dedupe_metric_rows(rows: Sequence[CuratedMetricRow]) -> list[CuratedMetricR
             row.plan_period,
             row.metric_family,
             row.metric_name,
+            row.manager_name or "",
+            row.fund_name or "",
+            row.vehicle_name or "",
             row.effective_date,
             row.ingestion_date,
         ),
@@ -122,6 +131,9 @@ def curated_funded_and_actuarial_rows(
                     row.metric_value.normalized_unit,
                     metric_name=row.metric_name,
                 ),
+                manager_name=None,
+                fund_name=None,
+                vehicle_name=None,
                 effective_date=row.context.effective_date,
                 ingestion_date=row.context.ingestion_date,
                 benchmark_version=row.context.benchmark_version,
@@ -144,6 +156,9 @@ def curated_funded_and_actuarial_rows(
                     actuarial_row.metric_value.normalized_unit,
                     metric_name=actuarial_row.metric_name,
                 ),
+                manager_name=None,
+                fund_name=None,
+                vehicle_name=None,
                 effective_date=actuarial_row.context.effective_date,
                 ingestion_date=actuarial_row.context.ingestion_date,
                 benchmark_version=actuarial_row.context.benchmark_version,
@@ -176,6 +191,9 @@ def curated_allocation_rows(
                     row.metric_value.normalized_unit,
                     metric_name=row.metric_name,
                 ),
+                manager_name=None,
+                fund_name=None,
+                vehicle_name=None,
                 effective_date=row.context.effective_date,
                 ingestion_date=row.context.ingestion_date,
                 benchmark_version=row.context.benchmark_version,
@@ -214,6 +232,9 @@ def curated_holding_rows(
                     row.metric_value.normalized_unit,
                     metric_name=row.metric_name,
                 ),
+                manager_name=row.manager_name,
+                fund_name=row.fund_name,
+                vehicle_name=row.vehicle_name,
                 effective_date=row.context.effective_date,
                 ingestion_date=row.context.ingestion_date,
                 benchmark_version=row.context.benchmark_version,
@@ -246,6 +267,9 @@ def curated_fee_rows(
                     row.metric_value.normalized_unit,
                     metric_name=row.fee_category,
                 ),
+                manager_name=row.manager_name,
+                fund_name=None,
+                vehicle_name=None,
                 effective_date=row.context.effective_date,
                 ingestion_date=row.context.ingestion_date,
                 benchmark_version=row.context.benchmark_version,

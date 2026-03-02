@@ -11,6 +11,12 @@ CREATE TABLE IF NOT EXISTS staging_core_metrics (
   normalized_value REAL,
   as_reported_unit TEXT,
   normalized_unit TEXT,
+  manager_name TEXT,
+  fund_name TEXT,
+  vehicle_name TEXT,
+  relationship_completeness TEXT,
+  confidence REAL,
+  evidence_refs TEXT,
   effective_date TEXT NOT NULL,
   ingestion_date TEXT NOT NULL,
   benchmark_version TEXT NOT NULL,
@@ -23,16 +29,30 @@ CREATE TABLE IF NOT EXISTS staging_cash_flows (
   plan_period TEXT NOT NULL,
   beginning_aum_as_reported REAL,
   beginning_aum_normalized REAL,
+  beginning_aum_as_reported_unit TEXT,
+  beginning_aum_normalized_unit TEXT,
   ending_aum_as_reported REAL,
   ending_aum_normalized REAL,
+  ending_aum_as_reported_unit TEXT,
+  ending_aum_normalized_unit TEXT,
   employer_contributions_as_reported REAL,
   employer_contributions_normalized REAL,
+  employer_contributions_as_reported_unit TEXT,
+  employer_contributions_normalized_unit TEXT,
   employee_contributions_as_reported REAL,
   employee_contributions_normalized REAL,
+  employee_contributions_as_reported_unit TEXT,
+  employee_contributions_normalized_unit TEXT,
   benefit_payments_as_reported REAL,
   benefit_payments_normalized REAL,
+  benefit_payments_as_reported_unit TEXT,
+  benefit_payments_normalized_unit TEXT,
   refunds_as_reported REAL,
   refunds_normalized REAL,
+  refunds_as_reported_unit TEXT,
+  refunds_normalized_unit TEXT,
+  confidence REAL,
+  evidence_refs TEXT,
   effective_date TEXT NOT NULL,
   ingestion_date TEXT NOT NULL,
   benchmark_version TEXT NOT NULL,
@@ -78,13 +98,17 @@ SELECT
   metric_name,
   normalized_value,
   normalized_unit,
+  manager_name,
+  fund_name,
+  vehicle_name,
   effective_date,
   ingestion_date,
   benchmark_version,
   source_document_id
 FROM staging_core_metrics
 WHERE normalized_value IS NOT NULL
-  AND normalized_unit IS NOT NULL;
+  AND normalized_unit IS NOT NULL
+  AND TRIM(normalized_unit) <> '';
 
 CREATE VIEW IF NOT EXISTS curated_cash_flow_facts AS
 SELECT
