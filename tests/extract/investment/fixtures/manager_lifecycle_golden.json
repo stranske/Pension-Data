@@ -1,0 +1,107 @@
+{
+  "entry_exit_retained": {
+    "previous": [
+      {
+        "plan_id": "plan-a",
+        "plan_period": "2024",
+        "manager_name": "Alpha Capital",
+        "fund_name": "Fund A",
+        "commitment": 100.0,
+        "unfunded": 25.0,
+        "market_value": 90.0,
+        "confidence": 0.92,
+        "evidence_refs": ["p3", "p4"]
+      },
+      {
+        "plan_id": "plan-a",
+        "plan_period": "2024",
+        "manager_name": "Beta Partners",
+        "fund_name": "Fund B",
+        "commitment": 80.0,
+        "unfunded": 12.0,
+        "market_value": 70.0,
+        "confidence": 0.88,
+        "evidence_refs": ["p5"]
+      }
+    ],
+    "current": [
+      {
+        "plan_id": "plan-a",
+        "plan_period": "2025",
+        "manager_name": "Alpha Capital",
+        "fund_name": "Fund A",
+        "commitment": 110.0,
+        "unfunded": 20.0,
+        "market_value": 98.0,
+        "confidence": 0.95,
+        "evidence_refs": ["p8"]
+      },
+      {
+        "plan_id": "plan-a",
+        "plan_period": "2025",
+        "manager_name": "Gamma Advisors",
+        "fund_name": "Fund C",
+        "commitment": 60.0,
+        "unfunded": 18.0,
+        "market_value": 50.0,
+        "confidence": 0.9,
+        "evidence_refs": ["p9"]
+      }
+    ],
+    "expected_events": [
+      {"plan_id": "plan-a", "plan_period": "2025", "manager_name": "Alpha Capital", "fund_name": "Fund A", "event_type": "still_invested", "basis": "inferred"},
+      {"plan_id": "plan-a", "plan_period": "2025", "manager_name": "Beta Partners", "fund_name": "Fund B", "event_type": "exited", "basis": "table_presence_change"},
+      {"plan_id": "plan-a", "plan_period": "2025", "manager_name": "Gamma Advisors", "fund_name": "Fund C", "event_type": "entered", "basis": "table_presence_change"}
+    ]
+  },
+  "retained_only": {
+    "previous": [
+      {
+        "plan_id": "plan-b",
+        "plan_period": "2024",
+        "manager_name": "Delta Asset",
+        "fund_name": "Core Fund",
+        "commitment": 30.0,
+        "unfunded": 5.0,
+        "market_value": 27.0,
+        "confidence": 0.86,
+        "evidence_refs": ["p1"]
+      }
+    ],
+    "current": [
+      {
+        "plan_id": "plan-b",
+        "plan_period": "2025",
+        "manager_name": "Delta Asset",
+        "fund_name": "Core Fund",
+        "commitment": 35.0,
+        "unfunded": 4.0,
+        "market_value": 30.0,
+        "confidence": 0.84,
+        "evidence_refs": ["p2"]
+      }
+    ],
+    "expected_events": [
+      {"plan_id": "plan-b", "plan_period": "2025", "manager_name": "Delta Asset", "fund_name": "Core Fund", "event_type": "still_invested", "basis": "inferred"}
+    ]
+  },
+  "entry_only": {
+    "previous": [],
+    "current": [
+      {
+        "plan_id": "plan-c",
+        "plan_period": "2025",
+        "manager_name": "Epsilon Capital",
+        "fund_name": "Special Situations",
+        "commitment": 45.0,
+        "unfunded": 10.0,
+        "market_value": 35.0,
+        "confidence": 0.91,
+        "evidence_refs": ["p10"]
+      }
+    ],
+    "expected_events": [
+      {"plan_id": "plan-c", "plan_period": "2025", "manager_name": "Epsilon Capital", "fund_name": "Special Situations", "event_type": "entered", "basis": "table_presence_change"}
+    ]
+  }
+}
