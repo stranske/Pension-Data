@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -30,12 +29,6 @@ def normalize_identity_key(*parts: str) -> str:
     """Normalize registry identity tokens into a stable lowercase key."""
     combined = "::".join(parts).strip().lower()
     return re.sub(r"[^a-z0-9]+", "-", combined).strip("-")
-
-
-def make_stable_id(*parts: str) -> str:
-    """Generate a deterministic fallback stable id when seed id is absent."""
-    digest = hashlib.sha1("::".join(parts).encode("utf-8")).hexdigest()
-    return f"ps-{digest[:12]}"
 
 
 def parse_bool(value: str, *, column: str) -> bool:
@@ -67,7 +60,7 @@ def _record_from_row(row: Mapping[str, str], *, row_number: int) -> PensionSyste
     jurisdiction = row["jurisdiction"].strip()
     jurisdiction_type = row["jurisdiction_type"].strip()
     system_type = row["system_type"].strip()
-    stable_id = row["stable_id"].strip() or make_stable_id(legal_name, jurisdiction)
+    stable_id = row["stable_id"].strip()
     identity_key = normalize_identity_key(jurisdiction, legal_name, system_type)
     return PensionSystemRecord(
         stable_id=stable_id,
@@ -116,12 +109,22 @@ def apply_registry_updates(
     updates: Iterable[PensionSystemRecord],
 ) -> list[PensionSystemRecord]:
     """Apply incremental record updates with uniqueness and idempotency checks."""
-    by_stable_id: dict[str, PensionSystemRecord] = {
-        record.stable_id: record for record in base_records
-    }
-    identity_to_id: dict[str, str] = {
-        record.identity_key: record.stable_id for record in by_stable_id.values()
-    }
+    by_stable_id: dict[str, PensionSystemRecord] = {}
+    identity_to_id: dict[str, str] = {}
+
+    for record in base_records:
+        if record.stable_id in by_stable_id:
+            raise RegistryValidationError(
+                f"duplicate stable_id '{record.stable_id}' in base registry records"
+            )
+        if record.identity_key in identity_to_id:
+            existing_id = identity_to_id[record.identity_key]
+            raise RegistryValidationError(
+                f"identity_key '{record.identity_key}' already mapped to stable_id "
+                f"'{existing_id}' in base registry records"
+            )
+        by_stable_id[record.stable_id] = record
+        identity_to_id[record.identity_key] = record.stable_id
 
     for update in updates:
         if update.stable_id in by_stable_id:

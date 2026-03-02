@@ -92,12 +92,60 @@ def test_uniqueness_rules_reject_identity_key_collisions() -> None:
         apply_registry_updates(records, [collision])
 
 
+def test_base_registry_duplicate_constraints_are_enforced() -> None:
+    records = load_registry_from_seed(SEED_PATH)
+    duplicate_stable_id = [
+        records[0],
+        PensionSystemRecord(
+            stable_id=records[0].stable_id,
+            legal_name="Duplicate Stable ID System",
+            short_name="DupStable",
+            system_type="public-pension",
+            jurisdiction="Testland",
+            jurisdiction_type="state",
+            identity_key="testland-duplicate-stable-id-system-public-pension",
+            in_state_employee_universe=False,
+            in_sampled_50=False,
+        ),
+    ]
+    with pytest.raises(RegistryValidationError, match="duplicate stable_id"):
+        apply_registry_updates(duplicate_stable_id, [])
+
+    duplicate_identity_key = [
+        records[0],
+        PensionSystemRecord(
+            stable_id="ps-duplicate-identity",
+            legal_name="Different Name",
+            short_name="DupIdentity",
+            system_type=records[0].system_type,
+            jurisdiction=records[0].jurisdiction,
+            jurisdiction_type=records[0].jurisdiction_type,
+            identity_key=records[0].identity_key,
+            in_state_employee_universe=False,
+            in_sampled_50=False,
+        ),
+    ]
+    with pytest.raises(RegistryValidationError, match="identity_key"):
+        apply_registry_updates(duplicate_identity_key, [])
+
+
 def test_registry_audit_output_counts_by_type_jurisdiction_and_segment() -> None:
-    audit = build_registry_audit(load_registry_from_seed(SEED_PATH))
+    sampled_only_fixture = PensionSystemRecord(
+        stable_id="ps-sampled-only",
+        legal_name="Sampled Only Pension",
+        short_name="SampledOnly",
+        system_type="public-pension",
+        jurisdiction="Sample State",
+        jurisdiction_type="state",
+        identity_key="sample-state-sampled-only-pension-public-pension",
+        in_state_employee_universe=False,
+        in_sampled_50=True,
+    )
+    audit = build_registry_audit(load_registry_from_seed(SEED_PATH) + [sampled_only_fixture])
     assert audit == {
-        "total_records": 6,
+        "total_records": 7,
         "counts_by_system_type": {
-            "public-pension": 5,
+            "public-pension": 6,
             "teacher-pension": 1,
         },
         "counts_by_jurisdiction": {
@@ -106,10 +154,12 @@ def test_registry_audit_output_counts_by_type_jurisdiction_and_segment() -> None
             "Colorado": 1,
             "Illinois": 1,
             "New York": 1,
+            "Sample State": 1,
             "Texas": 1,
         },
         "counts_by_cohort_segment": {
             "outside_v1": 1,
+            "sampled_50_only": 1,
             "state_employee_only": 1,
             "state_employee_sampled_50": 4,
         },
