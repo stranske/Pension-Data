@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Literal
 
 RiskDisclosureType = Literal["derivatives", "securities_lending"]
@@ -23,4 +24,4 @@ class RiskExposureObservation:
     as_reported_text: str
     confidence: float
     evidence_refs: tuple[str, ...]
-    source_metadata: dict[str, str]
+    source_metadata: Mapping[str, str] = field(compare=False, hash=False)

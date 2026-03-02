@@ -1,7 +1,7 @@
 {
   "with_disclosures": {
-    "plan_id": "ca-pers",
-    "plan_period": "2025",
+    "plan_id": "CA-PERS",
+    "plan_period": "FY2025",
     "derivatives_disclosures": [
       {
         "usage_type": "interest rate swaps",
@@ -42,8 +42,8 @@
     ]
   },
   "without_disclosures": {
-    "plan_id": "tx-ers",
-    "plan_period": "2025",
+    "plan_id": "TX-ERS",
+    "plan_period": "FY2025",
     "derivatives_disclosures": [],
     "securities_lending_disclosures": []
   }

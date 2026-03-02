@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Literal
 
 from pension_data.db.models.risk_exposures import RiskDisclosureType, RiskExposureObservation
@@ -81,6 +82,10 @@ def _bounded_confidence(confidence: float) -> float:
     return round(max(0.0, min(1.0, confidence)), 6)
 
 
+def _source_metadata(*, source_url: str, source_kind: SourceKind, unit: ValueUnit) -> MappingProxyType[str, str]:
+    return MappingProxyType({"source_url": source_url, "source_kind": source_kind, "unit": unit})
+
+
 def _to_usd(value: float | None, *, unit: ValueUnit) -> float | None:
     if value is None:
         return None
@@ -123,7 +128,7 @@ def _make_observation(
         as_reported_text=as_reported_text.strip() or "not_disclosed",
         confidence=_bounded_confidence(confidence),
         evidence_refs=_dedupe_refs(evidence_refs),
-        source_metadata={"source_url": source_url, "source_kind": source_kind, "unit": unit},
+        source_metadata=_source_metadata(source_url=source_url, source_kind=source_kind, unit=unit),
     )
 
 
@@ -323,7 +328,11 @@ def extract_risk_exposure_observations(
                 as_reported_text="not_disclosed",
                 confidence=0.0,
                 evidence_refs=(),
-                source_metadata={"source_url": "not_disclosed", "source_kind": "narrative", "unit": "usd"},
+                source_metadata=_source_metadata(
+                    source_url="not_disclosed",
+                    source_kind="narrative",
+                    unit="usd",
+                ),
             )
         )
         diagnostics.append(
@@ -348,7 +357,11 @@ def extract_risk_exposure_observations(
                 as_reported_text="not_disclosed",
                 confidence=0.0,
                 evidence_refs=(),
-                source_metadata={"source_url": "not_disclosed", "source_kind": "narrative", "unit": "usd"},
+                source_metadata=_source_metadata(
+                    source_url="not_disclosed",
+                    source_kind="narrative",
+                    unit="usd",
+                ),
             )
         )
         diagnostics.append(

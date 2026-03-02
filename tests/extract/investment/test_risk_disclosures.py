@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from pension_data.extract.investment.risk_disclosures import (
     DerivativesDisclosureInput,
     SecuritiesLendingDisclosureInput,
@@ -132,3 +134,15 @@ def test_extraction_output_is_reproducible() -> None:
     )
 
     assert first == second
+
+
+def test_source_metadata_is_read_only() -> None:
+    fixture = _load_fixture()["with_disclosures"]
+    observations, _diagnostics = extract_risk_exposure_observations(
+        plan_id=fixture["plan_id"],
+        plan_period=fixture["plan_period"],
+        derivatives_disclosures=_derivatives(fixture["derivatives_disclosures"]),
+        securities_lending_disclosures=_lending(fixture["securities_lending_disclosures"]),
+    )
+    with pytest.raises(TypeError):
+        observations[0].source_metadata["unit"] = "usd"
