@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from pension_data.extract.funded.financial_flows import (
     RawFinancialFlowInput,
     extract_plan_financial_flow,
@@ -112,3 +114,14 @@ def test_output_is_reproducible_for_same_raw_payload() -> None:
         raw=raw,
     )
     assert first == second
+
+
+def test_source_metadata_is_read_only() -> None:
+    fixture = _load_fixture()["complete_million_layout"]
+    flow, _warnings = extract_plan_financial_flow(
+        plan_id=fixture["plan_id"],
+        plan_period=fixture["plan_period"],
+        raw=_raw(fixture["raw"]),
+    )
+    with pytest.raises(TypeError):
+        flow.source_metadata["unit_scale"] = "usd"

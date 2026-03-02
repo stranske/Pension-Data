@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Literal
 
 FinancialDisclosureLevel = Literal["complete", "partial", "not_disclosed"]
@@ -28,4 +29,4 @@ class PlanFinancialFlow:
     consistency_gap_usd: float | None
     disclosure_level: FinancialDisclosureLevel
     evidence_refs: tuple[str, ...]
-    source_metadata: dict[str, str]
+    source_metadata: Mapping[str, str] = field(compare=False, hash=False)

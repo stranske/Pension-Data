@@ -1,7 +1,7 @@
 {
   "complete_million_layout": {
-    "plan_id": "ca-pers",
-    "plan_period": "2025",
+    "plan_id": "CA-PERS",
+    "plan_period": "FY2025",
     "raw": {
       "source_document_id": "doc-ca-2025",
       "source_url": "https://example.org/ca-pers-2025.pdf",
@@ -19,8 +19,8 @@
     }
   },
   "complete_signed_layout": {
-    "plan_id": "tx-ers",
-    "plan_period": "2025",
+    "plan_id": "TX-ERS",
+    "plan_period": "FY2025",
     "raw": {
       "source_document_id": "doc-tx-2025",
       "source_url": "https://example.org/tx-ers-2025.pdf",
@@ -38,8 +38,8 @@
     }
   },
   "partial_layout": {
-    "plan_id": "wa-retire",
-    "plan_period": "2025",
+    "plan_id": "WA-RETIRE",
+    "plan_period": "FY2025",
     "raw": {
       "source_document_id": "doc-wa-2025",
       "source_url": "https://example.org/wa-retire-2025.pdf",

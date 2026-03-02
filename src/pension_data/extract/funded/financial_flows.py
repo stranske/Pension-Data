@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Literal
 
 from pension_data.db.models.financial_flows import FinancialDisclosureLevel, PlanFinancialFlow
@@ -84,6 +85,10 @@ def _sum_known(values: tuple[float | None, ...]) -> float | None:
     if not known_values:
         return None
     return round(sum(known_values), 6)
+
+
+def _source_metadata(*, source_url: str, unit_scale: UnitScale) -> MappingProxyType[str, str]:
+    return MappingProxyType({"source_url": source_url, "unit_scale": unit_scale})
 
 
 def extract_plan_financial_flow(
@@ -178,7 +183,7 @@ def extract_plan_financial_flow(
         consistency_gap_usd=consistency_gap_usd,
         disclosure_level=disclosure_level,
         evidence_refs=_dedupe_refs(raw.evidence_refs),
-        source_metadata={"source_url": raw.source_url, "unit_scale": raw.unit_scale},
+        source_metadata=_source_metadata(source_url=raw.source_url, unit_scale=raw.unit_scale),
     )
     warnings = [
         FinancialFlowWarning(
