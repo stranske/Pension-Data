@@ -114,7 +114,9 @@ def test_diff_reports_field_presence_changes() -> None:
         [
             ReplayResult(
                 document_id="doc-a",
-                fields={"funded_ratio": FieldExtraction(value=0.80, confidence=0.95, evidence="p1")},
+                fields={
+                    "funded_ratio": FieldExtraction(value=0.80, confidence=0.95, evidence="p1")
+                },
             )
         ],
         generated_at=datetime(2026, 3, 2, 0, 1, tzinfo=UTC),
