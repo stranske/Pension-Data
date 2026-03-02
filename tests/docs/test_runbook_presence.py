@@ -1,0 +1,46 @@
+"""Guardrails to keep operator runbooks present and actionable."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+INCIDENT_CLASSES_DOC = ROOT / "docs" / "ops" / "INCIDENT_CLASSES.md"
+PIPELINE_LINKS_DOC = ROOT / "docs" / "runbooks" / "PIPELINE_RUNBOOK_LINKS.md"
+
+RUNBOOKS: dict[str, str] = {
+    "source_map_breakage": "source-map-breakage.md",
+    "revised_file_mismatch": "revised-file-mismatch.md",
+    "parser_fallback_exhaustion": "parser-fallback-exhaustion.md",
+    "anomaly_flood": "anomaly-flood.md",
+}
+
+
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def test_incident_class_index_exists_and_lists_all_classes() -> None:
+    text = _read(INCIDENT_CLASSES_DOC)
+    for incident_class, runbook in RUNBOOKS.items():
+        assert incident_class in text
+        assert runbook in text
+
+
+def test_runbooks_exist_and_are_nonempty() -> None:
+    for incident_class, filename in RUNBOOKS.items():
+        runbook_path = ROOT / "docs" / "runbooks" / filename
+        assert runbook_path.exists(), f"missing runbook for {incident_class}"
+        text = _read(runbook_path)
+        assert "Last reviewed:" in text
+        assert "Incident class:" in text
+        assert "## Diagnostic Commands" in text
+        assert "## Remediation Steps" in text
+        assert "TBD" not in text
+
+
+def test_pipeline_links_cover_all_incident_classes() -> None:
+    text = _read(PIPELINE_LINKS_DOC)
+    for incident_class, filename in RUNBOOKS.items():
+        assert incident_class in text
+        assert filename in text
