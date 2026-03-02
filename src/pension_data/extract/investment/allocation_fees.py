@@ -19,7 +19,7 @@ from pension_data.normalize.investment_normalization import (
     normalize_rate_to_ratio,
 )
 
-_WARNING_MESSAGES: dict[str, str] = {
+_WARNING_MESSAGES: dict[InvestmentWarningCode, str] = {
     "partial_fee_disclosure": "Fee disclosure is partial for this manager/plan-period.",
     "ambiguous_manager_name": "Manager naming is ambiguous across fee disclosures.",
     "non_disclosure": "Fee disclosure is not available for this manager/plan-period.",
@@ -100,7 +100,16 @@ def extract_asset_allocations(
     rows: list[AllocationDisclosureInput],
 ) -> list[AssetAllocationObservation]:
     """Extract allocation observations with percent + nominal normalization."""
-    ordered_rows = sorted(rows, key=lambda row: normalize_allocation_category(row.category_label))
+    ordered_rows = sorted(
+        rows,
+        key=lambda row: (
+            normalize_allocation_category(row.category_label),
+            _normalize_token(row.category_label),
+            normalize_rate_to_ratio(row.percent_value) if row.percent_value is not None else -1.0,
+            normalize_amount_to_usd(row.amount_value, unit_scale=row.amount_unit) or -1.0,
+            _dedupe_refs(row.evidence_refs),
+        ),
+    )
 
     total_amount_usd = sum(
         amount
@@ -158,8 +167,12 @@ def extract_fee_observations(
         rows,
         key=lambda row: (
             _normalize_token(row.manager_name),
+            row.manager_name or "",
             row.fee_type,
-            row.amount_value if row.amount_value is not None else -1.0,
+            normalize_rate_to_ratio(row.rate_value) if row.rate_value is not None else -1.0,
+            normalize_amount_to_usd(row.amount_value, unit_scale=row.amount_unit) or -1.0,
+            row.explicit_not_disclosed,
+            _dedupe_refs(row.evidence_refs),
         ),
     )
 
@@ -241,8 +254,10 @@ def extract_fee_observations(
             row.plan_id,
             row.plan_period,
             _normalize_token(row.manager_name),
+            row.manager_name or "",
             row.code,
             row.message,
+            row.evidence_refs,
         )
     )
     return fee_rows, warnings

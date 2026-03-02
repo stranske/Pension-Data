@@ -190,7 +190,7 @@ def test_allocation_and_fee_extraction_is_deterministic() -> None:
             effective_date=allocation_payload["effective_date"],
             ingestion_date=allocation_payload["ingestion_date"],
             source_document_id=allocation_payload["source_document_id"],
-            rows=_allocations(),
+            rows=list(reversed(_allocations())),
         ),
         extract_fee_observations(
             plan_id=fee_payload["plan_id"],
@@ -198,7 +198,7 @@ def test_allocation_and_fee_extraction_is_deterministic() -> None:
             effective_date=fee_payload["effective_date"],
             ingestion_date=fee_payload["ingestion_date"],
             source_document_id=fee_payload["source_document_id"],
-            rows=_fees(),
+            rows=list(reversed(_fees())),
         ),
     )
     assert first == second
