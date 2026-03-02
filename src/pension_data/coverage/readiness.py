@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -15,10 +16,19 @@ from pension_data.quality.anomaly_rules import (
     TimeSeriesPoint,
     detect_anomalies,
 )
+from pension_data.registry.system_type_lookup import load_system_type_by_plan_id
 from pension_data.review_queue.anomalies import route_anomalies_to_review_queue
 from pension_data.sources.schema import SourceMapRecord
 
 ReadinessState = Literal["ready", "blocked_source", "blocked_quality"]
+CoverageGapState = Literal["full", "partial", "missing"]
+_YEAR_PATTERN = re.compile(r"(?:19|20)\d{2}")
+_OFFICIAL_TIERS = {"official", "official-mirror"}
+_RESOLUTION_PRIORITY = {
+    "not_found": 0,
+    "available_non_official_only": 1,
+    "available_official": 2,
+}
 
 
 def derive_readiness_state(record: SourceMapRecord) -> ReadinessState:
@@ -30,14 +40,120 @@ def derive_readiness_state(record: SourceMapRecord) -> ReadinessState:
     return "ready"
 
 
-def build_readiness_artifacts(records: list[SourceMapRecord]) -> dict[str, object]:
+def _parse_year_from_plan_period(plan_period: str) -> int | None:
+    years = [int(token) for token in _YEAR_PATTERN.findall(plan_period)]
+    return max(years) if years else None
+
+
+def _resolve_system_type(
+    *,
+    plan_id: str,
+    cohort: str,
+    system_type_by_plan_id: Mapping[str, str],
+) -> str:
+    return system_type_by_plan_id.get(plan_id.strip().lower(), cohort)
+
+
+def _select_resolution_record(records: list[SourceMapRecord]) -> SourceMapRecord:
+    return sorted(
+        records,
+        key=lambda row: (
+            _RESOLUTION_PRIORITY[row.official_resolution_state],
+            row.source_authority_tier in _OFFICIAL_TIERS,
+            row.source_url,
+        ),
+        reverse=True,
+    )[0]
+
+
+def _coverage_gap_state(official_resolution_state: str) -> CoverageGapState:
+    if official_resolution_state == "available_official":
+        return "full"
+    if official_resolution_state == "available_non_official_only":
+        return "partial"
+    return "missing"
+
+
+def _build_annual_report_gap_rows(
+    records: list[SourceMapRecord],
+    *,
+    target_years: tuple[int, ...] | None,
+    system_type_by_plan_id: Mapping[str, str],
+) -> tuple[list[dict[str, object]], tuple[int, ...]]:
+    coverage_by_plan_year: defaultdict[tuple[str, int], list[SourceMapRecord]] = defaultdict(list)
+    cohort_by_plan: dict[str, str] = {}
+    known_years: set[int] = set()
+
+    for record in records:
+        parsed_year = _parse_year_from_plan_period(record.plan_period)
+        if parsed_year is None:
+            continue
+        known_years.add(parsed_year)
+        coverage_by_plan_year[(record.plan_id, parsed_year)].append(record)
+        cohort_by_plan.setdefault(record.plan_id, record.cohort)
+
+    if target_years is None:
+        anchor_year = max(known_years) if known_years else 2025
+        target_years = tuple(range(anchor_year - 4, anchor_year + 1))
+    ordered_target_years = tuple(sorted(dict.fromkeys(target_years)))
+
+    gap_rows: list[dict[str, object]] = []
+    for plan_id in sorted(cohort_by_plan):
+        cohort = cohort_by_plan[plan_id]
+        system_type = _resolve_system_type(
+            plan_id=plan_id,
+            cohort=cohort,
+            system_type_by_plan_id=system_type_by_plan_id,
+        )
+        for plan_year in ordered_target_years:
+            plan_year_records = coverage_by_plan_year.get((plan_id, plan_year), [])
+            if plan_year_records:
+                selected = _select_resolution_record(plan_year_records)
+                official_resolution_state = selected.official_resolution_state
+                annual_report_source_url = selected.source_url
+            else:
+                official_resolution_state = "not_found"
+                annual_report_source_url = "not_found"
+            gap_rows.append(
+                {
+                    "plan_id": plan_id,
+                    "plan_year": plan_year,
+                    "cohort": cohort,
+                    "system_type": system_type,
+                    "official_resolution_state": official_resolution_state,
+                    "annual_report_source_url": annual_report_source_url,
+                    "coverage_gap_state": _coverage_gap_state(official_resolution_state),
+                }
+            )
+
+    gap_rows.sort(
+        key=lambda row: (row["cohort"], row["system_type"], row["plan_id"], row["plan_year"])
+    )
+    return gap_rows, ordered_target_years
+
+
+def build_readiness_artifacts(
+    records: list[SourceMapRecord],
+    *,
+    target_years: tuple[int, ...] | None = None,
+    system_type_by_plan_id: Mapping[str, str] | None = None,
+) -> dict[str, object]:
     """Build machine-readable readiness rows and deterministic cohort summaries."""
+    resolved_system_types = (
+        {key.lower(): value for key, value in load_system_type_by_plan_id().items()}
+        if system_type_by_plan_id is None
+        else {key.lower(): value for key, value in system_type_by_plan_id.items()}
+    )
     readiness_rows = [
         {
             "plan_id": record.plan_id,
             "plan_period": record.plan_period,
             "cohort": record.cohort,
-            "system_type": record.cohort,
+            "system_type": _resolve_system_type(
+                plan_id=record.plan_id,
+                cohort=record.cohort,
+                system_type_by_plan_id=resolved_system_types,
+            ),
             "official_resolution_state": record.official_resolution_state,
             "source_authority_tier": record.source_authority_tier,
             "mismatch_reason": record.mismatch_reason or "",
@@ -60,7 +176,11 @@ def build_readiness_artifacts(records: list[SourceMapRecord]) -> dict[str, objec
 
     for record in records:
         cohort = record.cohort
-        system_type = record.cohort
+        system_type = _resolve_system_type(
+            plan_id=record.plan_id,
+            cohort=record.cohort,
+            system_type_by_plan_id=resolved_system_types,
+        )
         totals_by_cohort[cohort] += 1
         totals_by_system_type[system_type] += 1
         if record.official_resolution_state != "available_official":
@@ -73,6 +193,35 @@ def build_readiness_artifacts(records: list[SourceMapRecord]) -> dict[str, objec
             stale_period_by_cohort[cohort] += 1
             stale_period_by_system_type[system_type] += 1
 
+    annual_report_gap_rows, ordered_target_years = _build_annual_report_gap_rows(
+        records,
+        target_years=target_years,
+        system_type_by_plan_id=resolved_system_types,
+    )
+    gap_totals_by_cohort: defaultdict[str, int] = defaultdict(int)
+    gap_missing_by_cohort: defaultdict[str, int] = defaultdict(int)
+    gap_partial_by_cohort: defaultdict[str, int] = defaultdict(int)
+    gap_full_by_cohort: defaultdict[str, int] = defaultdict(int)
+    gap_totals_by_system_type: defaultdict[str, int] = defaultdict(int)
+    gap_missing_by_system_type: defaultdict[str, int] = defaultdict(int)
+    gap_partial_by_system_type: defaultdict[str, int] = defaultdict(int)
+    gap_full_by_system_type: defaultdict[str, int] = defaultdict(int)
+    for row in annual_report_gap_rows:
+        cohort = str(row["cohort"])
+        system_type = str(row["system_type"])
+        gap_state = str(row["coverage_gap_state"])
+        gap_totals_by_cohort[cohort] += 1
+        gap_totals_by_system_type[system_type] += 1
+        if gap_state == "missing":
+            gap_missing_by_cohort[cohort] += 1
+            gap_missing_by_system_type[system_type] += 1
+        elif gap_state == "partial":
+            gap_partial_by_cohort[cohort] += 1
+            gap_partial_by_system_type[system_type] += 1
+        else:
+            gap_full_by_cohort[cohort] += 1
+            gap_full_by_system_type[system_type] += 1
+
     cohorts = sorted(totals_by_cohort.keys())
     summary_rows: list[dict[str, float | int | str]] = []
     for cohort in cohorts:
@@ -80,6 +229,10 @@ def build_readiness_artifacts(records: list[SourceMapRecord]) -> dict[str, objec
         unresolved = unresolved_official_by_cohort[cohort]
         mismatches = mismatches_by_cohort[cohort]
         stale_period = stale_period_by_cohort[cohort]
+        total_plan_years = gap_totals_by_cohort[cohort]
+        missing_years = gap_missing_by_cohort[cohort]
+        partial_years = gap_partial_by_cohort[cohort]
+        full_years = gap_full_by_cohort[cohort]
         summary_rows.append(
             {
                 "cohort": cohort,
@@ -89,6 +242,16 @@ def build_readiness_artifacts(records: list[SourceMapRecord]) -> dict[str, objec
                 "unresolved_official_rate": round(unresolved / total, 6),
                 "mismatch_rate": round(mismatches / total, 6),
                 "stale_period_rate": round(stale_period / total, 6),
+                "total_plan_years": total_plan_years,
+                "missing_year_count": missing_years,
+                "partial_year_count": partial_years,
+                "full_year_count": full_years,
+                "missing_year_rate": (
+                    round(missing_years / total_plan_years, 6) if total_plan_years else 0.0
+                ),
+                "partial_year_rate": (
+                    round(partial_years / total_plan_years, 6) if total_plan_years else 0.0
+                ),
             }
         )
 
@@ -99,6 +262,10 @@ def build_readiness_artifacts(records: list[SourceMapRecord]) -> dict[str, objec
         unresolved = unresolved_official_by_system_type[system_type]
         mismatches = mismatches_by_system_type[system_type]
         stale_period = stale_period_by_system_type[system_type]
+        total_plan_years = gap_totals_by_system_type[system_type]
+        missing_years = gap_missing_by_system_type[system_type]
+        partial_years = gap_partial_by_system_type[system_type]
+        full_years = gap_full_by_system_type[system_type]
         summary_by_system_type.append(
             {
                 "system_type": system_type,
@@ -108,11 +275,23 @@ def build_readiness_artifacts(records: list[SourceMapRecord]) -> dict[str, objec
                 "unresolved_official_rate": round(unresolved / total, 6),
                 "mismatch_rate": round(mismatches / total, 6),
                 "stale_period_rate": round(stale_period / total, 6),
+                "total_plan_years": total_plan_years,
+                "missing_year_count": missing_years,
+                "partial_year_count": partial_years,
+                "full_year_count": full_years,
+                "missing_year_rate": (
+                    round(missing_years / total_plan_years, 6) if total_plan_years else 0.0
+                ),
+                "partial_year_rate": (
+                    round(partial_years / total_plan_years, 6) if total_plan_years else 0.0
+                ),
             }
         )
 
     return {
         "readiness_rows": readiness_rows,
+        "annual_report_gap_rows": annual_report_gap_rows,
+        "target_year_window": list(ordered_target_years),
         "summary_by_cohort": summary_rows,
         "summary_by_system_type": summary_by_system_type,
     }
@@ -135,10 +314,13 @@ def write_coverage_artifacts(
 ) -> dict[str, str]:
     """Write deterministic machine-readable coverage artifacts under `artifacts/coverage`."""
     readiness_rows = artifacts.get("readiness_rows")
+    annual_report_gap_rows = artifacts.get("annual_report_gap_rows")
     summary_by_cohort = artifacts.get("summary_by_cohort")
     summary_by_system_type = artifacts.get("summary_by_system_type")
     if not isinstance(readiness_rows, list):
         raise ValueError("artifacts['readiness_rows'] must be a list")
+    if not isinstance(annual_report_gap_rows, list):
+        raise ValueError("artifacts['annual_report_gap_rows'] must be a list")
     if not isinstance(summary_by_cohort, list):
         raise ValueError("artifacts['summary_by_cohort'] must be a list")
     if not isinstance(summary_by_system_type, list):
@@ -149,12 +331,15 @@ def write_coverage_artifacts(
 
     readiness_json = coverage_dir / "readiness_rows.json"
     readiness_csv = coverage_dir / "readiness_rows.csv"
+    annual_gap_json = coverage_dir / "annual_report_gap_rows.json"
+    annual_gap_csv = coverage_dir / "annual_report_gap_rows.csv"
     cohort_json = coverage_dir / "summary_by_cohort.json"
     cohort_csv = coverage_dir / "summary_by_cohort.csv"
     system_type_json = coverage_dir / "summary_by_system_type.json"
     system_type_csv = coverage_dir / "summary_by_system_type.csv"
 
     _write_json(readiness_json, readiness_rows)
+    _write_json(annual_gap_json, annual_report_gap_rows)
     _write_json(cohort_json, summary_by_cohort)
     _write_json(system_type_json, summary_by_system_type)
     _write_csv(
@@ -171,6 +356,19 @@ def write_coverage_artifacts(
             "readiness_state",
         ),
     )
+    _write_csv(
+        annual_gap_csv,
+        rows=annual_report_gap_rows,
+        fieldnames=(
+            "plan_id",
+            "plan_year",
+            "cohort",
+            "system_type",
+            "official_resolution_state",
+            "annual_report_source_url",
+            "coverage_gap_state",
+        ),
+    )
     summary_fields = (
         "total_plan_periods",
         "unresolved_official_count",
@@ -178,6 +376,12 @@ def write_coverage_artifacts(
         "unresolved_official_rate",
         "mismatch_rate",
         "stale_period_rate",
+        "total_plan_years",
+        "missing_year_count",
+        "partial_year_count",
+        "full_year_count",
+        "missing_year_rate",
+        "partial_year_rate",
     )
     _write_csv(
         cohort_csv,
@@ -193,6 +397,8 @@ def write_coverage_artifacts(
     return {
         "readiness_rows_json": str(readiness_json),
         "readiness_rows_csv": str(readiness_csv),
+        "annual_report_gap_rows_json": str(annual_gap_json),
+        "annual_report_gap_rows_csv": str(annual_gap_csv),
         "summary_by_cohort_json": str(cohort_json),
         "summary_by_cohort_csv": str(cohort_csv),
         "summary_by_system_type_json": str(system_type_json),
