@@ -1,0 +1,18 @@
+{
+  "registry_seed": "registry_seed.csv",
+  "source_map_seed": "source_map.csv",
+  "discovered_records": [
+    {
+      "plan_id": "CA-PERS",
+      "plan_period": "FY2024",
+      "cohort": "state",
+      "source_url": "https://reports.ca.gov/robots-blocked/ca-pers-fy2024-acfr.pdf",
+      "source_authority_tier": "official",
+      "official_resolution_state": "available_official",
+      "expected_plan_identity": "CA-PERS",
+      "observed_plan_identity": "CA-PERS",
+      "mismatch_reason": null
+    }
+  ],
+  "ingestion_items": []
+}
