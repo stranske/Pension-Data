@@ -80,7 +80,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["my_project", "tools"]
+known-first-party = ["my_project", "pension_data", "tools"]
 
 [tool.mypy]
 python_version = "3.11"

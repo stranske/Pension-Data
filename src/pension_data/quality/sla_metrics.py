@@ -1,0 +1,226 @@
+"""SLA metric catalog and deterministic quality metric calculations."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Literal
+
+SLAStage = Literal["ingestion", "extraction", "review"]
+
+CORE_SLA_METRICS: tuple[str, ...] = (
+    "completeness_rate",
+    "freshness_lag_hours",
+    "review_queue_latency_hours",
+    "parse_warning_rate",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SLAMetricDefinition:
+    """Definition metadata for a single SLA metric."""
+
+    name: str
+    description: str
+    unit: str
+    higher_is_better: bool
+    stage: SLAStage
+    formula: str
+    required_tags: tuple[str, ...] = ("run_id", "stage", "window_start", "window_end")
+
+
+SLA_METRIC_CATALOG: dict[str, SLAMetricDefinition] = {
+    "completeness_rate": SLAMetricDefinition(
+        name="completeness_rate",
+        description="Fraction of expected records with complete required fields.",
+        unit="ratio",
+        higher_is_better=True,
+        stage="ingestion",
+        formula="records_complete / records_total",
+    ),
+    "freshness_lag_hours": SLAMetricDefinition(
+        name="freshness_lag_hours",
+        description="Hours between source publication and pipeline run start.",
+        unit="hours",
+        higher_is_better=False,
+        stage="ingestion",
+        formula="hours(run_started_at - source_published_at)",
+    ),
+    "review_queue_latency_hours": SLAMetricDefinition(
+        name="review_queue_latency_hours",
+        description="Average review queue wait time for flagged records.",
+        unit="hours",
+        higher_is_better=False,
+        stage="review",
+        formula="review_queue_wait_hours_sum / review_queue_items",
+    ),
+    "parse_warning_rate": SLAMetricDefinition(
+        name="parse_warning_rate",
+        description="Share of records with parser warnings.",
+        unit="ratio",
+        higher_is_better=False,
+        stage="extraction",
+        formula="parse_warning_count / records_total",
+    ),
+    "citation_density_per_10_pages": SLAMetricDefinition(
+        name="citation_density_per_10_pages",
+        description="Average cited facts per 10 document pages.",
+        unit="count_per_10_pages",
+        higher_is_better=True,
+        stage="extraction",
+        formula="(cited_facts * 10) / total_pages",
+    ),
+    "source_mismatch_rate": SLAMetricDefinition(
+        name="source_mismatch_rate",
+        description="Share of records with source mismatch findings.",
+        unit="ratio",
+        higher_is_better=False,
+        stage="review",
+        formula="source_mismatch_count / records_total",
+    ),
+    "unresolved_official_source_rate": SLAMetricDefinition(
+        name="unresolved_official_source_rate",
+        description="Share of records missing resolved official sources.",
+        unit="ratio",
+        higher_is_better=False,
+        stage="review",
+        formula="unresolved_official_source_count / records_total",
+    ),
+    "manager_disclosure_coverage_rate": SLAMetricDefinition(
+        name="manager_disclosure_coverage_rate",
+        description="Coverage rate for manager-level disclosures.",
+        unit="ratio",
+        higher_is_better=True,
+        stage="review",
+        formula="manager_disclosure_covered / manager_disclosure_total",
+    ),
+    "consultant_disclosure_coverage_rate": SLAMetricDefinition(
+        name="consultant_disclosure_coverage_rate",
+        description="Coverage rate for consultant disclosures.",
+        unit="ratio",
+        higher_is_better=True,
+        stage="review",
+        formula="consultant_disclosure_covered / consultant_disclosure_total",
+    ),
+}
+
+
+def core_sla_metric_catalog() -> dict[str, SLAMetricDefinition]:
+    """Return required SLA metrics for core pipeline quality reporting."""
+    return {metric: SLA_METRIC_CATALOG[metric] for metric in CORE_SLA_METRICS}
+
+
+@dataclass(frozen=True, slots=True)
+class RunQualitySnapshot:
+    """Input snapshot for SLA metric computations for a pipeline run."""
+
+    records_total: int
+    records_complete: int
+    source_published_at: datetime
+    run_started_at: datetime
+    review_queue_items: int
+    review_queue_wait_hours_sum: float
+    parse_warning_count: int
+    source_mismatch_count: int
+    unresolved_official_source_count: int
+    total_pages: int
+    cited_facts: int
+    manager_disclosure_total: int
+    manager_disclosure_covered: int
+    consultant_disclosure_total: int
+    consultant_disclosure_covered: int
+
+
+@dataclass(frozen=True, slots=True)
+class CoverageObservation:
+    """Cohort/period observation for disclosure coverage rollups."""
+
+    cohort: str
+    period: str
+    manager_disclosure_available: bool
+    consultant_disclosure_available: bool
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float:
+    if denominator <= 0:
+        return 0.0
+    return numerator / denominator
+
+
+def _to_utc_or_error(value: datetime, *, field_name: str) -> datetime:
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        msg = f"{field_name} must be a timezone-aware datetime"
+        raise ValueError(msg)
+    return value.astimezone(UTC)
+
+
+def _hours_between(started_at: datetime, published_at: datetime) -> float:
+    started = _to_utc_or_error(started_at, field_name="run_started_at")
+    published = _to_utc_or_error(published_at, field_name="source_published_at")
+    hours = (started - published).total_seconds() / 3600
+    return max(hours, 0.0)
+
+
+def compute_sla_metrics(snapshot: RunQualitySnapshot) -> dict[str, float]:
+    """Compute run-level SLA metrics from deterministic snapshot inputs."""
+    metrics: dict[str, float] = {
+        "completeness_rate": _safe_ratio(snapshot.records_complete, snapshot.records_total),
+        "freshness_lag_hours": _hours_between(
+            snapshot.run_started_at, snapshot.source_published_at
+        ),
+        "review_queue_latency_hours": _safe_ratio(
+            snapshot.review_queue_wait_hours_sum, snapshot.review_queue_items
+        ),
+        "parse_warning_rate": _safe_ratio(snapshot.parse_warning_count, snapshot.records_total),
+        "citation_density_per_10_pages": _safe_ratio(
+            snapshot.cited_facts * 10, snapshot.total_pages
+        ),
+        "source_mismatch_rate": _safe_ratio(snapshot.source_mismatch_count, snapshot.records_total),
+        "unresolved_official_source_rate": _safe_ratio(
+            snapshot.unresolved_official_source_count, snapshot.records_total
+        ),
+        "manager_disclosure_coverage_rate": _safe_ratio(
+            snapshot.manager_disclosure_covered, snapshot.manager_disclosure_total
+        ),
+        "consultant_disclosure_coverage_rate": _safe_ratio(
+            snapshot.consultant_disclosure_covered, snapshot.consultant_disclosure_total
+        ),
+    }
+    return metrics
+
+
+def aggregate_disclosure_coverage_by_cohort_period(
+    observations: list[CoverageObservation],
+) -> dict[tuple[str, str], dict[str, float]]:
+    """Aggregate manager/consultant disclosure rates by cohort and period."""
+    grouped: dict[tuple[str, str], dict[str, float]] = {}
+    for row in observations:
+        key = (row.cohort, row.period)
+        if key not in grouped:
+            grouped[key] = {
+                "systems_count": 0.0,
+                "manager_disclosure_covered_count": 0.0,
+                "consultant_disclosure_covered_count": 0.0,
+            }
+        grouped[key]["systems_count"] += 1.0
+        if row.manager_disclosure_available:
+            grouped[key]["manager_disclosure_covered_count"] += 1.0
+        if row.consultant_disclosure_available:
+            grouped[key]["consultant_disclosure_covered_count"] += 1.0
+
+    aggregates: dict[tuple[str, str], dict[str, float]] = {}
+    for key in sorted(grouped.keys()):
+        stats = grouped[key]
+        systems = stats["systems_count"]
+        aggregates[key] = {
+            "systems_count": systems,
+            "manager_disclosure_covered_count": stats["manager_disclosure_covered_count"],
+            "consultant_disclosure_covered_count": stats["consultant_disclosure_covered_count"],
+            "manager_disclosure_coverage_rate": _safe_ratio(
+                stats["manager_disclosure_covered_count"], systems
+            ),
+            "consultant_disclosure_coverage_rate": _safe_ratio(
+                stats["consultant_disclosure_covered_count"], systems
+            ),
+        }
+    return aggregates
