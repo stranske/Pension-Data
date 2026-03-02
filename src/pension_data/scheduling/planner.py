@@ -25,6 +25,19 @@ def _clamp(value: float, *, minimum: float, maximum: float) -> float:
     return max(minimum, min(maximum, value))
 
 
+def _clamp_datetime(value: datetime, *, minimum: datetime, maximum: datetime) -> datetime:
+    return max(minimum, min(maximum, value))
+
+
+def _validate_interval_bounds(*, min_interval_days: float, max_interval_days: float) -> None:
+    if min_interval_days <= 0 or max_interval_days <= 0:
+        msg = "Refresh interval bounds must be positive."
+        raise ValueError(msg)
+    if min_interval_days > max_interval_days:
+        msg = "min_interval_days cannot be greater than max_interval_days."
+        raise ValueError(msg)
+
+
 def _with_seasonality_anchor(
     *,
     target: datetime,
@@ -53,6 +66,10 @@ def plan_refresh_windows(
     max_interval_days: float = 120.0,
 ) -> list[RefreshPlan]:
     """Plan adaptive refresh windows with confidence and interval safeguards."""
+    _validate_interval_bounds(
+        min_interval_days=min_interval_days,
+        max_interval_days=max_interval_days,
+    )
     as_of_utc = as_of.astimezone(UTC)
     plans: list[RefreshPlan] = []
 
@@ -68,6 +85,11 @@ def plan_refresh_windows(
             minimum=min_interval_days,
             maximum=max_interval_days,
         )
+        minimum_allowed = last_seen + timedelta(days=min_interval_days)
+        maximum_allowed = last_seen + timedelta(days=max_interval_days)
+        window_floor = max(as_of_utc, minimum_allowed)
+        window_ceiling = max(window_floor, maximum_allowed)
+
         target = last_seen + timedelta(days=bounded_interval_days)
         target = _with_seasonality_anchor(
             target=target,
@@ -80,10 +102,23 @@ def plan_refresh_windows(
                 as_of=as_of_utc,
                 seasonality_months=profile.seasonality_months,
             )
+        target = _clamp_datetime(
+            target,
+            minimum=window_floor,
+            maximum=window_ceiling,
+        )
 
         jitter_days = bounded_interval_days * (0.05 + ((1.0 - profile.confidence) * 0.30))
-        earliest = max(as_of_utc, target - timedelta(days=jitter_days))
-        latest = max(earliest, target + timedelta(days=jitter_days))
+        earliest = _clamp_datetime(
+            max(as_of_utc, target - timedelta(days=jitter_days)),
+            minimum=window_floor,
+            maximum=window_ceiling,
+        )
+        latest = _clamp_datetime(
+            max(earliest, target + timedelta(days=jitter_days)),
+            minimum=earliest,
+            maximum=window_ceiling,
+        )
 
         plans.append(
             RefreshPlan(

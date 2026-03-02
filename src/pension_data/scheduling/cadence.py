@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from statistics import mean, median, pstdev
@@ -28,8 +29,74 @@ class CadenceProfile:
     is_sparse: bool
 
 
+@dataclass(frozen=True, slots=True)
+class SourceInventoryObservation:
+    """A source/inventory observation used to derive publication signals."""
+
+    system_id: str
+    source_id: str
+    observed_at: datetime
+    published_at: datetime | None = None
+    inventory_fingerprint: str | None = None
+
+
 def _normalized_utc(timestamp: datetime) -> datetime:
     return timestamp.astimezone(UTC)
+
+
+def extract_publication_events(
+    observations: Iterable[SourceInventoryObservation],
+) -> list[PublicationEvent]:
+    """Extract publication events from source metadata and inventory changes."""
+    grouped: dict[tuple[str, str], list[SourceInventoryObservation]] = defaultdict(list)
+    for observation in observations:
+        grouped[(observation.system_id, observation.source_id)].append(observation)
+
+    extracted: list[PublicationEvent] = []
+    for system_id, source_id in sorted(grouped.keys()):
+        history = sorted(
+            grouped[(system_id, source_id)], key=lambda item: _normalized_utc(item.observed_at)
+        )
+        seen_publication_times: set[datetime] = set()
+        previous_fingerprint: str | None = None
+
+        for item in history:
+            explicit_publication = item.published_at is not None
+            fingerprint_changed = item.inventory_fingerprint is not None and (
+                previous_fingerprint is None or item.inventory_fingerprint != previous_fingerprint
+            )
+            if explicit_publication:
+                publication_time = _normalized_utc(item.published_at or item.observed_at)
+            elif fingerprint_changed:
+                publication_time = _normalized_utc(item.observed_at)
+            else:
+                previous_fingerprint = item.inventory_fingerprint
+                continue
+
+            if publication_time not in seen_publication_times:
+                extracted.append(
+                    PublicationEvent(
+                        system_id=system_id,
+                        source_id=source_id,
+                        published_at=publication_time,
+                    )
+                )
+                seen_publication_times.add(publication_time)
+
+            previous_fingerprint = item.inventory_fingerprint
+
+    return extracted
+
+
+def latest_publications(events: Iterable[PublicationEvent]) -> Mapping[tuple[str, str], datetime]:
+    """Return the latest publication timestamp per system/source pair."""
+    latest: dict[tuple[str, str], datetime] = {}
+    for event in events:
+        key = (event.system_id, event.source_id)
+        timestamp = _normalized_utc(event.published_at)
+        if key not in latest or timestamp > latest[key]:
+            latest[key] = timestamp
+    return latest
 
 
 def _intervals_in_days(timestamps: list[datetime]) -> list[float]:
