@@ -16,13 +16,13 @@ class ReplayGateReport(TypedDict):
     unexpected_changes: int
     max_unexpected: int
     violations: list[str]
+    classification_counts: dict[str, int]
+    unexpected_examples: list[dict[str, object]]
 
 
 def load_replay_diff(diff_path: Path) -> tuple[int, int]:
     """Load replay diff and return total and unexpected change counts."""
-    payload = json.loads(diff_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError("replay diff payload must be a JSON object")
+    payload = load_replay_payload(diff_path)
 
     if "unexpected_changes" in payload:
         unexpected = payload["unexpected_changes"]
@@ -48,6 +48,43 @@ def load_replay_diff(diff_path: Path) -> tuple[int, int]:
     return total_changes, unexpected
 
 
+def load_replay_payload(diff_path: Path) -> dict[str, object]:
+    """Load and validate replay diff JSON payload."""
+    payload = json.loads(diff_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("replay diff payload must be a JSON object")
+    return payload
+
+
+def _extract_changes(payload: dict[str, object]) -> list[dict[str, object]]:
+    raw_changes = payload.get("changes", [])
+    if raw_changes is None:
+        return []
+    if not isinstance(raw_changes, list):
+        raise ValueError("replay diff changes must be a list")
+    return [item for item in raw_changes if isinstance(item, dict)]
+
+
+def summarize_replay_changes(payload: dict[str, object]) -> dict[str, int]:
+    """Build classification counts for replay change details."""
+    changes = _extract_changes(payload)
+    counts: dict[str, int] = {}
+    for item in changes:
+        classification = item.get("classification")
+        key = classification if isinstance(classification, str) else "unclassified"
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def sample_unexpected_changes(
+    payload: dict[str, object], *, limit: int = 5
+) -> list[dict[str, object]]:
+    """Collect a bounded sample of unexpected drift entries for quick triage."""
+    changes = _extract_changes(payload)
+    examples = [item for item in changes if item.get("classification") == "unexpected_drift"]
+    return examples[:limit]
+
+
 def evaluate_replay_diff(*, unexpected_changes: int, max_unexpected: int) -> list[str]:
     """Return replay-gate violations for current tolerance settings."""
     violations: list[str] = []
@@ -64,6 +101,8 @@ def build_report(
     unexpected_changes: int,
     max_unexpected: int,
     violations: list[str],
+    classification_counts: dict[str, int] | None = None,
+    unexpected_examples: list[dict[str, object]] | None = None,
 ) -> ReplayGateReport:
     """Build CI artifact payload for replay quality gate."""
     return {
@@ -72,6 +111,8 @@ def build_report(
         "unexpected_changes": unexpected_changes,
         "max_unexpected": max_unexpected,
         "violations": violations,
+        "classification_counts": classification_counts or {},
+        "unexpected_examples": unexpected_examples or [],
     }
 
 
@@ -83,6 +124,7 @@ def write_report(report_path: Path, report: ReplayGateReport) -> None:
 
 def run_gate(*, diff_path: Path, max_unexpected: int, report_path: Path | None = None) -> bool:
     """Run replay quality gate and optionally emit artifact report."""
+    payload = load_replay_payload(diff_path)
     total_changes, unexpected_changes = load_replay_diff(diff_path)
     violations = evaluate_replay_diff(
         unexpected_changes=unexpected_changes,
@@ -93,6 +135,8 @@ def run_gate(*, diff_path: Path, max_unexpected: int, report_path: Path | None =
         unexpected_changes=unexpected_changes,
         max_unexpected=max_unexpected,
         violations=violations,
+        classification_counts=summarize_replay_changes(payload),
+        unexpected_examples=sample_unexpected_changes(payload),
     )
     if report_path is not None:
         write_report(report_path, report)
@@ -101,7 +145,9 @@ def run_gate(*, diff_path: Path, max_unexpected: int, report_path: Path | None =
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--diff", type=Path, required=True, help="Path to replay diff JSON artifact")
+    parser.add_argument(
+        "--diff", type=Path, required=True, help="Path to replay diff JSON artifact"
+    )
     parser.add_argument(
         "--max-unexpected",
         type=int,

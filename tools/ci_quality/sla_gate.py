@@ -35,6 +35,9 @@ class SLAGateReport(TypedDict):
     status: str
     critical_breach_count: int
     noncritical_breach_count: int
+    reason_counts: dict[str, int]
+    failed_critical_metrics: list[str]
+    failed_noncritical_metrics: list[str]
     breaches: list[Breach]
 
 
@@ -129,10 +132,24 @@ def build_report(breaches: list[Breach]) -> SLAGateReport:
     """Build machine-readable SLA gate report."""
     critical_count = sum(1 for item in breaches if item["critical"])
     noncritical_count = len(breaches) - critical_count
+    reason_counts: dict[str, int] = {}
+    failed_critical_metrics: list[str] = []
+    failed_noncritical_metrics: list[str] = []
+    for breach in breaches:
+        reason = breach["reason"]
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        if breach["critical"]:
+            failed_critical_metrics.append(breach["metric"])
+        else:
+            failed_noncritical_metrics.append(breach["metric"])
+
     return {
         "status": "fail" if critical_count else "pass",
         "critical_breach_count": critical_count,
         "noncritical_breach_count": noncritical_count,
+        "reason_counts": dict(sorted(reason_counts.items())),
+        "failed_critical_metrics": sorted(set(failed_critical_metrics)),
+        "failed_noncritical_metrics": sorted(set(failed_noncritical_metrics)),
         "breaches": breaches,
     }
 

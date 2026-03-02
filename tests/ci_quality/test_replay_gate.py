@@ -25,7 +25,7 @@ def test_replay_gate_passes_when_unexpected_within_tolerance(tmp_path: Path) -> 
         {
             "total_changes": 2,
             "unexpected_changes": 0,
-            "changes": [],
+            "changes": [{"classification": "expected_change"}, {"classification": "format_only"}],
         },
     )
 
@@ -33,6 +33,8 @@ def test_replay_gate_passes_when_unexpected_within_tolerance(tmp_path: Path) -> 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["status"] == "pass"
     assert report["unexpected_changes"] == 0
+    assert report["classification_counts"] == {"expected_change": 1, "format_only": 1}
+    assert report["unexpected_examples"] == []
 
 
 def test_replay_gate_fails_when_unexpected_exceeds_tolerance(tmp_path: Path) -> None:
@@ -60,3 +62,26 @@ def test_replay_gate_fails_when_unexpected_exceeds_tolerance(tmp_path: Path) -> 
     assert unexpected == 2
     assert report["status"] == "fail"
     assert "exceeds tolerance" in report["violations"][0]
+
+
+def test_replay_gate_report_includes_unexpected_change_examples(tmp_path: Path) -> None:
+    diff_path = tmp_path / "diff.json"
+    report_path = tmp_path / "report.json"
+    _write_json(
+        diff_path,
+        {
+            "changes": [
+                {"classification": "unexpected_drift", "path": "a.json", "field": "name"},
+                {"classification": "unexpected_drift", "path": "b.json", "field": "status"},
+                {"classification": "expected_change", "path": "c.json", "field": "id"},
+            ]
+        },
+    )
+
+    assert not run_gate(diff_path=diff_path, max_unexpected=0, report_path=report_path)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["classification_counts"] == {"expected_change": 1, "unexpected_drift": 2}
+    assert report["unexpected_examples"] == [
+        {"classification": "unexpected_drift", "field": "name", "path": "a.json"},
+        {"classification": "unexpected_drift", "field": "status", "path": "b.json"},
+    ]
