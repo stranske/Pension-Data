@@ -67,6 +67,63 @@ def test_validate_source_map_raises_for_invalid_batch() -> None:
         validate_source_map([valid, invalid])
 
 
+def test_validate_source_map_record_accepts_known_system_overrides() -> None:
+    record = replace(
+        _valid_record(),
+        system_overrides={
+            "requires_javascript": True,
+            "pagination_mode": "next_link",
+            "document_format_hint": "pdf",
+            "request_timeout_seconds": 25,
+            "rate_limit_per_minute": 10,
+            "force_canonical_host": "example.gov",
+        },
+    )
+    assert validate_source_map_record(record) == []
+
+
+def test_validate_source_map_record_rejects_unknown_override_keys() -> None:
+    record = replace(
+        _valid_record(),
+        system_overrides={"unsupported_key": "value"},
+    )
+    errors = validate_source_map_record(record)
+    assert "unknown system_overrides keys ['unsupported_key']" in "\n".join(errors)
+
+
+def test_validate_source_map_record_rejects_invalid_override_values() -> None:
+    record = replace(
+        _valid_record(),
+        system_overrides={
+            "requires_javascript": "yes",
+            "pagination_mode": "cursor",
+            "request_timeout_seconds": 0,
+        },
+    )
+    errors = validate_source_map_record(record)
+    joined = "\n".join(errors)
+    assert "system_overrides.requires_javascript must be a boolean" in joined
+    assert "system_overrides.pagination_mode must be one of" in joined
+    assert "system_overrides.request_timeout_seconds must be a positive integer" in joined
+
+
+def test_validate_source_map_rejects_conflicting_per_system_overrides() -> None:
+    first = replace(
+        _valid_record(),
+        plan_period="FY2023",
+        system_overrides={"pagination_mode": "single_page"},
+    )
+    second = replace(
+        _valid_record(),
+        plan_period="FY2024",
+        system_overrides={"pagination_mode": "next_link"},
+    )
+    with pytest.raises(SourceValidationError) as exc_info:
+        validate_source_map([first, second])
+
+    assert "conflicting system_overrides for plan_id 'CA-PERS'" in str(exc_info.value)
+
+
 @pytest.mark.parametrize(
     ("has_official_source", "has_non_official_source", "expected"),
     [
