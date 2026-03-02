@@ -65,6 +65,13 @@ def test_text_layout_emits_missing_metric_warning_for_participant_count() -> Non
     )
     metric_names = {item.metric_name for item in facts}
     assert "participant_count" not in metric_names
+    metrics = {item.metric_name: item for item in facts}
+    assert metrics["funded_ratio"].normalized_value == 0.812
+    assert metrics["aal_usd"].normalized_value == 410_500_000.0
+    assert metrics["ava_usd"].normalized_value == 333_700_000.0
+    assert metrics["discount_rate"].normalized_value == 0.0675
+    assert metrics["employer_contribution_rate"].normalized_value == 0.111
+    assert metrics["employee_contribution_rate"].normalized_value == 0.071
     missing = [item for item in diagnostics if item.code == "missing_metric"]
     assert any(item.metric_name == "participant_count" for item in missing)
     assert all(item.severity == "warning" for item in diagnostics)

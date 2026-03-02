@@ -57,12 +57,39 @@ class _CandidateMetric:
     evidence_ref: str
 
 
+def _is_year_like_token(token: str) -> bool:
+    cleaned = token.replace(",", "")
+    return len(cleaned) == 4 and cleaned.startswith(("19", "20"))
+
+
 def _parse_numeric_token(text: str) -> float | None:
-    match = _NUMBER_PATTERN.search(text)
-    if match is None:
-        return None
-    token = match.group(0).replace(",", "")
-    return float(token)
+    for match in _NUMBER_PATTERN.finditer(text):
+        token = match.group(0)
+        if _is_year_like_token(token):
+            continue
+        return float(token.replace(",", ""))
+    return None
+
+
+def _parse_numeric_token_after_alias(*, text: str, aliases: tuple[str, ...]) -> float | None:
+    lowered = text.lower()
+    candidates: list[tuple[int, float]] = []
+    for alias in aliases:
+        start_index = 0
+        while True:
+            match_index = lowered.find(alias, start_index)
+            if match_index == -1:
+                break
+            search_start = match_index + len(alias)
+            window = text[search_start : search_start + 96]
+            parsed = _parse_numeric_token(window)
+            if parsed is not None:
+                candidates.append((search_start, parsed))
+            start_index = match_index + len(alias)
+
+    if candidates:
+        return sorted(candidates, key=lambda row: row[0])[0][1]
+    return _parse_numeric_token(text)
 
 
 def _detect_money_scale(text: str, *, fallback: UnitScale) -> UnitScale:
@@ -113,7 +140,7 @@ def _find_candidate_in_text(
     lowered = text.lower()
     if not any(alias in lowered for alias in aliases):
         return None
-    numeric = _parse_numeric_token(text)
+    numeric = _parse_numeric_token_after_alias(text=text, aliases=aliases)
     if numeric is None:
         return None
     as_reported, normalized, as_unit, normalized_unit = _normalize_metric_value(

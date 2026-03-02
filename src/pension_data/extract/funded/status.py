@@ -27,9 +27,5 @@ def extract_funded_status_metrics(
         raw=raw,
     )
     funded_facts = [fact for fact in facts if fact.metric_name in _FUNDED_METRICS]
-    funded_diagnostics = [
-        item
-        for item in diagnostics
-        if item.metric_name in _FUNDED_METRICS or item.code == "ambiguous_metric"
-    ]
+    funded_diagnostics = [item for item in diagnostics if item.metric_name in _FUNDED_METRICS]
     return funded_facts, funded_diagnostics
