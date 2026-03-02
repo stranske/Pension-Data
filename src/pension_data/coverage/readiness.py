@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import UTC, datetime
 from typing import Literal
 
+from pension_data.quality.anomaly_rules import (
+    AnomalyRecord,
+    TimeSeriesPoint,
+    detect_anomalies,
+)
+from pension_data.review_queue.anomalies import route_anomalies_to_review_queue
 from pension_data.sources.schema import SourceMapRecord
 
 ReadinessState = Literal["ready", "blocked_source", "blocked_quality"]
@@ -73,3 +80,66 @@ def build_readiness_artifacts(records: list[SourceMapRecord]) -> dict[str, objec
         "readiness_rows": readiness_rows,
         "summary_by_cohort": summary_rows,
     }
+
+
+def _serialize_anomaly_rows(anomalies: list[AnomalyRecord]) -> list[dict[str, object]]:
+    return [
+        {
+            "anomaly_id": anomaly.anomaly_id,
+            "plan_id": anomaly.plan_id,
+            "period": anomaly.period,
+            "metric": anomaly.metric,
+            "shift": anomaly.shift,
+            "score": anomaly.score,
+            "severity": anomaly.severity,
+            "confidence": anomaly.confidence,
+            "priority": anomaly.priority,
+            "requires_review": anomaly.requires_review,
+            "evidence_context": dict(anomaly.evidence_context),
+        }
+        for anomaly in anomalies
+    ]
+
+
+def build_publication_artifacts(
+    records: list[SourceMapRecord],
+    *,
+    anomaly_points: list[TimeSeriesPoint] | None = None,
+    queued_at: datetime | None = None,
+) -> dict[str, object]:
+    """Build publication artifacts with non-blocking anomaly review-queue routing."""
+    artifacts = build_readiness_artifacts(records)
+    points = anomaly_points or []
+
+    try:
+        anomalies = detect_anomalies(points)
+        anomaly_rows = _serialize_anomaly_rows(anomalies)
+        queue_items = route_anomalies_to_review_queue(
+            anomalies,
+            queued_at=queued_at,
+        )
+    except Exception as error:
+        artifacts["anomaly_rows"] = []
+        artifacts["review_queue_rows"] = []
+        artifacts["anomaly_routing_status"] = "degraded"
+        artifacts["anomaly_routing_error"] = f"{type(error).__name__}: {error}"
+        return artifacts
+
+    artifacts["anomaly_rows"] = anomaly_rows
+    artifacts["review_queue_rows"] = [
+        {
+            "queue_id": item.queue_id,
+            "anomaly_id": item.anomaly_id,
+            "plan_id": item.plan_id,
+            "period": item.period,
+            "priority": item.priority,
+            "metric": item.metric,
+            "reason": item.reason,
+            "evidence_context": dict(item.evidence_context),
+            "created_at": item.created_at.astimezone(UTC).isoformat(),
+        }
+        for item in queue_items
+    ]
+    artifacts["anomaly_routing_status"] = "ok"
+    artifacts["anomaly_routing_error"] = ""
+    return artifacts
