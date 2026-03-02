@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pension_data.quality.sla_metrics import SLA_METRIC_CATALOG, SLAStage
+
 
 @dataclass(frozen=True, slots=True)
 class TelemetryRecord:
@@ -39,6 +41,83 @@ def emit_sla_telemetry(
             )
         )
     return records
+
+
+def emit_stage_sla_telemetry(
+    metrics: Mapping[str, float],
+    *,
+    stage: SLAStage,
+    observed_at: datetime,
+    tags: Mapping[str, str] | None = None,
+) -> list[TelemetryRecord]:
+    """Emit telemetry for one pipeline stage and enforce the stage tag."""
+    stage_metrics = {
+        metric_name: float(metrics[metric_name])
+        for metric_name, definition in sorted(SLA_METRIC_CATALOG.items())
+        if definition.stage == stage and metric_name in metrics
+    }
+    stage_tags = dict(tags or {})
+    stage_tags["stage"] = stage
+    return emit_sla_telemetry(stage_metrics, observed_at=observed_at, tags=stage_tags)
+
+
+def emit_ingestion_sla_telemetry(
+    metrics: Mapping[str, float],
+    *,
+    observed_at: datetime,
+    tags: Mapping[str, str] | None = None,
+) -> list[TelemetryRecord]:
+    """Emit ingestion workflow metrics."""
+    return emit_stage_sla_telemetry(
+        metrics,
+        stage="ingestion",
+        observed_at=observed_at,
+        tags=tags,
+    )
+
+
+def emit_extraction_sla_telemetry(
+    metrics: Mapping[str, float],
+    *,
+    observed_at: datetime,
+    tags: Mapping[str, str] | None = None,
+) -> list[TelemetryRecord]:
+    """Emit extraction workflow metrics."""
+    return emit_stage_sla_telemetry(
+        metrics,
+        stage="extraction",
+        observed_at=observed_at,
+        tags=tags,
+    )
+
+
+def emit_review_sla_telemetry(
+    metrics: Mapping[str, float],
+    *,
+    observed_at: datetime,
+    tags: Mapping[str, str] | None = None,
+) -> list[TelemetryRecord]:
+    """Emit review workflow metrics."""
+    return emit_stage_sla_telemetry(
+        metrics,
+        stage="review",
+        observed_at=observed_at,
+        tags=tags,
+    )
+
+
+def emit_workflow_sla_telemetry(
+    metrics: Mapping[str, float],
+    *,
+    observed_at: datetime,
+    tags: Mapping[str, str] | None = None,
+) -> dict[SLAStage, list[TelemetryRecord]]:
+    """Emit SLA telemetry partitioned by ingestion, extraction, and review workflows."""
+    return {
+        "ingestion": emit_ingestion_sla_telemetry(metrics, observed_at=observed_at, tags=tags),
+        "extraction": emit_extraction_sla_telemetry(metrics, observed_at=observed_at, tags=tags),
+        "review": emit_review_sla_telemetry(metrics, observed_at=observed_at, tags=tags),
+    }
 
 
 def _record_to_json(record: TelemetryRecord) -> dict[str, object]:

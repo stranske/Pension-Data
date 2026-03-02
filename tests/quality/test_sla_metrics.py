@@ -8,7 +8,11 @@ from pathlib import Path
 
 from pension_data.monitoring.telemetry import (
     aggregate_metric_window,
+    emit_extraction_sla_telemetry,
+    emit_ingestion_sla_telemetry,
+    emit_review_sla_telemetry,
     emit_sla_telemetry,
+    emit_workflow_sla_telemetry,
     write_telemetry_artifact,
 )
 from pension_data.quality.sla_metrics import (
@@ -126,3 +130,55 @@ def test_emit_telemetry_and_build_baseline_report(tmp_path: Path) -> None:
     summary = aggregate_metric_window(records)
     assert summary["completeness_rate"]["avg"] == 0.95
     assert summary["parse_warning_rate"]["max"] == 0.05
+
+
+def test_stage_emitters_filter_metrics_and_apply_stage_tag() -> None:
+    observed_at = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)
+    metrics = {
+        "completeness_rate": 0.95,
+        "freshness_lag_hours": 6.0,
+        "parse_warning_rate": 0.05,
+        "review_queue_latency_hours": 4.0,
+    }
+
+    ingestion = emit_ingestion_sla_telemetry(
+        metrics, observed_at=observed_at, tags={"run_id": "run-1"}
+    )
+    extraction = emit_extraction_sla_telemetry(
+        metrics, observed_at=observed_at, tags={"run_id": "run-1"}
+    )
+    review = emit_review_sla_telemetry(metrics, observed_at=observed_at, tags={"run_id": "run-1"})
+
+    assert [record.metric for record in ingestion] == [
+        "completeness_rate",
+        "freshness_lag_hours",
+    ]
+    assert [record.metric for record in extraction] == ["parse_warning_rate"]
+    assert [record.metric for record in review] == ["review_queue_latency_hours"]
+    assert all(record.tags["stage"] == "ingestion" for record in ingestion)
+    assert all(record.tags["stage"] == "extraction" for record in extraction)
+    assert all(record.tags["stage"] == "review" for record in review)
+
+
+def test_workflow_emitter_partitions_sla_metrics_by_stage() -> None:
+    observed_at = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)
+    staged = emit_workflow_sla_telemetry(
+        {
+            "completeness_rate": 0.95,
+            "parse_warning_rate": 0.05,
+            "review_queue_latency_hours": 4.0,
+            "source_mismatch_rate": 0.04,
+        },
+        observed_at=observed_at,
+        tags={"run_id": "run-2", "window_start": "2026-03-01", "window_end": "2026-03-02"},
+    )
+
+    assert [record.metric for record in staged["ingestion"]] == ["completeness_rate"]
+    assert [record.metric for record in staged["extraction"]] == ["parse_warning_rate"]
+    assert [record.metric for record in staged["review"]] == [
+        "review_queue_latency_hours",
+        "source_mismatch_rate",
+    ]
+    assert all(
+        record.tags["run_id"] == "run-2" for records in staged.values() for record in records
+    )
