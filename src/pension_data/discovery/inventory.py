@@ -108,7 +108,7 @@ def _select_resolution_record(records: list[SourceMapRecord]) -> SourceMapRecord
         records,
         key=lambda row: (
             _RESOLUTION_PRIORITY[row.official_resolution_state],
-            row.source_authority_tier == "official",
+            row.source_authority_tier in ("official", "official-mirror"),
             row.source_url,
         ),
         reverse=True,
@@ -124,7 +124,16 @@ def _write_csv(path: Path, *, rows: list[dict[str, object]], fieldnames: tuple[s
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for row in rows:
-            writer.writerow({field: row.get(field, "") for field in fieldnames})
+            serialized_row: dict[str, object] = {}
+            for field in fieldnames:
+                value = row.get(field)
+                if value is None:
+                    serialized_row[field] = ""
+                elif isinstance(value, (dict, list)):
+                    serialized_row[field] = json.dumps(value, sort_keys=True)
+                else:
+                    serialized_row[field] = value
+            writer.writerow(serialized_row)
 
 
 def build_inventory_artifacts(

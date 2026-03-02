@@ -148,6 +148,35 @@ def test_inventory_artifacts_include_coverage_states_and_side_survey_counts() ->
     assert artifacts["target_year_window"] == [2022, 2023, 2024]
 
 
+def test_resolution_selection_prefers_official_mirror_over_third_party() -> None:
+    artifacts = build_inventory_artifacts(
+        source_records=[
+            SourceMapRecord(
+                plan_id="CA-PERS",
+                plan_period="FY2024",
+                cohort="state",
+                source_url="https://mirror.example.gov/ca-2024.pdf",
+                source_authority_tier="official-mirror",
+                official_resolution_state="not_found",
+                expected_plan_identity="CA-PERS",
+            ),
+            SourceMapRecord(
+                plan_id="CA-PERS",
+                plan_period="FY2024",
+                cohort="state",
+                source_url="https://thirdparty.example.com/ca-2024.pdf",
+                source_authority_tier="high-confidence-third-party",
+                official_resolution_state="not_found",
+                expected_plan_identity="CA-PERS",
+            ),
+        ],
+        discovered_documents=[],
+        target_years=(2024,),
+    )
+    coverage_row = artifacts["annual_report_coverage_rows"][0]
+    assert coverage_row["annual_report_source_url"] == "https://mirror.example.gov/ca-2024.pdf"
+
+
 def test_inventory_artifacts_are_reproducible_for_same_inputs() -> None:
     first = build_inventory_artifacts(
         source_records=_source_records(),
@@ -163,9 +192,17 @@ def test_inventory_artifacts_are_reproducible_for_same_inputs() -> None:
 
 
 def test_write_inventory_artifacts_is_deterministic(tmp_path: Path) -> None:
+    discovered_documents = _discovered_documents() + [
+        DiscoveredDocumentInput(
+            plan_id="CA-PERS",
+            source_url="https://example.gov/docs/no-year-memo.pdf",
+            title="Memo without report year",
+            source_authority_tier="official",
+        )
+    ]
     artifacts = build_inventory_artifacts(
         source_records=_source_records(),
-        discovered_documents=_discovered_documents(),
+        discovered_documents=discovered_documents,
         target_years=(2022, 2023, 2024),
     )
     first_paths = write_inventory_artifacts(artifacts, output_root=tmp_path / "run-1")
@@ -180,3 +217,5 @@ def test_write_inventory_artifacts_is_deterministic(tmp_path: Path) -> None:
     assert first_contents == second_contents
     assert "available_official" in first_contents["annual_report_coverage_rows_json"]
     assert "plan_id,cohort,annual_report_count" in first_contents["summary_by_system_csv"]
+    assert '""year_detection"": ""title_url_pattern""' in first_contents["inventory_rows_csv"]
+    assert "None" not in first_contents["inventory_rows_csv"]
