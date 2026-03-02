@@ -99,6 +99,15 @@ def test_per_system_override_validation_and_behavior() -> None:
     assert any(finding.code == "invalid_override_key" for finding in invalid_findings)
 
 
+def test_parse_source_map_rows_handles_non_string_csv_cells() -> None:
+    row = _valid_row()
+    malformed: dict[str | None, object] = dict(row)
+    malformed[None] = ["extra-column"]
+    malformed["override_notes"] = ["Known dynamic page", "Secondary note"]
+    entries = parse_source_map_rows([malformed])
+    assert entries[0].overrides == (("notes", "Known dynamic page;Secondary note"),)
+
+
 def test_assert_valid_source_map_raises_actionable_error() -> None:
     row = _valid_row()
     row["max_pages"] = "0"
@@ -133,6 +142,7 @@ def test_url_normalization_preserves_query_parameters() -> None:
 def test_lint_command_handles_invalid_inputs_with_nonzero_exit(tmp_path: Path) -> None:
     missing = tmp_path / "missing.csv"
     assert lint_main([str(missing)]) == 1
+    assert lint_main([str(tmp_path)]) == 1
 
     bad_numeric = tmp_path / "bad_numeric.csv"
     bad_numeric.write_text(

@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         entries = load_source_map(Path(args.source_map))
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, OSError, ValueError, TypeError, AttributeError) as exc:
         print(f"ERROR: {exc}")
         return 1
 

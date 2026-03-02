@@ -53,9 +53,15 @@ def normalize_url(url: str) -> str:
     return normalized
 
 
-def _cell(row: Mapping[str, str | None], key: str) -> str:
+def _cell(row: Mapping[str | None, object], key: str) -> str:
     value = row.get(key)
-    return value.strip() if value is not None else ""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        return ";".join(str(item).strip() for item in value if str(item).strip())
+    return str(value).strip()
 
 
 def _split_list(raw: str) -> tuple[str, ...]:
@@ -73,14 +79,21 @@ def _canonical_authority_tier(raw: str) -> str:
     return raw.strip().replace("_", "-")
 
 
-def _parse_overrides(row: Mapping[str, str | None]) -> tuple[tuple[str, str], ...]:
+def _parse_overrides(row: Mapping[str | None, object]) -> tuple[tuple[str, str], ...]:
     parsed: dict[str, str] = {}
     for key, value in row.items():
+        if not isinstance(key, str):
+            continue
         if not key.startswith("override_"):
             continue
         if value is None:
             continue
-        cleaned = value.strip()
+        if isinstance(value, list):
+            cleaned = ";".join(str(item).strip() for item in value if str(item).strip())
+        elif isinstance(value, str):
+            cleaned = value.strip()
+        else:
+            cleaned = str(value).strip()
         if not cleaned:
             continue
         override_key = key.removeprefix("override_")
@@ -88,7 +101,7 @@ def _parse_overrides(row: Mapping[str, str | None]) -> tuple[tuple[str, str], ..
     return tuple(sorted(parsed.items()))
 
 
-def parse_source_map_rows(rows: Sequence[Mapping[str, str | None]]) -> list[SourceMapEntry]:
+def parse_source_map_rows(rows: Sequence[Mapping[str | None, object]]) -> list[SourceMapEntry]:
     """Parse source-map rows into typed entries without side effects."""
     entries: list[SourceMapEntry] = []
     for row in rows:
@@ -410,8 +423,10 @@ def _normalized_overrides(
     return tuple(sorted(overrides.items()))
 
 
-def validate_source_map_record(record: SourceMapRecord) -> list[str]:
-    """Return validation errors for a single source-map record."""
+def _validate_source_map_record(
+    record: SourceMapRecord,
+) -> tuple[list[str], tuple[tuple[str, bool | int | str], ...]]:
+    """Return validation errors and normalized overrides for one source-map record."""
     errors: list[str] = []
 
     if record.source_authority_tier not in SOURCE_AUTHORITY_TIERS:
@@ -458,7 +473,14 @@ def validate_source_map_record(record: SourceMapRecord) -> list[str]:
             "mismatch_reason must be empty when official_resolution_state is available_official"
         )
 
-    _normalized_overrides(record, errors)
+    normalized_overrides = _normalized_overrides(record, errors)
+
+    return errors, normalized_overrides
+
+
+def validate_source_map_record(record: SourceMapRecord) -> list[str]:
+    """Return validation errors for a single source-map record."""
+    errors, _normalized = _validate_source_map_record(record)
 
     return errors
 
@@ -468,8 +490,8 @@ def validate_source_map(records: list[SourceMapRecord]) -> None:
     all_errors: list[str] = []
     overrides_by_plan_id: dict[str, tuple[tuple[str, bool | int | str], ...]] = {}
     for record in records:
-        all_errors.extend(validate_source_map_record(record))
-        normalized_overrides = tuple(sorted((record.system_overrides or {}).items()))
+        record_errors, normalized_overrides = _validate_source_map_record(record)
+        all_errors.extend(record_errors)
         prior_overrides = overrides_by_plan_id.setdefault(record.plan_id, normalized_overrides)
         if prior_overrides != normalized_overrides:
             all_errors.append(
