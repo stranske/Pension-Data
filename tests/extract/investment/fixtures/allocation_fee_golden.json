@@ -1,0 +1,75 @@
+{
+  "allocation_table_and_amount_mix": {
+    "plan_id": "CA-PERS",
+    "plan_period": "FY2025",
+    "effective_date": "2025-06-30",
+    "ingestion_date": "2026-01-15",
+    "source_document_id": "doc:ca:2025:investment",
+    "allocation_rows": [
+      {
+        "category_label": "Public Equity",
+        "percent_value": 42.5,
+        "amount_value": 425.0,
+        "amount_unit": "million_usd",
+        "evidence_refs": ["p30"]
+      },
+      {
+        "category_label": "Fixed Income",
+        "percent_value": 30.0,
+        "amount_value": 300.0,
+        "amount_unit": "million_usd",
+        "evidence_refs": ["p30"]
+      },
+      {
+        "category_label": "Private Equity",
+        "percent_value": null,
+        "amount_value": 175.0,
+        "amount_unit": "million_usd",
+        "evidence_refs": ["p31"]
+      },
+      {
+        "category_label": "Cash",
+        "percent_value": null,
+        "amount_value": 100.0,
+        "amount_unit": "million_usd",
+        "evidence_refs": ["p31"]
+      }
+    ]
+  },
+  "fee_schedule_partial_and_ambiguous": {
+    "plan_id": "CA-PERS",
+    "plan_period": "FY2025",
+    "effective_date": "2025-06-30",
+    "ingestion_date": "2026-01-15",
+    "source_document_id": "doc:ca:2025:fees",
+    "fee_rows": [
+      {
+        "manager_name": "Alpha Capital",
+        "fee_type": "management_fee",
+        "rate_value": 1.5,
+        "amount_value": 18.0,
+        "amount_unit": "million_usd",
+        "explicit_not_disclosed": false,
+        "evidence_refs": ["p40"]
+      },
+      {
+        "manager_name": "alpha   capital",
+        "fee_type": "performance_fee",
+        "rate_value": null,
+        "amount_value": 4.5,
+        "amount_unit": "million_usd",
+        "explicit_not_disclosed": false,
+        "evidence_refs": ["p41"]
+      },
+      {
+        "manager_name": "Beta Partners",
+        "fee_type": "management_fee",
+        "rate_value": null,
+        "amount_value": null,
+        "amount_unit": "million_usd",
+        "explicit_not_disclosed": true,
+        "evidence_refs": ["p42"]
+      }
+    ]
+  }
+}

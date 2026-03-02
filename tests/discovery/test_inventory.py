@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from pension_data.discovery.inventory import (
     DiscoveredDocumentInput,
     build_inventory_artifacts,
@@ -125,6 +127,7 @@ def test_inventory_artifacts_include_coverage_states_and_side_survey_counts() ->
         source_records=_source_records(),
         discovered_documents=_discovered_documents(),
         target_years=(2022, 2023, 2024),
+        system_type_by_plan_id={"ca-pers": "public-pension", "tx-ers": "public-pension"},
     )
 
     coverage_rows = artifacts["annual_report_coverage_rows"]
@@ -142,6 +145,7 @@ def test_inventory_artifacts_include_coverage_states_and_side_survey_counts() ->
 
     summary_rows = artifacts["summary_by_system"]
     ca_summary = [row for row in summary_rows if row["plan_id"] == "CA-PERS"][0]
+    assert ca_summary["system_type"] == "public-pension"
     assert ca_summary["annual_report_count"] == 1
     assert ca_summary["board_packet_count"] == 1
     assert ca_summary["consultant_report_count"] == 1
@@ -172,6 +176,7 @@ def test_resolution_selection_prefers_official_mirror_over_third_party() -> None
         ],
         discovered_documents=[],
         target_years=(2024,),
+        system_type_by_plan_id={"ca-pers": "public-pension"},
     )
     coverage_row = artifacts["annual_report_coverage_rows"][0]
     assert coverage_row["annual_report_source_url"] == "https://mirror.example.gov/ca-2024.pdf"
@@ -182,11 +187,13 @@ def test_inventory_artifacts_are_reproducible_for_same_inputs() -> None:
         source_records=_source_records(),
         discovered_documents=_discovered_documents(),
         target_years=(2022, 2023, 2024),
+        system_type_by_plan_id={"ca-pers": "public-pension", "tx-ers": "public-pension"},
     )
     second = build_inventory_artifacts(
         source_records=list(reversed(_source_records())),
         discovered_documents=list(reversed(_discovered_documents())),
         target_years=(2022, 2023, 2024),
+        system_type_by_plan_id={"ca-pers": "public-pension", "tx-ers": "public-pension"},
     )
     assert first == second
 
@@ -204,6 +211,7 @@ def test_write_inventory_artifacts_is_deterministic(tmp_path: Path) -> None:
         source_records=_source_records(),
         discovered_documents=discovered_documents,
         target_years=(2022, 2023, 2024),
+        system_type_by_plan_id={"ca-pers": "public-pension", "tx-ers": "public-pension"},
     )
     first_paths = write_inventory_artifacts(artifacts, output_root=tmp_path / "run-1")
     second_paths = write_inventory_artifacts(artifacts, output_root=tmp_path / "run-2")
@@ -216,6 +224,48 @@ def test_write_inventory_artifacts_is_deterministic(tmp_path: Path) -> None:
     }
     assert first_contents == second_contents
     assert "available_official" in first_contents["annual_report_coverage_rows_json"]
-    assert "plan_id,cohort,annual_report_count" in first_contents["summary_by_system_csv"]
+    assert (
+        "plan_id,cohort,system_type,annual_report_count" in first_contents["summary_by_system_csv"]
+    )
     assert '""year_detection"": ""title_url_pattern""' in first_contents["inventory_rows_csv"]
     assert "None" not in first_contents["inventory_rows_csv"]
+
+
+def test_annual_report_coverage_uses_discovered_annual_docs_when_source_rows_absent() -> None:
+    artifacts = build_inventory_artifacts(
+        source_records=[],
+        discovered_documents=[
+            DiscoveredDocumentInput(
+                plan_id="TX-ERS",
+                source_url="https://example.org/tx-2024-annual-report.pdf",
+                title="FY2024 Annual Report",
+                source_authority_tier="official",
+            )
+        ],
+        target_years=(2024,),
+        system_type_by_plan_id={"tx-ers": "public-pension"},
+    )
+    coverage_row = artifacts["annual_report_coverage_rows"][0]
+    assert coverage_row["official_resolution_state"] == "available_official"
+    assert (
+        coverage_row["annual_report_source_url"] == "https://example.org/tx-2024-annual-report.pdf"
+    )
+    assert coverage_row["system_type"] == "public-pension"
+
+
+def test_inventory_artifacts_fall_back_when_registry_lookup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _raise_lookup_failure() -> dict[str, str]:
+        raise ValueError("no project root")
+
+    monkeypatch.setattr(
+        "pension_data.discovery.inventory.load_system_type_by_plan_id",
+        _raise_lookup_failure,
+    )
+    artifacts = build_inventory_artifacts(
+        source_records=_source_records(),
+        discovered_documents=[],
+        target_years=(2024,),
+    )
+    assert artifacts["annual_report_coverage_rows"]
