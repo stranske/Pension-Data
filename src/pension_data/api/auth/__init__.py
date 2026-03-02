@@ -22,10 +22,12 @@ from pension_data.api.auth.scopes import (
     normalize_scopes,
     required_scope_for_operation,
 )
-from pension_data.api.auth.store import APIKeyStore
-from pension_data.api.auth.store import APIKeyInactiveError
-from pension_data.api.auth.store import APIKeyLifecycleError
-from pension_data.api.auth.store import APIKeyNotFoundError
+from pension_data.api.auth.store import (
+    APIKeyInactiveError,
+    APIKeyLifecycleError,
+    APIKeyNotFoundError,
+    APIKeyStore,
+)
 
 __all__ = [
     "APIKeyStore",
