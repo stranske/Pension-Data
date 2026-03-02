@@ -48,7 +48,9 @@ def test_runbooks_exist_and_are_nonempty() -> None:
 
 
 def test_pipeline_links_cover_all_incident_classes() -> None:
-    assert PIPELINE_LINKS_DOC.exists(), "missing pipeline runbook links doc: PIPELINE_RUNBOOK_LINKS.md"
+    assert (
+        PIPELINE_LINKS_DOC.exists()
+    ), "missing pipeline runbook links doc: PIPELINE_RUNBOOK_LINKS.md"
     text = _read(PIPELINE_LINKS_DOC)
     for incident_class, filename in RUNBOOKS.items():
         assert incident_class in text
