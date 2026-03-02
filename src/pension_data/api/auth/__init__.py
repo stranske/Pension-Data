@@ -12,12 +12,12 @@ from pension_data.api.auth.middleware import (
 )
 from pension_data.api.auth.scopes import (
     DOMAIN_SCOPES,
-    InvalidOperationError,
-    InvalidScopeError,
     SCOPE_ADMIN,
     SCOPE_EXPORT,
     SCOPE_NL,
     SCOPE_QUERY,
+    InvalidOperationError,
+    InvalidScopeError,
     has_scope,
     normalize_scopes,
     required_scope_for_operation,
