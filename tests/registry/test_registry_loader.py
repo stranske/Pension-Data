@@ -165,6 +165,43 @@ def test_base_registry_duplicate_constraints_are_enforced() -> None:
         apply_registry_updates(duplicate_identity_key, [])
 
 
+def test_identity_key_must_match_canonical_normalized_value_for_base_records() -> None:
+    malformed_base = [
+        PensionSystemRecord(
+            stable_id="ps-bad-base",
+            legal_name="Bad Base System",
+            short_name="BadBase",
+            system_type="public-pension",
+            jurisdiction="Testland",
+            jurisdiction_type="state",
+            identity_key="NOT_CANONICAL",
+            in_state_employee_universe=False,
+            in_sampled_50=False,
+        )
+    ]
+
+    with pytest.raises(RegistryValidationError, match="non-canonical identity_key"):
+        apply_registry_updates(malformed_base, [])
+
+
+def test_identity_key_must_match_canonical_normalized_value_for_updates() -> None:
+    records = load_registry_from_seed(SEED_PATH)
+    malformed_update = PensionSystemRecord(
+        stable_id="ps-bad-update",
+        legal_name="Bad Update System",
+        short_name="BadUpdate",
+        system_type="public-pension",
+        jurisdiction="Update Land",
+        jurisdiction_type="state",
+        identity_key="Update-Land::Bad",
+        in_state_employee_universe=False,
+        in_sampled_50=False,
+    )
+
+    with pytest.raises(RegistryValidationError, match="non-canonical identity_key"):
+        apply_registry_updates(records, [malformed_update])
+
+
 def test_registry_audit_output_counts_by_type_jurisdiction_and_segment() -> None:
     sampled_only_fixture = PensionSystemRecord(
         stable_id="ps-sampled-only",

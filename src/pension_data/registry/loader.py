@@ -130,6 +130,17 @@ def validate_metadata_completeness(records: Iterable[PensionSystemRecord]) -> No
         raise RegistryValidationError("\n".join(sorted(errors)))
 
 
+def _validate_identity_key_normalization(record: PensionSystemRecord) -> None:
+    expected_identity_key = normalize_identity_key(
+        record.jurisdiction, record.legal_name, record.system_type
+    )
+    if record.identity_key != expected_identity_key:
+        raise RegistryValidationError(
+            f"stable_id '{record.stable_id}' has non-canonical identity_key "
+            f"'{record.identity_key}'; expected '{expected_identity_key}'"
+        )
+
+
 def apply_registry_updates(
     base_records: Iterable[PensionSystemRecord],
     updates: Iterable[PensionSystemRecord],
@@ -139,6 +150,7 @@ def apply_registry_updates(
     identity_to_id: dict[str, str] = {}
 
     for record in base_records:
+        _validate_identity_key_normalization(record)
         if record.stable_id in by_stable_id:
             raise RegistryValidationError(
                 f"duplicate stable_id '{record.stable_id}' in base registry records"
@@ -153,6 +165,7 @@ def apply_registry_updates(
         identity_to_id[record.identity_key] = record.stable_id
 
     for update in updates:
+        _validate_identity_key_normalization(update)
         if update.stable_id in by_stable_id:
             if by_stable_id[update.stable_id] != update:
                 raise RegistryValidationError(
