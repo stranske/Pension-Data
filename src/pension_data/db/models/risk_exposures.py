@@ -7,7 +7,9 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 RiskDisclosureType = Literal["derivatives", "securities_lending"]
-RiskObservationKind = Literal["policy_limit", "realized_exposure", "collateral_context", "not_disclosed"]
+RiskObservationKind = Literal[
+    "policy_limit", "realized_exposure", "collateral_context", "not_disclosed"
+]
 
 
 @dataclass(frozen=True, slots=True)

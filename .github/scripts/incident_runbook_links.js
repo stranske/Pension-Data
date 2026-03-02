@@ -6,7 +6,7 @@ const INCIDENT_RUNBOOKS = [
     path: 'docs/runbooks/source-map-breakage.md#source-map-breakage',
     patterns: [
       /\bsource[_\s-]?map[_\s-]?breakage\b/i,
-      /\bsource[_\s-]?map\b/i,
+      /\bsource[_\s-]?map\b.*\b(lint|schema|break|fail|error|invalid)\b/i,
       /\bSCHEMA_[A-Z0-9_]+\b/i,
       /\bURL_[A-Z0-9_]+\b/i,
       /\bDUPLICATE_[A-Z0-9_]+\b/i,
@@ -18,7 +18,7 @@ const INCIDENT_RUNBOOKS = [
     patterns: [
       /\brevised[_\s-]?file[_\s-]?mismatch\b/i,
       /\bsupersession\b/i,
-      /\bplan[_\s-]?period\b/i,
+      /\bplan[_\s-]?period\b.*\bmismatch\b/i,
     ],
   },
   {
@@ -27,7 +27,7 @@ const INCIDENT_RUNBOOKS = [
     patterns: [
       /\bparser[_\s-]?fallback[_\s-]?exhaustion\b/i,
       /\bfallback\b.*\bexhaust/i,
-      /\brequired fields?\b/i,
+      /\bmissing\b.*\brequired fields?\b/i,
     ],
   },
   {
@@ -59,7 +59,7 @@ function buildIncidentRunbookSection(parts) {
     return [];
   }
 
-  const lines = ['', '### 📚 Incident Runbooks'];
+  const lines = ['', '### Incident Runbooks'];
   for (const match of matches) {
     lines.push(`- \`${match.id}\` -> \`${match.path}\``);
   }

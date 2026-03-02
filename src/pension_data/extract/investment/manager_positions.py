@@ -138,7 +138,9 @@ def build_manager_fund_positions(
         warnings.extend(_as_warning(position, code) for code in warning_codes)
 
     naming_key_to_indices: dict[tuple[str, str, str, str], list[int]] = {}
-    naming_key_to_raw_pairs: dict[tuple[str, str, str, str], set[tuple[str | None, str | None]]] = {}
+    naming_key_to_raw_pairs: dict[tuple[str, str, str, str], set[tuple[str | None, str | None]]] = (
+        {}
+    )
 
     for index, position in enumerate(positions):
         manager_key = _normalize_token(position.manager_name)
