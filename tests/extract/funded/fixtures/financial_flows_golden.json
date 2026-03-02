@@ -1,0 +1,59 @@
+{
+  "complete_million_layout": {
+    "plan_id": "ca-pers",
+    "plan_period": "2025",
+    "raw": {
+      "source_document_id": "doc-ca-2025",
+      "source_url": "https://example.org/ca-pers-2025.pdf",
+      "effective_period": "FY2025",
+      "reported_at": "2025-06-30",
+      "unit_scale": "million_usd",
+      "outflows_reported_as_negative": false,
+      "beginning_aum": 520.0,
+      "ending_aum": 540.0,
+      "employer_contributions": 18.0,
+      "employee_contributions": 7.0,
+      "benefit_payments": 4.0,
+      "refunds": 1.0,
+      "evidence_refs": ["p31", "p32"]
+    }
+  },
+  "complete_signed_layout": {
+    "plan_id": "tx-ers",
+    "plan_period": "2025",
+    "raw": {
+      "source_document_id": "doc-tx-2025",
+      "source_url": "https://example.org/tx-ers-2025.pdf",
+      "effective_period": "FY2025",
+      "reported_at": "2025-08-31",
+      "unit_scale": "thousand_usd",
+      "outflows_reported_as_negative": true,
+      "beginning_aum": 890000.0,
+      "ending_aum": 906000.0,
+      "employer_contributions": 18500.0,
+      "employee_contributions": 6200.0,
+      "benefit_payments": -7600.0,
+      "refunds": -1600.0,
+      "evidence_refs": ["p11"]
+    }
+  },
+  "partial_layout": {
+    "plan_id": "wa-retire",
+    "plan_period": "2025",
+    "raw": {
+      "source_document_id": "doc-wa-2025",
+      "source_url": "https://example.org/wa-retire-2025.pdf",
+      "effective_period": "FY2025",
+      "reported_at": "2025-09-30",
+      "unit_scale": "usd",
+      "outflows_reported_as_negative": false,
+      "beginning_aum": 300000000.0,
+      "ending_aum": null,
+      "employer_contributions": 12000000.0,
+      "employee_contributions": null,
+      "benefit_payments": 5000000.0,
+      "refunds": null,
+      "evidence_refs": ["p9", "p10"]
+    }
+  }
+}
