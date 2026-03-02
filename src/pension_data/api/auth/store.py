@@ -26,7 +26,8 @@ def _utcnow() -> datetime:
 
 
 def _hash_secret(secret: str) -> str:
-    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(secret.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
 
 
 class APIKeyStore:
@@ -50,6 +51,7 @@ class APIKeyStore:
         record = APIKeyRecord(
             key_id=key_id,
             key_hash=key_hash,
+            hash_scheme="sha256",
             scopes=normalized_scopes,
             status="active",
             created_at=_utcnow(),
@@ -81,12 +83,15 @@ class APIKeyStore:
         revoked = APIKeyRecord(
             key_id=record.key_id,
             key_hash=record.key_hash,
+            hash_scheme=record.hash_scheme,
             scopes=record.scopes,
             status="revoked",
             created_at=record.created_at,
             label=record.label,
             revoked_at=_utcnow(),
+            revoked_reason="manual",
             rotated_from=record.rotated_from,
+            rotated_to=record.rotated_to,
         )
         self._records_by_id[key_id] = revoked
         return revoked
@@ -104,14 +109,32 @@ class APIKeyStore:
         next_scopes = scopes if scopes is not None else existing.scopes
         next_label = existing.label if isinstance(label, _UnsetLabelType) else label
         secret, created = self.create_key(scopes=next_scopes, label=next_label)
+        revoked_at = _utcnow()
+        rotated_previous = APIKeyRecord(
+            key_id=existing.key_id,
+            key_hash=existing.key_hash,
+            hash_scheme=existing.hash_scheme,
+            scopes=existing.scopes,
+            status="revoked",
+            created_at=existing.created_at,
+            label=existing.label,
+            revoked_at=revoked_at,
+            revoked_reason="rotated",
+            rotated_from=existing.rotated_from,
+            rotated_to=created.key_id,
+        )
         rotated = APIKeyRecord(
             key_id=created.key_id,
             key_hash=created.key_hash,
+            hash_scheme=created.hash_scheme,
             scopes=created.scopes,
             status=created.status,
             created_at=created.created_at,
             label=created.label,
+            revoked_reason=created.revoked_reason,
             rotated_from=key_id,
+            rotated_to=created.rotated_to,
         )
+        self._records_by_id[existing.key_id] = rotated_previous
         self._records_by_id[rotated.key_id] = rotated
         return secret, rotated

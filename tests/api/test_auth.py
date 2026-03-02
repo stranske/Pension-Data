@@ -72,6 +72,9 @@ def test_scope_success_accepts_bearer_header() -> None:
     )
     assert context.key_id == record.key_id
     assert context.scopes == (SCOPE_QUERY,)
+    assert record.hash_scheme == "sha256"
+    assert record.key_hash.startswith("sha256:")
+    assert secret not in record.key_hash
 
 
 def test_admin_scope_grants_export_access() -> None:
@@ -95,6 +98,10 @@ def test_key_rotation_updates_metadata_and_revokes_previous_key() -> None:
     )
 
     assert rotated.rotated_from == first_record.key_id
+    previous = store.get_by_id(first_record.key_id)
+    assert previous.status == "revoked"
+    assert previous.revoked_reason == "rotated"
+    assert previous.rotated_to == rotated.key_id
     with pytest.raises(RevokedAPIKeyError):
         authenticate_request(
             api_key_header=first_secret,
