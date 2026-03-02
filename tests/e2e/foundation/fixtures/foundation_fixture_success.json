@@ -1,0 +1,65 @@
+{
+  "registry_seed": "registry_seed.csv",
+  "source_map_seed": "source_map.csv",
+  "discovered_records": [
+    {
+      "plan_id": "CA-PERS",
+      "plan_period": "FY2024",
+      "cohort": "state",
+      "source_url": "https://reports.ca.gov/pensions/ca-pers-fy2024-acfr.pdf",
+      "source_authority_tier": "official",
+      "official_resolution_state": "available_official",
+      "expected_plan_identity": "CA-PERS",
+      "observed_plan_identity": "CA-PERS",
+      "mismatch_reason": null
+    },
+    {
+      "plan_id": "TX-ERS",
+      "plan_period": "FY2024",
+      "cohort": "state",
+      "source_url": "https://ers.texas.gov/reports/tx-ers-fy2024-summary.pdf",
+      "source_authority_tier": "official-mirror",
+      "official_resolution_state": "available_official",
+      "expected_plan_identity": "TX-ERS",
+      "observed_plan_identity": "TX-ERS",
+      "mismatch_reason": null
+    },
+    {
+      "plan_id": "CA-PERS",
+      "plan_period": "FY2024",
+      "cohort": "state",
+      "source_url": "https://reports.ca.gov/pensions/ca-pers-fy2024-acfr-revised.pdf",
+      "source_authority_tier": "official",
+      "official_resolution_state": "available_official",
+      "expected_plan_identity": "CA-PERS",
+      "observed_plan_identity": "CA-PERS",
+      "mismatch_reason": null
+    }
+  ],
+  "ingestion_items": [
+    {
+      "plan_id": "CA-PERS",
+      "plan_period": "FY2024",
+      "source_url": "https://reports.ca.gov/pensions/ca-pers-fy2024-acfr.pdf",
+      "fetched_at": "2026-02-01T00:00:00Z",
+      "byte_size": 128000,
+      "revised_of_source_url": null
+    },
+    {
+      "plan_id": "CA-PERS",
+      "plan_period": "FY2024",
+      "source_url": "https://reports.ca.gov/pensions/ca-pers-fy2024-acfr-revised.pdf",
+      "fetched_at": "2026-02-15T00:00:00Z",
+      "byte_size": 131500,
+      "revised_of_source_url": "https://reports.ca.gov/pensions/ca-pers-fy2024-acfr.pdf"
+    },
+    {
+      "plan_id": "TX-ERS",
+      "plan_period": "FY2024",
+      "source_url": "https://ers.texas.gov/reports/tx-ers-fy2024-summary.pdf",
+      "fetched_at": "2026-02-02T00:00:00Z",
+      "byte_size": 98000,
+      "revised_of_source_url": null
+    }
+  ]
+}

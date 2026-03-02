@@ -1,0 +1,76 @@
+name: Foundation Fixture E2E
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      fixture_path:
+        description: Optional fixture JSON path override
+        required: false
+        type: string
+
+jobs:
+  foundation-fixture-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run foundation fixture pipeline command
+        env:
+          FIXTURE_PATH: ${{ github.event.inputs.fixture_path }}
+        run: |
+          set -euo pipefail
+          python tools/foundation/run_fixture_pipeline.py \
+            --fixture "${FIXTURE_PATH:-tests/e2e/foundation/fixtures/foundation_fixture_success.json}" \
+            --output-root artifacts
+
+      - name: Validate foundation fixture artifacts
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("artifacts/foundation")
+          required = [
+              root / "discovery_rows.json",
+              root / "ingestion_summary.json",
+              root / "coverage_readiness.json",
+              root / "latest_run_ledger.json",
+              root / "run_ledger.jsonl",
+          ]
+          for path in required:
+              if not path.exists():
+                  raise SystemExit(f"missing required artifact: {path}")
+
+          latest = json.loads((root / "latest_run_ledger.json").read_text(encoding="utf-8"))
+          if latest.get("status") != "success":
+              raise SystemExit("foundation fixture pipeline did not report success")
+          if len(latest.get("stage_metrics", [])) != 5:
+              raise SystemExit("foundation fixture ledger does not include all expected stages")
+          PY
+
+      - name: Run foundation fixture tests
+        run: |
+          set -euo pipefail
+          pytest -q --no-cov tests/ops/test_foundation_ledger.py tests/e2e/foundation/test_fixture_pipeline.py
+
+      - name: Upload foundation fixture artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: foundation-fixture-artifacts
+          path: artifacts/foundation
+          if-no-files-found: warn
