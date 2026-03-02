@@ -78,7 +78,9 @@ def test_extracts_numeric_table_and_narrative_risk_paths() -> None:
         if row.metric_name == "derivatives:interest_rate_swaps:policy_limit"
     ][0]
     realized_ratio = [
-        row for row in observations if row.metric_name == "derivatives:overlay_futures:realized_exposure"
+        row
+        for row in observations
+        if row.metric_name == "derivatives:overlay_futures:realized_exposure"
     ][0]
     collateral = [
         row

@@ -129,11 +129,7 @@ def extract_plan_financial_flow(
             refunds_usd,
         )
     )
-    if (
-        beginning_aum_usd is None
-        or beginning_aum_usd == 0.0
-        or net_external_cash_flow_usd is None
-    ):
+    if beginning_aum_usd is None or beginning_aum_usd == 0.0 or net_external_cash_flow_usd is None:
         net_external_cash_flow_rate_pct = None
     else:
         net_external_cash_flow_rate_pct = round(

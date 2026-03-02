@@ -104,8 +104,9 @@ def test_validate_source_map_record_requires_stale_period_to_use_available_offic
         mismatch_reason="stale_period",
     )
     errors = validate_source_map_record(record)
-    assert "stale_period mismatch requires official_resolution_state of available_official" in "\n".join(
-        errors
+    assert (
+        "stale_period mismatch requires official_resolution_state of available_official"
+        in "\n".join(errors)
     )
 
 
