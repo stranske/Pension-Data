@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from pension_data.query.saved_views import (
     AllocationPeerInput,
     FundingTrendInput,
@@ -146,6 +148,13 @@ def test_holdings_overlap_view_is_coverage_aware() -> None:
         and row.manager_name == "Mercer"
         and row.fund_name == "Global Equity"
     ][0]
+    wa_aon = [
+        row
+        for row in output
+        if row.counterparty_plan_id == "WA-RETIRE"
+        and row.manager_name == "Aon"
+        and row.fund_name == "Private Credit"
+    ][0]
 
     assert tx_mercer.overlap_status == "overlap"
     assert tx_mercer.overlap_usd == 70_000_000.0
@@ -154,3 +163,18 @@ def test_holdings_overlap_view_is_coverage_aware() -> None:
     assert wa_mercer.overlap_status == "known_not_invested"
     assert wa_mercer.subject_disclosure_state == "disclosed"
     assert wa_mercer.counterparty_disclosure_state == "known_not_invested"
+    assert wa_aon.overlap_status == "unknown_due_to_non_disclosure"
+    assert wa_aon.counterparty_disclosure_state == "not_disclosed"
+
+
+def test_load_saved_view_definitions_raises_when_config_dir_missing(tmp_path: Path) -> None:
+    missing_dir = tmp_path / "missing-saved-views"
+    with pytest.raises(FileNotFoundError, match="Saved view definition directory does not exist"):
+        load_saved_view_definitions(config_dir=missing_dir)
+
+
+def test_load_saved_view_definitions_raises_when_config_path_is_file(tmp_path: Path) -> None:
+    config_file = tmp_path / "saved-views.json"
+    config_file.write_text("{}", encoding="utf-8")
+    with pytest.raises(NotADirectoryError, match="Saved view definition path is not a directory"):
+        load_saved_view_definitions(config_dir=config_file)

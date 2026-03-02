@@ -133,10 +133,8 @@ def execute_holdings_overlap_view(
         for position_key in all_positions:
             subject = subject_index.get(position_key)
             counterparty = counterparty_index.get(position_key)
-            subject_state = subject.disclosure_state if subject else "known_not_invested"
-            counterparty_state = (
-                counterparty.disclosure_state if counterparty else "known_not_invested"
-            )
+            subject_state = subject.disclosure_state if subject else "not_disclosed"
+            counterparty_state = counterparty.disclosure_state if counterparty else "not_disclosed"
 
             overlap_status: OverlapStatus = "unknown_due_to_non_disclosure"
             overlap_usd: float | None = None

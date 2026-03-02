@@ -58,6 +58,13 @@ def _require_str(payload: dict[str, object], field: str) -> str:
 def load_saved_view_definitions(config_dir: Path | None = None) -> dict[str, SavedViewDefinition]:
     """Load saved view definitions from JSON artifacts under `config/saved_queries`."""
     definition_dir = _saved_query_dir(config_dir)
+    if not definition_dir.exists():
+        msg = f"Saved view definition directory does not exist: {definition_dir}"
+        raise FileNotFoundError(msg)
+    if not definition_dir.is_dir():
+        msg = f"Saved view definition path is not a directory: {definition_dir}"
+        raise NotADirectoryError(msg)
+
     definitions: dict[str, SavedViewDefinition] = {}
 
     for path in sorted(definition_dir.glob("*_v*.json")):
