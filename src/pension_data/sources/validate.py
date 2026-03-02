@@ -2,19 +2,304 @@
 
 from __future__ import annotations
 
+import csv
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import urlparse, urlunparse
+
 from pension_data.sources.schema import (
     DOCUMENT_FORMAT_HINTS,
     MISMATCH_REASONS,
     OFFICIAL_RESOLUTION_STATES,
     PAGINATION_MODES,
     SOURCE_AUTHORITY_TIERS,
+    SOURCE_MAP_OVERRIDE_KEYS,
     SYSTEM_OVERRIDE_KEYS,
+    CrawlConstraints,
+    SourceMapEntry,
     SourceMapRecord,
 )
 
 
 class SourceValidationError(ValueError):
     """Raised when one or more source-map records are invalid."""
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationFinding:
+    """A single actionable source-map validation finding."""
+
+    code: str
+    plan_id: str
+    message: str
+
+
+def normalize_url(url: str) -> str:
+    """Normalize URLs for stable duplicate/conflict detection."""
+    parsed = urlparse(url.strip())
+    cleaned = parsed._replace(
+        scheme=parsed.scheme.lower(),
+        netloc=parsed.netloc.lower(),
+        fragment="",
+    )
+    normalized = urlunparse(cleaned)
+    if normalized.endswith("/"):
+        return normalized[:-1]
+    return normalized
+
+
+def _cell(row: Mapping[str, str | None], key: str) -> str:
+    value = row.get(key)
+    return value.strip() if value is not None else ""
+
+
+def _split_list(raw: str) -> tuple[str, ...]:
+    return tuple(item.strip() for item in raw.split(";") if item.strip())
+
+
+def _parse_non_negative_int(raw: str) -> int:
+    try:
+        return int(raw)
+    except ValueError:
+        return -1
+
+
+def _canonical_authority_tier(raw: str) -> str:
+    return raw.strip().replace("_", "-")
+
+
+def _parse_overrides(row: Mapping[str, str | None]) -> tuple[tuple[str, str], ...]:
+    parsed: dict[str, str] = {}
+    for key, value in row.items():
+        if not key.startswith("override_"):
+            continue
+        if value is None:
+            continue
+        cleaned = value.strip()
+        if not cleaned:
+            continue
+        override_key = key.removeprefix("override_")
+        parsed[override_key] = cleaned
+    return tuple(sorted(parsed.items()))
+
+
+def parse_source_map_rows(rows: Sequence[Mapping[str, str | None]]) -> list[SourceMapEntry]:
+    """Parse source-map rows into typed entries without side effects."""
+    entries: list[SourceMapEntry] = []
+    for row in rows:
+        entries.append(
+            SourceMapEntry(
+                plan_id=_cell(row, "plan_id"),
+                plan_name=_cell(row, "plan_name"),
+                expected_plan_identity=_cell(row, "expected_plan_identity"),
+                seed_url=_cell(row, "seed_url"),
+                allowed_domains=_split_list(_cell(row, "allowed_domains")),
+                doc_type_hints=_split_list(_cell(row, "doc_type_hints")),
+                pagination_hints=_split_list(_cell(row, "pagination_hints")),
+                crawl_constraints=CrawlConstraints(
+                    max_pages=_parse_non_negative_int(_cell(row, "max_pages")),
+                    max_depth=_parse_non_negative_int(_cell(row, "max_depth")),
+                ),
+                source_authority_tier=_canonical_authority_tier(
+                    _cell(row, "source_authority_tier")
+                ),
+                mismatch_reason=_cell(row, "mismatch_reason") or None,
+                overrides=_parse_overrides(row) or None,
+            )
+        )
+    return entries
+
+
+def load_source_map(path: str | Path) -> list[SourceMapEntry]:
+    """Load source-map entries from CSV."""
+    with Path(path).open(newline="", encoding="utf-8") as handle:
+        return parse_source_map_rows(list(csv.DictReader(handle)))
+
+
+def _validate_basic_entry_fields(entry: SourceMapEntry) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+
+    parsed = urlparse(entry.seed_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        findings.append(
+            ValidationFinding(
+                code="invalid_url",
+                plan_id=entry.plan_id,
+                message=f"seed_url '{entry.seed_url}' must be an absolute http(s) URL",
+            )
+        )
+
+    if not entry.allowed_domains:
+        findings.append(
+            ValidationFinding(
+                code="missing_allowed_domains",
+                plan_id=entry.plan_id,
+                message="allowed_domains must include at least one domain",
+            )
+        )
+    else:
+        invalid_domains = sorted(
+            domain
+            for domain in entry.allowed_domains
+            if "." not in domain or any(char.isspace() for char in domain)
+        )
+        if invalid_domains:
+            findings.append(
+                ValidationFinding(
+                    code="invalid_allowed_domain",
+                    plan_id=entry.plan_id,
+                    message=f"invalid domain values: {', '.join(invalid_domains)}",
+                )
+            )
+
+    if "annual_report" in entry.doc_type_hints and not entry.source_authority_tier:
+        findings.append(
+            ValidationFinding(
+                code="missing_authority_tier",
+                plan_id=entry.plan_id,
+                message="annual_report rows require source_authority_tier",
+            )
+        )
+    elif (
+        entry.source_authority_tier
+        and entry.source_authority_tier not in SOURCE_AUTHORITY_TIERS
+    ):
+        findings.append(
+            ValidationFinding(
+                code="invalid_authority_tier",
+                plan_id=entry.plan_id,
+                message=(
+                    "source_authority_tier must be one of: "
+                    + ", ".join(SOURCE_AUTHORITY_TIERS)
+                ),
+            )
+        )
+
+    if entry.mismatch_reason is not None and entry.mismatch_reason not in MISMATCH_REASONS:
+        findings.append(
+            ValidationFinding(
+                code="invalid_mismatch_reason",
+                plan_id=entry.plan_id,
+                message=f"mismatch_reason '{entry.mismatch_reason}' is unsupported",
+            )
+        )
+
+    if entry.crawl_constraints.max_pages < 1 or entry.crawl_constraints.max_depth < 0:
+        findings.append(
+            ValidationFinding(
+                code="invalid_crawl_constraints",
+                plan_id=entry.plan_id,
+                message="max_pages must be >= 1 and max_depth must be >= 0",
+            )
+        )
+
+    if entry.overrides is not None:
+        override_map = dict(entry.overrides)
+        invalid_keys = sorted(set(override_map) - set(SOURCE_MAP_OVERRIDE_KEYS))
+        if invalid_keys:
+            findings.append(
+                ValidationFinding(
+                    code="invalid_override_key",
+                    plan_id=entry.plan_id,
+                    message=f"unsupported override keys: {', '.join(invalid_keys)}",
+                )
+            )
+
+        pagination_mode = override_map.get("pagination_mode")
+        if pagination_mode is not None and pagination_mode not in PAGINATION_MODES:
+            findings.append(
+                ValidationFinding(
+                    code="invalid_override_value",
+                    plan_id=entry.plan_id,
+                    message=(
+                        "override pagination_mode must be one of: "
+                        + ", ".join(PAGINATION_MODES)
+                    ),
+                )
+            )
+
+        requires_js = override_map.get("requires_js")
+        if requires_js is not None and requires_js not in {"true", "false"}:
+            findings.append(
+                ValidationFinding(
+                    code="invalid_override_value",
+                    plan_id=entry.plan_id,
+                    message="override requires_js must be 'true' or 'false'",
+                )
+            )
+
+        force_render_wait_ms = override_map.get("force_render_wait_ms")
+        if force_render_wait_ms is not None:
+            try:
+                parsed_wait = int(force_render_wait_ms)
+            except ValueError:
+                parsed_wait = -1
+            if parsed_wait <= 0:
+                findings.append(
+                    ValidationFinding(
+                        code="invalid_override_value",
+                        plan_id=entry.plan_id,
+                        message="override force_render_wait_ms must be a positive integer",
+                    )
+                )
+
+    return findings
+
+
+def _validate_seed_duplicates(entries: Sequence[SourceMapEntry]) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    seen_by_plan_and_url: set[tuple[str, str]] = set()
+    seen_url_to_plan: dict[str, str] = {}
+
+    for entry in entries:
+        normalized = normalize_url(entry.seed_url)
+        key = (entry.plan_id, normalized)
+        if key in seen_by_plan_and_url:
+            findings.append(
+                ValidationFinding(
+                    code="duplicate_seed_url",
+                    plan_id=entry.plan_id,
+                    message=f"duplicate seed URL detected after normalization: {normalized}",
+                )
+            )
+        seen_by_plan_and_url.add(key)
+
+        if normalized in seen_url_to_plan and seen_url_to_plan[normalized] != entry.plan_id:
+            findings.append(
+                ValidationFinding(
+                    code="conflicting_seed_url",
+                    plan_id=entry.plan_id,
+                    message=(
+                        f"normalized URL {normalized} already assigned to "
+                        f"{seen_url_to_plan[normalized]}"
+                    ),
+                )
+            )
+        else:
+            seen_url_to_plan[normalized] = entry.plan_id
+
+    return findings
+
+
+def validate_source_map_entries(entries: Iterable[SourceMapEntry]) -> list[ValidationFinding]:
+    """Return all validation findings for source-map seed entries."""
+    rows = list(entries)
+    findings: list[ValidationFinding] = []
+    for entry in rows:
+        findings.extend(_validate_basic_entry_fields(entry))
+    findings.extend(_validate_seed_duplicates(rows))
+    return sorted(findings, key=lambda finding: (finding.code, finding.plan_id, finding.message))
+
+
+def assert_valid_source_map_entries(entries: Iterable[SourceMapEntry]) -> None:
+    """Raise with actionable output if source-map seed entries are invalid."""
+    findings = validate_source_map_entries(entries)
+    if findings:
+        details = "\n".join(
+            f"[{finding.code}] {finding.plan_id}: {finding.message}" for finding in findings
+        )
+        raise SourceValidationError(details)
 
 
 def _normalized_overrides(

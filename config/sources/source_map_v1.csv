@@ -1,0 +1,4 @@
+plan_id,plan_name,expected_plan_identity,seed_url,allowed_domains,doc_type_hints,pagination_hints,max_pages,max_depth,source_authority_tier,mismatch_reason,override_requires_js,override_force_render_wait_ms,override_pagination_mode,override_notes
+ca-calpers,California Public Employees' Retirement System,ca-calpers,https://www.calpers.ca.gov/page/investments/reports,calpers.ca.gov,annual_report;investment_report,page_param,20,3,official,,,,
+ny-nyslrs,New York State and Local Retirement System,ny-nyslrs,https://www.osc.ny.gov/retirement/resources/publications-reports,osc.ny.gov,annual_report,next_link,15,2,official_mirror,,true,1200,path_segment,JS-heavy navigation
+as-gerf,American Samoa Government Employees Retirement Fund,as-gerf,https://as-gerf.invalid/reports,as-gerf.invalid,annual_report,single_page,8,1,high_confidence_third_party,non_official_only,,,,Official report source unresolved

@@ -46,6 +46,37 @@ SYSTEM_OVERRIDE_KEYS: tuple[str, ...] = (
     "rate_limit_per_minute",
     "force_canonical_host",
 )
+SOURCE_MAP_OVERRIDE_KEYS: tuple[str, ...] = (
+    "requires_js",
+    "force_render_wait_ms",
+    "pagination_mode",
+    "notes",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class CrawlConstraints:
+    """Per-entry crawl limits for deterministic discovery behavior."""
+
+    max_pages: int
+    max_depth: int
+
+
+@dataclass(frozen=True, slots=True)
+class SourceMapEntry:
+    """Canonical source-map seed row used by lint and QA checks."""
+
+    plan_id: str
+    plan_name: str
+    expected_plan_identity: str
+    seed_url: str
+    allowed_domains: tuple[str, ...]
+    doc_type_hints: tuple[str, ...]
+    pagination_hints: tuple[str, ...]
+    crawl_constraints: CrawlConstraints
+    source_authority_tier: str
+    mismatch_reason: str | None = None
+    overrides: tuple[tuple[str, str], ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
