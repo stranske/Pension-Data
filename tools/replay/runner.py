@@ -9,7 +9,6 @@ import sys
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from tools.replay.harness import (
     CorpusDocument,
@@ -39,10 +38,7 @@ def _load_corpus_rows(path: Path) -> list[Mapping[str, object]]:
     raw = path.read_text(encoding="utf-8")
     if path.suffix == ".json":
         payload = json.loads(raw)
-        if isinstance(payload, dict):
-            rows = payload.get("documents")
-        else:
-            rows = payload
+        rows = payload.get("documents") if isinstance(payload, dict) else payload
         if not isinstance(rows, list):
             raise ValueError("JSON corpus must be a list or an object with 'documents' list")
         if not all(isinstance(row, dict) for row in rows):
