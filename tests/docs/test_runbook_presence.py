@@ -63,6 +63,27 @@ def test_runbooks_define_numbered_remediation_sequences() -> None:
         ), f"remediation in {incident_class} must contain at least 5 ordered steps"
 
 
+def test_runbooks_define_concrete_diagnostic_snippets() -> None:
+    for incident_class, filename in RUNBOOKS.items():
+        runbook_path = ROOT / "docs" / "runbooks" / filename
+        text = _read(runbook_path)
+        section_match = re.search(
+            r"## Diagnostic Commands\s*\n(.*?)(?:\n## |\Z)",
+            text,
+            flags=re.DOTALL,
+        )
+        assert section_match, f"missing diagnostic command section in {incident_class}"
+        diagnostic_section = section_match.group(1)
+        bash_blocks = re.findall(r"```bash\n.*?\n```", diagnostic_section, flags=re.DOTALL)
+        assert (
+            len(bash_blocks) >= 2
+        ), f"diagnostics in {incident_class} must include at least 2 bash snippets"
+        expected_signals = re.findall(r"Expected signal:", diagnostic_section)
+        assert (
+            len(expected_signals) >= 2
+        ), f"diagnostics in {incident_class} must describe expected signal(s)"
+
+
 def test_pipeline_links_cover_all_incident_classes() -> None:
     assert (
         PIPELINE_LINKS_DOC.exists()

@@ -12,12 +12,20 @@ Incident class: `revised_file_mismatch`
 ## Diagnostic Commands
 
 ```bash
-pytest -q tests/test_main.py tests/test_dependency_version_alignment.py
+gh run view "$RUN_ID" --log > /tmp/revised-file-mismatch.log
+rg -n "revised_file_mismatch|supersession|plan[ _-]?period|mismatch" /tmp/revised-file-mismatch.log
 ```
+Expected signal: log lines include the exact plan ID, period, and mismatch reason to investigate.
 
 ```bash
-rg -n "revised_file_mismatch|revised-file-mismatch|mismatch" docs/ops docs/runbooks
+rg -n "revised|supersession|authoritative|period" docs/ops docs/runbooks docs/contracts
 ```
+Expected signal: canonical matching/supersession docs are identified for side-by-side metadata comparison.
+
+```bash
+pytest -q tests/test_main.py tests/test_dependency_version_alignment.py
+```
+Expected signal: targeted registry/source tests reproduce the mismatch pre-fix and pass after correction.
 
 ## Remediation Steps
 

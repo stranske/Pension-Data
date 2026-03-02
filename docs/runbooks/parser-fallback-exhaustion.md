@@ -12,12 +12,20 @@ Incident class: `parser_fallback_exhaustion`
 ## Diagnostic Commands
 
 ```bash
-pytest -q tests/test_main.py tests/test_dependency_version_alignment.py
+gh run view "$RUN_ID" --log > /tmp/parser-fallback-exhaustion.log
+rg -n "parser_fallback_exhaustion|fallback|stage|required fields|extract" /tmp/parser-fallback-exhaustion.log
 ```
+Expected signal: a full parser-stage trace shows where fallback paths were exhausted.
 
 ```bash
-pytest -q tests/docs/test_runbook_presence.py
+rg -n "fallback|parser|extract|required" scripts src tests
 ```
+Expected signal: likely parser rules/fixtures tied to the failing stage are identified for focused edits.
+
+```bash
+pytest -q tests/test_main.py tests/test_dependency_version_alignment.py
+```
+Expected signal: targeted extraction/regression tests fail before the parser fix and pass afterward.
 
 ## Remediation Steps
 

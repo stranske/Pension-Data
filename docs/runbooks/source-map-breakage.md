@@ -12,12 +12,20 @@ Incident class: `source_map_breakage`
 ## Diagnostic Commands
 
 ```bash
-rg -n "source_map_breakage|source-map-breakage" docs/ops docs/runbooks
+gh run view "$RUN_ID" --log > /tmp/source-map-breakage.log
+rg -n "source_map_breakage|SCHEMA_|URL_|DUPLICATE_" /tmp/source-map-breakage.log
 ```
+Expected signal: the failing finding code (`SCHEMA_*`, `URL_*`, or `DUPLICATE_*`) appears with a file/line hint.
+
+```bash
+git diff --name-only origin/main...HEAD | rg -n "source|map|config|registry"
+```
+Expected signal: one or more source-map/config files are listed as the likely blast radius.
 
 ```bash
 pytest -q tests/docs/test_runbook_presence.py
 ```
+Expected signal: exits `0`; confirms runbook links/docs still satisfy operator guardrails.
 
 ## Remediation Steps
 
