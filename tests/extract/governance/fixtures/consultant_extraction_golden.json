@@ -1,0 +1,51 @@
+{
+  "consultant_rich": {
+    "plan_id": "CA-PERS",
+    "plan_period": "FY2025",
+    "consultant_mentions": [
+      {
+        "consultant_name": "Mercer",
+        "role_description": "investment consultant",
+        "confidence": 0.92,
+        "evidence_refs": ["p12", "p13"],
+        "source_url": "https://example.org/ca-pers-2025.pdf"
+      },
+      {
+        "consultant_name": "Aon",
+        "role_description": "actuarial advisor",
+        "confidence": 0.88,
+        "evidence_refs": ["p18"],
+        "source_url": "https://example.org/ca-pers-2025.pdf"
+      }
+    ],
+    "recommendation_mentions": [
+      {
+        "consultant_name": "Mercer",
+        "topic": "private equity pacing",
+        "recommendation_text": "Reduce pacing by 100 bps",
+        "board_decision_status": "adopted",
+        "confidence": 0.9,
+        "evidence_refs": ["p20"],
+        "source_url": "https://example.org/ca-pers-2025.pdf"
+      }
+    ],
+    "attribution_mentions": [
+      {
+        "consultant_name": "Mercer",
+        "topic": "private equity pacing",
+        "observed_outcome": "allocation target lowered",
+        "strength": "explicit",
+        "confidence": 0.86,
+        "evidence_refs": ["p22"],
+        "source_url": "https://example.org/ca-pers-2025.pdf"
+      }
+    ]
+  },
+  "consultant_sparse": {
+    "plan_id": "TX-ERS",
+    "plan_period": "FY2025",
+    "consultant_mentions": [],
+    "recommendation_mentions": [],
+    "attribution_mentions": []
+  }
+}
