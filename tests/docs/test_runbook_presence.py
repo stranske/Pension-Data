@@ -63,6 +63,36 @@ def test_runbooks_define_numbered_remediation_sequences() -> None:
         ), f"remediation in {incident_class} must contain at least 5 ordered steps"
 
 
+def test_runbooks_enforce_actionable_remediation_language() -> None:
+    validation_keywords = r"\b(re-run|verify|validate|confirm|monitor)\b"
+    change_keywords = r"\b(fix|correct|apply|add|update|remove|submit|open)\b"
+
+    for incident_class, filename in RUNBOOKS.items():
+        runbook_path = ROOT / "docs" / "runbooks" / filename
+        text = _read(runbook_path)
+        section_match = re.search(
+            r"## Remediation Steps\s*\n(.*?)(?:\n## |\Z)",
+            text,
+            flags=re.DOTALL,
+        )
+        assert section_match, f"missing remediation section in {incident_class}"
+        remediation_section = section_match.group(1)
+        step_bodies = re.findall(r"^\d+\. (.+)$", remediation_section, flags=re.MULTILINE)
+        assert step_bodies, f"no remediation steps found in {incident_class}"
+
+        for step in step_bodies:
+            assert (
+                len(step.split()) >= 6
+            ), f"remediation step in {incident_class} is too vague: {step}"
+
+        assert re.search(
+            validation_keywords, remediation_section, flags=re.IGNORECASE
+        ), f"remediation in {incident_class} must include a validation/verification action"
+        assert re.search(
+            change_keywords, remediation_section, flags=re.IGNORECASE
+        ), f"remediation in {incident_class} must include a concrete change action"
+
+
 def test_runbooks_define_concrete_diagnostic_snippets() -> None:
     for incident_class, filename in RUNBOOKS.items():
         runbook_path = ROOT / "docs" / "runbooks" / filename
