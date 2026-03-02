@@ -22,6 +22,7 @@ from pension_data.monitoring.telemetry import (
     write_telemetry_table_artifacts,
 )
 from pension_data.quality.sla_metrics import (
+    CORE_SLA_METRICS,
     SLA_METRIC_CATALOG,
     CoverageObservation,
     RunQualitySnapshot,
@@ -44,6 +45,24 @@ def test_sla_catalog_includes_amended_metrics() -> None:
         "consultant_disclosure_coverage_rate",
     }
     assert required.issubset(SLA_METRIC_CATALOG.keys())
+
+
+def test_core_sla_metric_catalog_has_required_stage_definitions() -> None:
+    core_catalog = core_sla_metric_catalog()
+    assert set(core_catalog.keys()) == set(CORE_SLA_METRICS)
+    assert core_catalog["completeness_rate"].stage == "ingestion"
+    assert core_catalog["freshness_lag_hours"].stage == "ingestion"
+    assert core_catalog["parse_warning_rate"].stage == "extraction"
+    assert core_catalog["review_queue_latency_hours"].stage == "review"
+    assert core_catalog["completeness_rate"].formula == "records_complete / records_total"
+    assert core_catalog["parse_warning_rate"].formula == "parse_warning_count / records_total"
+
+
+def test_sla_catalog_requires_common_dimension_tags() -> None:
+    for metric_name, definition in SLA_METRIC_CATALOG.items():
+        assert definition.required_tags == ("run_id", "stage", "window_start", "window_end")
+        assert definition.formula
+        assert definition.stage in {"ingestion", "extraction", "review"}, metric_name
 
 
 def test_compute_sla_metrics_expected_values() -> None:
