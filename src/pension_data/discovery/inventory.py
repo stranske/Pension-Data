@@ -6,6 +6,7 @@ import csv
 import json
 import re
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from pension_data.db.models.inventory import (
     DiscoveredInventoryRecord,
     InventoryDocumentType,
 )
+from pension_data.registry.system_type_lookup import load_system_type_by_plan_id
 from pension_data.sources.schema import (
     OfficialResolutionState,
     SourceAuthorityTier,
@@ -32,7 +34,8 @@ _BOARD_PACKET_HINTS = ("board packet", "board meeting", "trustee packet")
 _ALM_HINTS = ("asset liability", "asset/liability", "alm study", "asset liability study")
 _CONSULTANT_HINTS = ("consultant report", "consultant", "investment consultant")
 _MANAGER_DISCLOSURE_HINTS = ("manager", "managers", "holding", "holdings")
-_CONSULTANT_DISCLOSURE_HINTS = ("consultant",)
+_CONSULTANT_DISCLOSURE_HINTS = ("consultant report", "investment consultant")
+_OFFICIAL_TIERS: tuple[SourceAuthorityTier, ...] = ("official", "official-mirror")
 
 _RESOLUTION_PRIORITY: dict[OfficialResolutionState, int] = {
     "not_found": 0,
@@ -115,6 +118,23 @@ def _select_resolution_record(records: list[SourceMapRecord]) -> SourceMapRecord
     )[0]
 
 
+def _resolve_system_type(
+    *,
+    plan_id: str,
+    cohort: str,
+    system_type_by_plan_id: Mapping[str, str],
+) -> str:
+    return system_type_by_plan_id.get(plan_id.strip().lower(), cohort)
+
+
+def _resolution_from_discovered_document(
+    document: DiscoveredInventoryRecord,
+) -> OfficialResolutionState:
+    if document.source_authority_tier in _OFFICIAL_TIERS:
+        return "available_official"
+    return "available_non_official_only"
+
+
 def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -141,8 +161,14 @@ def build_inventory_artifacts(
     source_records: list[SourceMapRecord],
     discovered_documents: list[DiscoveredDocumentInput],
     target_years: tuple[int, ...] | None = None,
+    system_type_by_plan_id: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
     """Build deterministic discovery inventory rows, plan-year coverage, and summaries."""
+    system_type_lookup = (
+        {key.lower(): value for key, value in load_system_type_by_plan_id().items()}
+        if system_type_by_plan_id is None
+        else {key.lower(): value for key, value in system_type_by_plan_id.items()}
+    )
     discovered_rows: list[DiscoveredInventoryRecord] = []
     for document in sorted(
         discovered_documents,
@@ -204,6 +230,14 @@ def build_inventory_artifacts(
             consultant_disclosure_by_plan[row.plan_id] or row.consultant_disclosure_available
         )
 
+    discovered_annual_reports_by_plan_year: dict[
+        tuple[str, int], list[DiscoveredInventoryRecord]
+    ] = defaultdict(list)
+    for row in discovered_rows:
+        if row.document_type != "annual_report" or row.plan_year is None:
+            continue
+        discovered_annual_reports_by_plan_year[(row.plan_id, row.plan_year)].append(row)
+
     all_plan_ids = sorted(
         {
             *cohort_by_plan.keys(),
@@ -219,15 +253,31 @@ def build_inventory_artifacts(
                 selected = _select_resolution_record(records)
                 official_resolution_state = selected.official_resolution_state
                 annual_report_source_url = selected.source_url
+            elif discovered_annual_reports_by_plan_year.get((plan_id, plan_year)):
+                selected_document = sorted(
+                    discovered_annual_reports_by_plan_year[(plan_id, plan_year)],
+                    key=lambda row: (
+                        row.source_authority_tier in _OFFICIAL_TIERS,
+                        row.source_url,
+                    ),
+                    reverse=True,
+                )[0]
+                official_resolution_state = _resolution_from_discovered_document(selected_document)
+                annual_report_source_url = selected_document.source_url
             else:
                 official_resolution_state = "not_found"
                 annual_report_source_url = "not_found"
+            system_type = _resolve_system_type(
+                plan_id=plan_id,
+                cohort=cohort,
+                system_type_by_plan_id=system_type_lookup,
+            )
             coverage_rows.append(
                 AnnualReportCoverageRecord(
                     plan_id=plan_id,
                     plan_year=plan_year,
                     cohort=cohort,
-                    system_type=cohort,
+                    system_type=system_type,
                     official_resolution_state=official_resolution_state,
                     annual_report_source_url=annual_report_source_url,
                     manager_disclosure_available=manager_disclosure_by_plan[plan_id],
@@ -248,6 +298,11 @@ def build_inventory_artifacts(
             {
                 "plan_id": plan_id,
                 "cohort": cohort_by_plan.get(plan_id, "unknown"),
+                "system_type": _resolve_system_type(
+                    plan_id=plan_id,
+                    cohort=cohort_by_plan.get(plan_id, "unknown"),
+                    system_type_by_plan_id=system_type_lookup,
+                ),
                 "annual_report_count": counts["annual_report"],
                 "board_packet_count": counts["board_packet"],
                 "alm_study_count": counts["alm_study"],
@@ -325,6 +380,7 @@ def write_inventory_artifacts(artifacts: dict[str, object], *, output_root: Path
         fieldnames=(
             "plan_id",
             "cohort",
+            "system_type",
             "annual_report_count",
             "board_packet_count",
             "alm_study_count",

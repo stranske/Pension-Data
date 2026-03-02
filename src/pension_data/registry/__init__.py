@@ -8,6 +8,7 @@ from pension_data.registry.loader import (
     load_registry_from_seed,
     validate_metadata_completeness,
 )
+from pension_data.registry.system_type_lookup import load_system_type_by_plan_id
 
 __all__ = [
     "RegistryValidationError",
@@ -15,5 +16,6 @@ __all__ = [
     "build_registry_audit",
     "filter_v1_cohort",
     "load_registry_from_seed",
+    "load_system_type_by_plan_id",
     "validate_metadata_completeness",
 ]
