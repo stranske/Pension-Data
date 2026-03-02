@@ -47,6 +47,22 @@ def test_runbooks_exist_and_are_nonempty() -> None:
         assert "TBD" not in text
 
 
+def test_runbooks_define_numbered_remediation_sequences() -> None:
+    for incident_class, filename in RUNBOOKS.items():
+        runbook_path = ROOT / "docs" / "runbooks" / filename
+        text = _read(runbook_path)
+        section_match = re.search(
+            r"## Remediation Steps\s*\n(.*?)(?:\n## |\Z)",
+            text,
+            flags=re.DOTALL,
+        )
+        assert section_match, f"missing remediation section in {incident_class}"
+        steps = re.findall(r"^\d+\. ", section_match.group(1), flags=re.MULTILINE)
+        assert (
+            len(steps) >= 5
+        ), f"remediation in {incident_class} must contain at least 5 ordered steps"
+
+
 def test_pipeline_links_cover_all_incident_classes() -> None:
     assert (
         PIPELINE_LINKS_DOC.exists()

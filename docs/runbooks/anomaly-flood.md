@@ -21,11 +21,12 @@ pytest -q tests/test_main.py tests/test_dependency_version_alignment.py
 
 ## Remediation Steps
 
-1. Confirm whether anomaly spike aligns with known data publication dates.
-2. Sample events and classify false positives versus legitimate anomalies.
-3. Tighten thresholds or temporarily suppress noisy anomaly class.
-4. Prioritize high-impact cohorts and re-balance review queue routing.
-5. Backfill triage notes and revert temporary suppressions after stabilization.
+1. Confirm incident scope by recording anomaly rate, queue depth, and first-seen timestamp from monitoring.
+2. Sample recent anomaly events and split them into false positives vs. true anomalies by class.
+3. If one class is noisy, apply a temporary threshold increase or suppression with an explicit expiry window.
+4. Re-prioritize queue routing so high-severity cohorts remain visible while low-value noise is throttled.
+5. Monitor 30-60 minutes for stabilization and rollback temporary controls if high-severity anomalies become hidden.
+6. After rates normalize, remove temporary suppressions and document the tuning change that prevented recurrence.
 
 ## Expected Signals
 

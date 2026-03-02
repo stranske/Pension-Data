@@ -21,11 +21,12 @@ pytest -q tests/docs/test_runbook_presence.py
 
 ## Remediation Steps
 
-1. Identify failing parser stage from pipeline logs.
-2. Validate source-document type hints and authority-tier metadata.
-3. Add or adjust parser rule in fallback chain for the failing format.
-4. Add fixture coverage that reproduces the failure mode.
-5. Re-run targeted extraction tests and verify confidence routing behavior.
+1. Extract the failing document identifier and the full parser-stage trace from pipeline logs.
+2. Confirm the document type hints and authority-tier metadata are correct for that document.
+3. Determine whether the failure is metadata misrouting or a missing parser rule in the fallback chain.
+4. Apply the minimal fix: correct metadata routing or add/adjust the parser rule for the failing format.
+5. Add or update a regression fixture that reproduces the exact exhaustion path.
+6. Re-run targeted extraction tests and close the incident only when at least one parser path succeeds and required fields are present.
 
 ## Expected Signals
 

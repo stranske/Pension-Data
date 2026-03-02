@@ -21,11 +21,12 @@ rg -n "revised_file_mismatch|revised-file-mismatch|mismatch" docs/ops docs/runbo
 
 ## Remediation Steps
 
-1. Confirm plan identity and period labels in source-map metadata.
-2. Verify revised document URL belongs to the expected plan.
-3. Update mismatch reason or period mapping fields as required.
-4. Re-run registry/source tests and validate no conflicting identity keys.
-5. Push fix and verify discovery outputs classify revised rows correctly.
+1. Pull the failing artifact/log bundle and record the exact plan ID, filing period, and mismatch reason emitted.
+2. Compare revised document metadata against canonical source-map metadata for the same plan and period.
+3. If identity keys differ, fix plan/period mapping in the source-map entry; if URL lineage differs, fix supersession metadata.
+4. Re-run local checks that exercise revised-file reconciliation and confirm mismatch counts return to expected baseline.
+5. Validate that revised rows now map to a single authoritative document for each affected period.
+6. Submit the metadata fix and verify CI classifies revised rows without mismatch regressions.
 
 ## Expected Signals
 
