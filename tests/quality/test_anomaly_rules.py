@@ -259,6 +259,36 @@ def test_detect_anomalies_orders_by_period_before_observed_at() -> None:
     assert funded.evidence_context["current_period"] == "2025"
 
 
+def test_detect_anomalies_uses_numeric_period_order_for_fiscal_labels() -> None:
+    points = [
+        _point(
+            plan_id="fiscal-order",
+            period="FY10",
+            observed_at=datetime(2025, 1, 1, 0, 0, tzinfo=UTC),
+            funded_ratio=0.65,
+            equity=0.60,
+            fixed_income=0.20,
+            confidence=0.95,
+        ),
+        _point(
+            plan_id="fiscal-order",
+            period="FY9",
+            observed_at=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+            funded_ratio=0.80,
+            equity=0.45,
+            fixed_income=0.35,
+            confidence=0.95,
+        ),
+    ]
+
+    anomalies = detect_anomalies(points)
+    assert anomalies
+    funded = [item for item in anomalies if item.metric == "funded_ratio"][0]
+    assert funded.period == "FY10"
+    assert funded.evidence_context["previous_period"] == "FY9"
+    assert funded.evidence_context["current_period"] == "FY10"
+
+
 def test_naive_datetimes_are_normalized_to_utc_in_evidence_and_queue() -> None:
     points = [
         _point(

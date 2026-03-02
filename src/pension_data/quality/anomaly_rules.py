@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
@@ -53,6 +54,33 @@ def _validate_threshold_range(name: str, value: float) -> None:
 
 
 DEFAULT_THRESHOLDS = AnomalyThresholds()
+
+
+_PERIOD_YEAR_PATTERN = re.compile(r"(?:19|20)\d{2}")
+_PERIOD_FISCAL_PATTERN = re.compile(r"\bFY\s*([0-9]{1,4})\b", re.IGNORECASE)
+_PERIOD_NUMBER_PATTERN = re.compile(r"\d+")
+
+
+def _period_sort_key(period: str) -> tuple[int, int, str]:
+    """Return a best-effort chronological sort key for period labels."""
+    normalized = period.strip().upper()
+    year_match = _PERIOD_YEAR_PATTERN.search(normalized)
+    if year_match:
+        return (0, int(year_match.group(0)), normalized)
+
+    fiscal_match = _PERIOD_FISCAL_PATTERN.search(normalized)
+    if fiscal_match:
+        token = fiscal_match.group(1)
+        parsed = int(token)
+        if len(token) == 2:
+            parsed += 2000
+        return (0, parsed, normalized)
+
+    number_match = _PERIOD_NUMBER_PATTERN.search(normalized)
+    if number_match:
+        return (0, int(number_match.group(0)), normalized)
+
+    return (1, -1, normalized)
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,7 +319,10 @@ def detect_anomalies(
     thresholds: AnomalyThresholds = DEFAULT_THRESHOLDS,
 ) -> list[AnomalyRecord]:
     """Detect funded and allocation shift anomalies in time-series points."""
-    ordered = sorted(points, key=lambda row: (row.plan_id, row.period, row.observed_at))
+    ordered = sorted(
+        points,
+        key=lambda row: (row.plan_id, _period_sort_key(row.period), row.observed_at),
+    )
     anomalies: list[AnomalyRecord] = []
 
     for index in range(1, len(ordered)):
@@ -317,5 +348,11 @@ def detect_anomalies(
 
     return sorted(
         anomalies,
-        key=lambda row: (row.plan_id, row.period, -row.score, row.metric, row.anomaly_id),
+        key=lambda row: (
+            row.plan_id,
+            _period_sort_key(row.period),
+            -row.score,
+            row.metric,
+            row.anomaly_id,
+        ),
     )
