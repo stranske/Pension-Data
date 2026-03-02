@@ -3,6 +3,7 @@
 from pension_data.api.auth.audit import build_audit_event
 from pension_data.api.auth.middleware import (
     AuthContext,
+    AuthError,
     InvalidAPIKeyError,
     MissingAPIKeyError,
     RevokedAPIKeyError,
@@ -20,6 +21,7 @@ from pension_data.api.auth.store import APIKeyStore
 __all__ = [
     "APIKeyStore",
     "AuthContext",
+    "AuthError",
     "InvalidAPIKeyError",
     "MissingAPIKeyError",
     "RevokedAPIKeyError",

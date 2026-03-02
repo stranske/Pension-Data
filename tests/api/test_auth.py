@@ -9,6 +9,7 @@ from pension_data.api.auth import (
     SCOPE_EXPORT,
     SCOPE_QUERY,
     APIKeyStore,
+    AuthError,
     InvalidAPIKeyError,
     MissingAPIKeyError,
     RevokedAPIKeyError,
@@ -110,6 +111,23 @@ def test_key_rotation_updates_metadata_and_revokes_previous_key() -> None:
     assert context.label == "second"
 
 
+def test_key_rotation_allows_explicit_label_clear() -> None:
+    store = APIKeyStore()
+    _, first_record = store.create_key(scopes=(SCOPE_QUERY,), label="first")
+    _, rotated = store.rotate_key(first_record.key_id, label=None)
+    assert rotated.label is None
+
+
+def test_auth_error_base_class_is_exported() -> None:
+    store = APIKeyStore()
+    with pytest.raises(AuthError):
+        authenticate_request(
+            api_key_header=None,
+            required_scope=SCOPE_QUERY,
+            key_store=store,
+        )
+
+
 def test_audit_event_captures_key_identity_context() -> None:
     store = APIKeyStore()
     secret, _ = store.create_key(scopes=(SCOPE_QUERY,), label="analyst-app")
@@ -128,3 +146,19 @@ def test_audit_event_captures_key_identity_context() -> None:
     assert event["api_key_id"] == context.key_id
     assert event["api_key_label"] == "analyst-app"
     assert event["api_key_scopes"] == [SCOPE_QUERY]
+
+
+def test_audit_event_rejects_reserved_key_collisions() -> None:
+    store = APIKeyStore()
+    secret, _ = store.create_key(scopes=(SCOPE_QUERY,), label="analyst-app")
+    context = authenticate_request(
+        api_key_header=secret,
+        required_scope=SCOPE_QUERY,
+        key_store=store,
+    )
+    with pytest.raises(ValueError, match="reserved auth audit key"):
+        build_audit_event(
+            operation="query.run",
+            auth_context=context,
+            event={"operation": "existing"},
+        )

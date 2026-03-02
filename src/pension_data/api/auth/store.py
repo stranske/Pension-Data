@@ -14,6 +14,13 @@ class APIKeyNotFoundError(KeyError):
     """Raised when a key ID does not exist in storage."""
 
 
+class _UnsetLabelType:
+    """Sentinel type to distinguish omitted label from explicit None."""
+
+
+_UNSET_LABEL = _UnsetLabelType()
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
@@ -89,13 +96,13 @@ class APIKeyStore:
         key_id: str,
         *,
         scopes: tuple[str, ...] | list[str] | set[str] | None = None,
-        label: str | None = None,
+        label: str | None | _UnsetLabelType = _UNSET_LABEL,
     ) -> tuple[str, APIKeyRecord]:
         """Rotate key material while preserving historical linkage metadata."""
         existing = self.get_by_id(key_id)
         self.revoke_key(key_id)
         next_scopes = scopes if scopes is not None else existing.scopes
-        next_label = label if label is not None else existing.label
+        next_label = existing.label if isinstance(label, _UnsetLabelType) else label
         secret, created = self.create_key(scopes=next_scopes, label=next_label)
         rotated = APIKeyRecord(
             key_id=created.key_id,
