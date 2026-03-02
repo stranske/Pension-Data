@@ -6,8 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from pension_data.coverage.readiness import build_readiness_artifacts
-from pension_data.coverage.readiness import build_publication_artifacts
+from pension_data.coverage.readiness import build_publication_artifacts, build_readiness_artifacts
 from pension_data.quality.anomaly_rules import TimeSeriesPoint
 from pension_data.sources.schema import SourceMapRecord
 
@@ -173,4 +172,4 @@ def test_publication_artifacts_do_not_block_when_anomaly_routing_fails(
     assert artifacts["anomaly_rows"] == []
     assert artifacts["review_queue_rows"] == []
     assert artifacts["anomaly_routing_status"] == "degraded"
-    assert "RuntimeError: simulated anomaly failure" == artifacts["anomaly_routing_error"]
+    assert artifacts["anomaly_routing_error"] == "RuntimeError: simulated anomaly failure"
