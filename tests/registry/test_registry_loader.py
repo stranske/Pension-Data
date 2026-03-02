@@ -11,6 +11,7 @@ from pension_data.db.models.registry import (
     PENSION_SYSTEM_SCHEMA_FIELDS,
     PENSION_SYSTEM_SCHEMA_VERSION,
     PensionSystemRecord,
+    V1CohortMembership,
 )
 from pension_data.registry import (
     RegistryValidationError,
@@ -63,6 +64,21 @@ def test_v1_cohort_filters_are_deterministic() -> None:
     assert len(intersection) == 4
     assert [record.stable_id for record in intersection] == sorted(
         record.stable_id for record in intersection
+    )
+
+
+def test_v1_cohort_membership_flags_are_explicit_on_records() -> None:
+    records = load_registry_from_seed(SEED_PATH)
+    calpers = next(record for record in records if record.stable_id == "ps-ca-calpers")
+    copera = next(record for record in records if record.stable_id == "ps-co-pera")
+
+    assert calpers.cohort == V1CohortMembership(
+        in_state_employee_universe=True,
+        in_sampled_50=True,
+    )
+    assert copera.cohort == V1CohortMembership(
+        in_state_employee_universe=True,
+        in_sampled_50=False,
     )
 
 

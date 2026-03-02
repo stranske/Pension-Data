@@ -8,11 +8,11 @@ from pension_data.db.models.registry import PensionSystemRecord
 
 
 def _cohort_segment(record: PensionSystemRecord) -> str:
-    if record.in_state_employee_universe and record.in_sampled_50:
+    if record.cohort.in_state_employee_universe and record.cohort.in_sampled_50:
         return "state_employee_sampled_50"
-    if record.in_state_employee_universe:
+    if record.cohort.in_state_employee_universe:
         return "state_employee_only"
-    if record.in_sampled_50:
+    if record.cohort.in_sampled_50:
         return "sampled_50_only"
     return "outside_v1"
 

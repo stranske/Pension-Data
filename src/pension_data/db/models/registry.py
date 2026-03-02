@@ -29,6 +29,14 @@ JurisdictionType = Literal["state", "territory"]
 
 
 @dataclass(frozen=True, slots=True)
+class V1CohortMembership:
+    """Explicit v1 cohort membership flags for a pension system."""
+
+    in_state_employee_universe: bool
+    in_sampled_50: bool
+
+
+@dataclass(frozen=True, slots=True)
 class PensionSystemRecord:
     """Canonical pension-system registry row."""
 
@@ -41,3 +49,11 @@ class PensionSystemRecord:
     identity_key: str
     in_state_employee_universe: bool
     in_sampled_50: bool
+
+    @property
+    def cohort(self) -> V1CohortMembership:
+        """Return normalized v1 cohort membership flags."""
+        return V1CohortMembership(
+            in_state_employee_universe=self.in_state_employee_universe,
+            in_sampled_50=self.in_sampled_50,
+        )

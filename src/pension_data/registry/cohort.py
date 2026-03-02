@@ -14,7 +14,7 @@ def filter_v1_cohort(
     """Filter records to deterministic v1 cohort slices."""
     filtered = records
     if state_employee_only:
-        filtered = [record for record in filtered if record.in_state_employee_universe]
+        filtered = [record for record in filtered if record.cohort.in_state_employee_universe]
     if sampled_50_only:
-        filtered = [record for record in filtered if record.in_sampled_50]
+        filtered = [record for record in filtered if record.cohort.in_sampled_50]
     return sorted(filtered, key=lambda record: record.stable_id)
