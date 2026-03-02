@@ -1,1 +1,1 @@
-"""SLA quality metric tests."""
+"""Quality test package."""

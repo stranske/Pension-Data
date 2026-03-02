@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from pension_data.coverage.readiness import build_readiness_artifacts
+from datetime import UTC, datetime
+
+import pytest
+
+from pension_data.coverage.readiness import build_publication_artifacts, build_readiness_artifacts
+from pension_data.quality.anomaly_rules import TimeSeriesPoint
 from pension_data.sources.schema import SourceMapRecord
 
 
@@ -36,6 +41,31 @@ def _fixture_records() -> list[SourceMapRecord]:
             official_resolution_state="not_found",
             expected_plan_identity="AS-GERF",
             mismatch_reason="stale_period",
+        ),
+    ]
+
+
+def _fixture_points() -> list[TimeSeriesPoint]:
+    return [
+        TimeSeriesPoint(
+            plan_id="CA-PERS",
+            period="2024",
+            observed_at=datetime(2025, 1, 1, tzinfo=UTC),
+            funded_ratio=0.82,
+            allocations={"public_equity": 0.45, "fixed_income": 0.35},
+            confidence=0.95,
+            evidence_refs=("doc:ca:2024",),
+            provenance={"source_url": "https://example.gov/ca-2024.pdf"},
+        ),
+        TimeSeriesPoint(
+            plan_id="CA-PERS",
+            period="2025",
+            observed_at=datetime(2026, 1, 1, tzinfo=UTC),
+            funded_ratio=0.69,
+            allocations={"public_equity": 0.58, "fixed_income": 0.22},
+            confidence=0.90,
+            evidence_refs=("doc:ca:2025",),
+            provenance={"source_url": "https://example.gov/ca-2025.pdf"},
         ),
     ]
 
@@ -81,7 +111,6 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "readiness_state": "blocked_source",
         },
     ]
-
     assert summary_rows == [
         {
             "cohort": "state",
@@ -102,3 +131,45 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "stale_period_rate": 1.0,
         },
     ]
+
+
+def test_publication_artifacts_include_prioritized_review_queue_rows() -> None:
+    artifacts = build_publication_artifacts(
+        _fixture_records(),
+        anomaly_points=_fixture_points(),
+        queued_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+
+    assert artifacts["anomaly_routing_status"] == "ok"
+    assert artifacts["anomaly_routing_error"] == ""
+    anomaly_rows = artifacts["anomaly_rows"]
+    assert isinstance(anomaly_rows, list)
+    assert anomaly_rows
+    assert all("priority" in row for row in anomaly_rows)
+
+    queue_rows = artifacts["review_queue_rows"]
+    assert isinstance(queue_rows, list)
+    assert queue_rows
+    assert queue_rows[0]["priority"] in {"high", "medium", "low"}
+    assert queue_rows[0]["queue_id"].startswith("review:")
+    assert queue_rows[0]["created_at"] == "2026-01-02T00:00:00+00:00"
+
+
+def test_publication_artifacts_do_not_block_when_anomaly_routing_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _raise_failure(_: list[TimeSeriesPoint]) -> list[object]:
+        raise RuntimeError("simulated anomaly failure")
+
+    monkeypatch.setattr("pension_data.coverage.readiness.detect_anomalies", _raise_failure)
+    artifacts = build_publication_artifacts(
+        _fixture_records(),
+        anomaly_points=_fixture_points(),
+    )
+
+    assert artifacts["readiness_rows"]
+    assert artifacts["summary_by_cohort"]
+    assert artifacts["anomaly_rows"] == []
+    assert artifacts["review_queue_rows"] == []
+    assert artifacts["anomaly_routing_status"] == "degraded"
+    assert artifacts["anomaly_routing_error"] == "RuntimeError: simulated anomaly failure"
