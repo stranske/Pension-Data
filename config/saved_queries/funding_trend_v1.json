@@ -2,7 +2,7 @@
   "view_name": "funding_trend",
   "version": "v1",
   "description": "Plan-level funding trend with year-over-year funded ratio and net external flow context.",
-  "sql": "SELECT plan_id, plan_period, funded_ratio, employer_contributions_usd, employee_contributions_usd, benefit_payments_usd FROM plan_funding_metrics ORDER BY plan_id, plan_period;",
+  "sql": "WITH ordered AS (SELECT plan_id, plan_period, funded_ratio, employer_contributions_usd, employee_contributions_usd, benefit_payments_usd, LAG(funded_ratio) OVER (PARTITION BY plan_id ORDER BY plan_period) AS prev_funded_ratio FROM plan_funding_metrics) SELECT plan_id, plan_period, funded_ratio, CASE WHEN prev_funded_ratio IS NULL THEN NULL ELSE funded_ratio - prev_funded_ratio END AS funded_ratio_change, CASE WHEN employer_contributions_usd IS NULL AND employee_contributions_usd IS NULL AND benefit_payments_usd IS NULL THEN NULL ELSE COALESCE(employer_contributions_usd, 0.0) + COALESCE(employee_contributions_usd, 0.0) - COALESCE(benefit_payments_usd, 0.0) END AS net_external_cash_flow_usd FROM ordered ORDER BY plan_id, plan_period;",
   "assumptions": [
     "plan_period values are sortable fiscal-year tokens such as FY2024 or 2024",
     "benefit_payments_usd is reported as positive outflow and is subtracted in net flow"

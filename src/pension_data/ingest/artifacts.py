@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 
 from pension_data.db.models.artifacts import IngestionRunMetrics, RawArtifactRecord
 
@@ -34,6 +35,20 @@ def _artifact_id(*, artifact_key: tuple[str, str, str], checksum: str, fetched_a
     return f"artifact:{digest}"
 
 
+def _normalize_utc_timestamp(value: str) -> str | None:
+    stripped = value.strip()
+    if not stripped:
+        return None
+    iso_candidate = f"{stripped[:-1]}+00:00" if stripped.endswith("Z") else stripped
+    try:
+        parsed = datetime.fromisoformat(iso_candidate)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
 def ingest_raw_artifacts(
     *,
     existing_records: list[RawArtifactRecord],
@@ -46,11 +61,19 @@ def ingest_raw_artifacts(
         existing_records, key=lambda current: (current.first_seen_at, current.artifact_id)
     ):
         if row.is_active:
-            active_by_key[
-                _artifact_key(
-                    plan_id=row.plan_id, plan_period=row.plan_period, source_url=row.source_url
+            key = _artifact_key(
+                plan_id=row.plan_id,
+                plan_period=row.plan_period,
+                source_url=row.source_url,
+            )
+            existing_active = active_by_key.get(key)
+            if existing_active is not None and existing_active != row.artifact_id:
+                msg = (
+                    "existing_records contains multiple active artifacts for key "
+                    f"{key[0]}|{key[1]}|{key[2]}"
                 )
-            ] = row.artifact_id
+                raise ValueError(msg)
+            active_by_key[key] = row.artifact_id
 
     new_count = 0
     unchanged_count = 0
@@ -71,8 +94,8 @@ def ingest_raw_artifacts(
             plan_period=item.plan_period,
             source_url=item.source_url,
         )
-        fetched_at = item.fetched_at.strip()
-        if not all(artifact_key) or not item.mime_type.strip() or not fetched_at:
+        fetched_at = _normalize_utc_timestamp(item.fetched_at)
+        if not all(artifact_key) or not item.mime_type.strip() or fetched_at is None:
             failed_count += 1
             continue
 
