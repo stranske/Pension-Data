@@ -147,9 +147,17 @@ def run(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Explicitly allow replacing existing output snapshot",
     )
+    parser.add_argument(
+        "--baseline-update-ticket",
+        help="Ticket/PR reference required when --overwrite is used (for controlled baseline updates)",
+    )
     args = parser.parse_args(argv)
 
     try:
+        if args.overwrite and not args.baseline_update_ticket:
+            raise ValueError(
+                "--overwrite requires --baseline-update-ticket to enforce controlled baseline updates"
+            )
         corpus = load_corpus(args.corpus)
         replay_parser = load_parser(args.parser)
         generated_at = _parse_iso_datetime(args.generated_at) if args.generated_at else None
