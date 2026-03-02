@@ -173,6 +173,7 @@ def _build_discovery_records(
     *,
     fixture: dict[str, object],
     allowed_domains_by_plan: dict[str, tuple[str, ...]],
+    registry_plan_ids: set[str],
 ) -> list[SourceMapRecord]:
     discovered_rows = _require_list_of_objects(fixture, "discovered_records")
     records: list[SourceMapRecord] = []
@@ -201,9 +202,12 @@ def _build_discovery_records(
             raise PermissionError(f"robots restriction blocked discovery URL: {source_url}")
 
         parsed = urlparse(source_url)
-        host = parsed.netloc.lower().strip()
+        host = (parsed.hostname or "").lower().strip()
         if not host:
             raise ValueError(f"discovery source_url has no host: {source_url}")
+
+        if plan_id not in registry_plan_ids:
+            raise ValueError(f"discovery plan_id '{plan_id}' is not present in registry seed")
 
         allowed_domains = allowed_domains_by_plan.get(plan_id)
         if allowed_domains is None:
@@ -291,6 +295,7 @@ def run_foundation_fixture_pipeline(
 
     source_map_entries_by_plan: dict[str, tuple[str, ...]] = {}
     discovery_records: list[SourceMapRecord] = []
+    registry_plan_ids: set[str] = set()
 
     for stage in _STAGES:
         if has_error:
@@ -312,6 +317,7 @@ def run_foundation_fixture_pipeline(
                 from pension_data.registry.loader import load_registry_from_seed
 
                 registry_records = load_registry_from_seed(registry_path)
+                registry_plan_ids = {item.stable_id for item in registry_records}
                 stage_metrics.append(
                     StageLedgerMetric(
                         stage="registry",
@@ -333,6 +339,18 @@ def run_foundation_fixture_pipeline(
                         f"{item.code}:{item.plan_id}:{item.message}" for item in findings
                     ]
                     raise ValueError("source-map validation failed: " + " | ".join(finding_lines))
+                unknown_plan_ids = sorted(
+                    {
+                        entry.plan_id
+                        for entry in source_map_entries
+                        if entry.plan_id not in registry_plan_ids
+                    }
+                )
+                if unknown_plan_ids:
+                    raise ValueError(
+                        "source-map plan_id values are not present in registry seed: "
+                        + ", ".join(unknown_plan_ids)
+                    )
                 source_map_entries_by_plan = {
                     entry.plan_id: tuple(domain.lower() for domain in entry.allowed_domains)
                     for entry in source_map_entries
@@ -352,6 +370,7 @@ def run_foundation_fixture_pipeline(
                 discovery_records = _build_discovery_records(
                     fixture=fixture,
                     allowed_domains_by_plan=source_map_entries_by_plan,
+                    registry_plan_ids=registry_plan_ids,
                 )
                 discovery_rows = [
                     {
