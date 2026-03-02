@@ -40,16 +40,13 @@ def validate_source_map_record(record: SourceMapRecord) -> list[str]:
         record.source_authority_tier == "high-confidence-third-party"
     ):
         errors.append(
-            "available_official requires source_authority_tier of "
-            "'official' or 'official-mirror'"
+            "available_official requires source_authority_tier of 'official' or 'official-mirror'"
         )
 
     if record.official_resolution_state == "available_non_official_only" and (
         record.source_authority_tier in {"official", "official-mirror"}
     ):
-        errors.append(
-            "available_non_official_only cannot use an official authority tier"
-        )
+        errors.append("available_non_official_only cannot use an official authority tier")
 
     if record.mismatch_reason == "wrong_plan":
         if record.observed_plan_identity is None:
@@ -57,7 +54,10 @@ def validate_source_map_record(record: SourceMapRecord) -> list[str]:
         elif record.observed_plan_identity == record.expected_plan_identity:
             errors.append("wrong_plan mismatch requires different expected/observed identities")
 
-    if record.mismatch_reason is not None and record.official_resolution_state == "available_official":
+    if (
+        record.mismatch_reason is not None
+        and record.official_resolution_state == "available_official"
+    ):
         errors.append(
             "mismatch_reason must be empty when official_resolution_state is available_official"
         )
@@ -74,4 +74,3 @@ def validate_source_map(records: list[SourceMapRecord]) -> None:
     if all_errors:
         message = "\n".join(sorted(set(all_errors)))
         raise SourceValidationError(message)
-

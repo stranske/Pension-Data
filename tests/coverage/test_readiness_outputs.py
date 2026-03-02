@@ -102,4 +102,3 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "stale_period_rate": 1.0,
         },
     ]
-

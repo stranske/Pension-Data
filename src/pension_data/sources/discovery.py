@@ -30,4 +30,3 @@ def discovery_resolution_rows(records: list[SourceMapRecord]) -> list[dict[str, 
         for record in records
     ]
     return sorted(rows, key=lambda row: (row["cohort"], row["plan_id"], row["plan_period"]))
-

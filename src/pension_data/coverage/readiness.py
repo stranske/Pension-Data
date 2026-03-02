@@ -73,4 +73,3 @@ def build_readiness_artifacts(records: list[SourceMapRecord]) -> dict[str, objec
         "readiness_rows": readiness_rows,
         "summary_by_cohort": summary_rows,
     }
-

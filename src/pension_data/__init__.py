@@ -1,2 +1,1 @@
 """Pension Data domain package."""
-

@@ -55,7 +55,9 @@ def test_validate_source_map_record_requires_wrong_plan_identity_delta() -> None
         observed_plan_identity="CA-PERS",
     )
     errors = validate_source_map_record(same_identity)
-    assert "wrong_plan mismatch requires different expected/observed identities" in "\n".join(errors)
+    assert "wrong_plan mismatch requires different expected/observed identities" in "\n".join(
+        errors
+    )
 
 
 def test_validate_source_map_raises_for_invalid_batch() -> None:

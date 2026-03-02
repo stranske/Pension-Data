@@ -43,4 +43,3 @@ class SourceMapRecord:
     expected_plan_identity: str
     observed_plan_identity: str | None = None
     mismatch_reason: MismatchReason | None = None
-
