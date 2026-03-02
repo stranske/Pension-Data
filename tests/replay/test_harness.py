@@ -81,6 +81,27 @@ def test_snapshot_includes_versioned_artifact_metadata() -> None:
     assert snapshot["parser_id"] == "tests.replay.fixtures_parser:parser"
 
 
+def test_build_snapshot_rejects_unsupported_baseline_version() -> None:
+    replay_results = run_replay([CorpusDocument(document_id="doc-a", content="alpha")], _parser)
+    with pytest.raises(ValueError, match="baseline_version"):
+        build_snapshot(replay_results, baseline_version="v2")
+
+
+def test_build_snapshot_rejects_duplicate_document_ids() -> None:
+    replay_results = [
+        ReplayResult(
+            document_id="doc-a",
+            fields={"funded_ratio": FieldExtraction(value=0.8, confidence=0.95, evidence="p1")},
+        ),
+        ReplayResult(
+            document_id="doc-a",
+            fields={"funded_ratio": FieldExtraction(value=0.81, confidence=0.95, evidence="p2")},
+        ),
+    ]
+    with pytest.raises(ValueError, match="duplicate document_id"):
+        build_snapshot(replay_results)
+
+
 def test_diff_classifies_expected_and_unexpected_drift() -> None:
     baseline_results = run_replay([CorpusDocument(document_id="doc-a", content="alpha")], _parser)
     current_results = [

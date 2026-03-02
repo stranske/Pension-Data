@@ -129,8 +129,15 @@ def build_snapshot(
     generated_at: datetime | None = None,
 ) -> ReplaySnapshot:
     """Build JSON-friendly replay snapshot from run output."""
+    if baseline_version != SUPPORTED_BASELINE_VERSION:
+        raise ValueError(
+            "baseline_version must be "
+            f"'{SUPPORTED_BASELINE_VERSION}' for this replay harness"
+        )
     timestamp = (generated_at or datetime.now(UTC)).astimezone(UTC).isoformat()
     ordered_results = sorted(replay_results, key=lambda item: item.document_id)
+    if len(ordered_results) != len({item.document_id for item in ordered_results}):
+        raise ValueError("replay_results contains duplicate document_id values")
     documents: list[SnapshotDocument] = []
     for replay_result in ordered_results:
         documents.append(
