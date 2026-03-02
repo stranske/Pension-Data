@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from pension_data.db.models.registry import PensionSystemRecord
+from pension_data.db.models.registry import (
+    PENSION_SYSTEM_BASE_FIELDS,
+    PENSION_SYSTEM_SCHEMA_FIELDS,
+    PENSION_SYSTEM_SCHEMA_VERSION,
+    PensionSystemRecord,
+)
 from pension_data.registry import (
     RegistryValidationError,
     apply_registry_updates,
@@ -17,6 +22,21 @@ from pension_data.registry import (
 from pension_data.registry.loader import normalize_identity_key
 
 SEED_PATH = Path(__file__).resolve().parents[2] / "config" / "registry" / "pension_systems_v1.csv"
+
+
+def test_pension_system_schema_v1_defines_canonical_identity_fields() -> None:
+    assert PENSION_SYSTEM_SCHEMA_VERSION == "v1"
+    assert PENSION_SYSTEM_BASE_FIELDS == (
+        "stable_id",
+        "legal_name",
+        "short_name",
+        "system_type",
+        "jurisdiction",
+    )
+    assert (
+        PENSION_SYSTEM_SCHEMA_FIELDS[: len(PENSION_SYSTEM_BASE_FIELDS)]
+        == PENSION_SYSTEM_BASE_FIELDS
+    )
 
 
 def test_registry_persists_stable_ids_for_all_seeded_systems() -> None:
