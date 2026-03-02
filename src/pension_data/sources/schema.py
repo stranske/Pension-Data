@@ -52,6 +52,43 @@ SOURCE_MAP_OVERRIDE_KEYS: tuple[str, ...] = (
     "pagination_mode",
     "notes",
 )
+SOURCE_MAP_HEADERS: tuple[str, ...] = (
+    "plan_id",
+    "plan_name",
+    "expected_plan_identity",
+    "seed_url",
+    "allowed_domains",
+    "doc_type_hints",
+    "pagination_hints",
+    "max_pages",
+    "max_depth",
+    "source_authority_tier",
+    "mismatch_reason",
+    "override_requires_js",
+    "override_force_render_wait_ms",
+    "override_pagination_mode",
+    "override_notes",
+)
+SOURCE_MAP_REQUIRED_HEADERS: tuple[str, ...] = (
+    "plan_id",
+    "plan_name",
+    "expected_plan_identity",
+    "seed_url",
+    "allowed_domains",
+    "doc_type_hints",
+    "pagination_hints",
+    "max_pages",
+    "max_depth",
+)
+SOURCE_MAP_DOC_TYPE_HINTS: tuple[str, ...] = (
+    "annual_report",
+    "investment_report",
+)
+SOURCE_MAP_PAGINATION_HINTS: tuple[str, ...] = (
+    "single_page",
+    "next_link",
+    "page_param",
+)
 
 
 @dataclass(frozen=True, slots=True)

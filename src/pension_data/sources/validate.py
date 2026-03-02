@@ -13,8 +13,12 @@ from pension_data.sources.schema import (
     MISMATCH_REASONS,
     OFFICIAL_RESOLUTION_STATES,
     PAGINATION_MODES,
+    SOURCE_MAP_DOC_TYPE_HINTS,
+    SOURCE_MAP_HEADERS,
     SOURCE_AUTHORITY_TIERS,
     SOURCE_MAP_OVERRIDE_KEYS,
+    SOURCE_MAP_PAGINATION_HINTS,
+    SOURCE_MAP_REQUIRED_HEADERS,
     SYSTEM_OVERRIDE_KEYS,
     CrawlConstraints,
     SourceMapEntry,
@@ -111,10 +115,26 @@ def parse_source_map_rows(rows: Sequence[Mapping[str, str | None]]) -> list[Sour
     return entries
 
 
+def _validate_source_map_headers(fieldnames: Sequence[str | None] | None) -> None:
+    if not fieldnames:
+        raise ValueError("source-map CSV must include a header row")
+
+    normalized = [name.strip() for name in fieldnames if name and name.strip()]
+    missing = sorted(set(SOURCE_MAP_REQUIRED_HEADERS).difference(normalized))
+    if missing:
+        raise ValueError("source-map CSV is missing required header(s): " + ", ".join(missing))
+
+    unknown = sorted(set(normalized).difference(SOURCE_MAP_HEADERS))
+    if unknown:
+        raise ValueError("source-map CSV has unsupported header(s): " + ", ".join(unknown))
+
+
 def load_source_map(path: str | Path) -> list[SourceMapEntry]:
     """Load source-map entries from CSV."""
     with Path(path).open(newline="", encoding="utf-8") as handle:
-        return parse_source_map_rows(list(csv.DictReader(handle)))
+        reader = csv.DictReader(handle)
+        _validate_source_map_headers(reader.fieldnames)
+        return parse_source_map_rows(list(reader))
 
 
 def _validate_basic_entry_fields(entry: SourceMapEntry) -> list[ValidationFinding]:
@@ -161,17 +181,43 @@ def _validate_basic_entry_fields(entry: SourceMapEntry) -> list[ValidationFindin
                 message="annual_report rows require source_authority_tier",
             )
         )
-    elif (
-        entry.source_authority_tier
-        and entry.source_authority_tier not in SOURCE_AUTHORITY_TIERS
-    ):
+    elif entry.source_authority_tier and entry.source_authority_tier not in SOURCE_AUTHORITY_TIERS:
         findings.append(
             ValidationFinding(
                 code="invalid_authority_tier",
                 plan_id=entry.plan_id,
                 message=(
-                    "source_authority_tier must be one of: "
-                    + ", ".join(SOURCE_AUTHORITY_TIERS)
+                    "source_authority_tier must be one of: " + ", ".join(SOURCE_AUTHORITY_TIERS)
+                ),
+            )
+        )
+
+    invalid_doc_type_hints = sorted(set(entry.doc_type_hints).difference(SOURCE_MAP_DOC_TYPE_HINTS))
+    if invalid_doc_type_hints:
+        findings.append(
+            ValidationFinding(
+                code="invalid_doc_type_hint",
+                plan_id=entry.plan_id,
+                message=(
+                    "doc_type_hints must be one of: "
+                    + ", ".join(SOURCE_MAP_DOC_TYPE_HINTS)
+                    + f"; invalid values: {', '.join(invalid_doc_type_hints)}"
+                ),
+            )
+        )
+
+    invalid_pagination_hints = sorted(
+        set(entry.pagination_hints).difference(SOURCE_MAP_PAGINATION_HINTS)
+    )
+    if invalid_pagination_hints:
+        findings.append(
+            ValidationFinding(
+                code="invalid_pagination_hint",
+                plan_id=entry.plan_id,
+                message=(
+                    "pagination_hints must be one of: "
+                    + ", ".join(SOURCE_MAP_PAGINATION_HINTS)
+                    + f"; invalid values: {', '.join(invalid_pagination_hints)}"
                 ),
             )
         )
@@ -213,8 +259,7 @@ def _validate_basic_entry_fields(entry: SourceMapEntry) -> list[ValidationFindin
                     code="invalid_override_value",
                     plan_id=entry.plan_id,
                     message=(
-                        "override pagination_mode must be one of: "
-                        + ", ".join(PAGINATION_MODES)
+                        "override pagination_mode must be one of: " + ", ".join(PAGINATION_MODES)
                     ),
                 )
             )

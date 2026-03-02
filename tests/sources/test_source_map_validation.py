@@ -44,6 +44,20 @@ def test_malformed_maps_fail_validation() -> None:
     assert {finding.code for finding in findings} == {"invalid_allowed_domain", "invalid_url"}
 
 
+def test_invalid_doc_type_hint_fails_validation() -> None:
+    row = _valid_row()
+    row["doc_type_hints"] = "annual_report;actuarial_valuation"
+    findings = validate_source_map_entries(parse_source_map_rows([row]))
+    assert any(finding.code == "invalid_doc_type_hint" for finding in findings)
+
+
+def test_invalid_pagination_hint_fails_validation() -> None:
+    row = _valid_row()
+    row["pagination_hints"] = "cursor"
+    findings = validate_source_map_entries(parse_source_map_rows([row]))
+    assert any(finding.code == "invalid_pagination_hint" for finding in findings)
+
+
 def test_duplicate_seed_urls_are_detected_after_normalization() -> None:
     row_a = _valid_row()
     row_b = _valid_row()
@@ -139,3 +153,23 @@ def test_lint_command_handles_invalid_inputs_with_nonzero_exit(tmp_path: Path) -
         encoding="utf-8",
     )
     assert lint_main([str(bad_numeric)]) == 1
+
+    missing_required_header = tmp_path / "missing_required_header.csv"
+    missing_required_header.write_text(
+        "\n".join(
+            [
+                (
+                    "plan_id,plan_name,expected_plan_identity,seed_url,allowed_domains,"
+                    "doc_type_hints,pagination_hints,max_pages,source_authority_tier,"
+                    "mismatch_reason"
+                ),
+                (
+                    "ca-calpers,California Public Employees' Retirement System,ca-calpers,"
+                    "https://www.calpers.ca.gov/reports,calpers.ca.gov,annual_report,"
+                    "next_link,10,official,"
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert lint_main([str(missing_required_header)]) == 1
