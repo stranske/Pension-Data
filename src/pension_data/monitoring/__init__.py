@@ -3,6 +3,7 @@
 from pension_data.monitoring.telemetry import (
     TelemetryRecord,
     aggregate_metric_window,
+    build_telemetry_table,
     emit_extraction_sla_telemetry,
     emit_ingestion_sla_telemetry,
     emit_review_sla_telemetry,
@@ -10,11 +11,13 @@ from pension_data.monitoring.telemetry import (
     emit_stage_sla_telemetry,
     emit_workflow_sla_telemetry,
     write_telemetry_artifact,
+    write_telemetry_table_artifacts,
 )
 
 __all__ = [
     "TelemetryRecord",
     "aggregate_metric_window",
+    "build_telemetry_table",
     "emit_extraction_sla_telemetry",
     "emit_ingestion_sla_telemetry",
     "emit_review_sla_telemetry",
@@ -22,4 +25,5 @@ __all__ = [
     "emit_stage_sla_telemetry",
     "emit_workflow_sla_telemetry",
     "write_telemetry_artifact",
+    "write_telemetry_table_artifacts",
 ]

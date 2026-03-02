@@ -10,12 +10,14 @@ import pytest
 
 from pension_data.monitoring.telemetry import (
     aggregate_metric_window,
+    build_telemetry_table,
     emit_extraction_sla_telemetry,
     emit_ingestion_sla_telemetry,
     emit_review_sla_telemetry,
     emit_sla_telemetry,
     emit_workflow_sla_telemetry,
     write_telemetry_artifact,
+    write_telemetry_table_artifacts,
 )
 from pension_data.quality.sla_metrics import (
     SLA_METRIC_CATALOG,
@@ -132,6 +134,43 @@ def test_emit_telemetry_and_build_baseline_report(tmp_path: Path) -> None:
     summary = aggregate_metric_window(records)
     assert summary["completeness_rate"]["avg"] == 0.95
     assert summary["parse_warning_rate"]["max"] == 0.05
+
+
+def test_write_telemetry_table_artifacts_persists_dimension_columns(tmp_path: Path) -> None:
+    observed_at = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)
+    records = emit_workflow_sla_telemetry(
+        {
+            "completeness_rate": 0.95,
+            "parse_warning_rate": 0.05,
+            "review_queue_latency_hours": 4.0,
+        },
+        observed_at=observed_at,
+        tags={
+            "run_id": "run-7",
+            "window_start": "2026-03-01T00:00:00+00:00",
+            "window_end": "2026-03-02T00:00:00+00:00",
+            "cohort": "state",
+        },
+    )
+    flattened = [record for stage_records in records.values() for record in stage_records]
+    rows = build_telemetry_table(flattened)
+    assert rows
+    assert all(row["observed_at"] == "2026-03-02T12:00:00+00:00" for row in rows)
+    assert all(row["run_id"] == "run-7" for row in rows)
+    assert all(row["window_start"] == "2026-03-01T00:00:00+00:00" for row in rows)
+    assert all(row["window_end"] == "2026-03-02T00:00:00+00:00" for row in rows)
+    assert {str(row["stage"]) for row in rows} == {"ingestion", "extraction", "review"}
+
+    paths = write_telemetry_table_artifacts(tmp_path / "telemetry", flattened)
+    persisted_json = json.loads(paths["json"].read_text(encoding="utf-8"))
+    assert persisted_json[0]["run_id"] == "run-7"
+    assert persisted_json[0]["observed_at"] == "2026-03-02T12:00:00+00:00"
+    assert "cohort" in persisted_json[0]["tags"]
+    csv_rows = paths["csv"].read_text(encoding="utf-8").splitlines()
+    assert csv_rows[0].startswith(
+        "observed_at,metric,value,run_id,stage,window_start,window_end,tags"
+    )
+    assert len(csv_rows) == 4
 
 
 def test_emit_sla_telemetry_uses_distinct_tag_dict_per_record() -> None:
