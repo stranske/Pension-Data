@@ -82,7 +82,9 @@ def _bounded_confidence(confidence: float) -> float:
     return round(max(0.0, min(1.0, confidence)), 6)
 
 
-def _source_metadata(*, source_url: str, source_kind: SourceKind, unit: ValueUnit) -> MappingProxyType[str, str]:
+def _source_metadata(
+    *, source_url: str, source_kind: SourceKind, unit: ValueUnit
+) -> MappingProxyType[str, str]:
     return MappingProxyType({"source_url": source_url, "source_kind": source_kind, "unit": unit})
 
 

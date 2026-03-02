@@ -124,7 +124,9 @@ def execute_holdings_overlap_view(
         counterparty_rows = [row for row in period_rows if row.plan_id == counterparty_plan]
         counterparty_index = {
             (row.manager_name, row.fund_name): row
-            for row in sorted(counterparty_rows, key=lambda item: (item.manager_name, item.fund_name))
+            for row in sorted(
+                counterparty_rows, key=lambda item: (item.manager_name, item.fund_name)
+            )
         }
 
         all_positions = sorted(set(subject_index) | set(counterparty_index))
@@ -132,13 +134,17 @@ def execute_holdings_overlap_view(
             subject = subject_index.get(position_key)
             counterparty = counterparty_index.get(position_key)
             subject_state = subject.disclosure_state if subject else "known_not_invested"
-            counterparty_state = counterparty.disclosure_state if counterparty else "known_not_invested"
+            counterparty_state = (
+                counterparty.disclosure_state if counterparty else "known_not_invested"
+            )
 
             overlap_status: OverlapStatus = "unknown_due_to_non_disclosure"
             overlap_usd: float | None = None
             if subject_state == "disclosed" and counterparty_state == "disclosed":
                 subject_exposure = subject.exposure_usd if subject is not None else None
-                counterparty_exposure = counterparty.exposure_usd if counterparty is not None else None
+                counterparty_exposure = (
+                    counterparty.exposure_usd if counterparty is not None else None
+                )
                 if subject_exposure is not None and counterparty_exposure is not None:
                     overlap_status = "overlap"
                     overlap_usd = round(min(subject_exposure, counterparty_exposure), 6)

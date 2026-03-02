@@ -128,12 +128,7 @@ def _dedupe_refs(evidence_refs: tuple[str, ...]) -> tuple[str, ...]:
 def _stable_refs_from_mentions(mentions: Iterable[ConsultantMention]) -> tuple[str, ...]:
     return tuple(
         sorted(
-            {
-                ref.strip()
-                for mention in mentions
-                for ref in mention.evidence_refs
-                if ref.strip()
-            }
+            {ref.strip() for mention in mentions for ref in mention.evidence_refs if ref.strip()}
         )
     )
 
@@ -218,7 +213,9 @@ def extract_consultant_records(
             ),
             evidence_refs=merged_refs,
             source_metadata=_source_metadata(
-                _primary_source_url(consultant_mention.source_url for consultant_mention in consultant_group)
+                _primary_source_url(
+                    consultant_mention.source_url for consultant_mention in consultant_group
+                )
             ),
         )
         entities.append(entity)
@@ -364,7 +361,12 @@ def extract_consultant_records(
 
     warnings = sorted(
         warnings,
-        key=lambda warning: (warning.code, warning.plan_id, warning.plan_period, warning.evidence_refs),
+        key=lambda warning: (
+            warning.code,
+            warning.plan_id,
+            warning.plan_period,
+            warning.evidence_refs,
+        ),
     )
     return {
         "consultant_entities": entities,
