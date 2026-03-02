@@ -126,14 +126,20 @@ def _score_anomaly(
     return round(normalized_shift * (0.5 + 0.5 * capped_confidence), 6)
 
 
+def _to_utc_iso(dt: datetime) -> str:
+    """Return a UTC-normalized ISO 8601 representation of a datetime."""
+    dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+    return dt.isoformat()
+
+
 def _build_evidence_context(
     *, previous: TimeSeriesPoint, current: TimeSeriesPoint
 ) -> dict[str, object]:
     return {
         "previous_period": previous.period,
         "current_period": current.period,
-        "previous_observed_at": previous.observed_at.astimezone(UTC).isoformat(),
-        "current_observed_at": current.observed_at.astimezone(UTC).isoformat(),
+        "previous_observed_at": _to_utc_iso(previous.observed_at),
+        "current_observed_at": _to_utc_iso(current.observed_at),
         "evidence_refs": list(dict.fromkeys(previous.evidence_refs + current.evidence_refs)),
         "previous_provenance": dict(sorted(previous.provenance.items())),
         "current_provenance": dict(sorted(current.provenance.items())),
@@ -285,7 +291,7 @@ def detect_anomalies(
     thresholds: AnomalyThresholds = DEFAULT_THRESHOLDS,
 ) -> list[AnomalyRecord]:
     """Detect funded and allocation shift anomalies in time-series points."""
-    ordered = sorted(points, key=lambda row: (row.plan_id, row.observed_at, row.period))
+    ordered = sorted(points, key=lambda row: (row.plan_id, row.period, row.observed_at))
     anomalies: list[AnomalyRecord] = []
 
     for index in range(1, len(ordered)):

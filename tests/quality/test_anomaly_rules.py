@@ -227,3 +227,68 @@ def test_anomaly_thresholds_require_warning_not_exceed_critical() -> None:
         match="allocation_shift_warning must be <= allocation_shift_critical",
     ):
         AnomalyThresholds(allocation_shift_warning=0.13, allocation_shift_critical=0.12)
+
+
+def test_detect_anomalies_orders_by_period_before_observed_at() -> None:
+    points = [
+        _point(
+            plan_id="period-order",
+            period="2024",
+            observed_at=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+            funded_ratio=0.80,
+            equity=0.50,
+            fixed_income=0.30,
+            confidence=0.95,
+        ),
+        _point(
+            plan_id="period-order",
+            period="2025",
+            observed_at=datetime(2025, 1, 1, 0, 0, tzinfo=UTC),
+            funded_ratio=0.60,
+            equity=0.65,
+            fixed_income=0.20,
+            confidence=0.95,
+        ),
+    ]
+
+    anomalies = detect_anomalies(points)
+    assert anomalies
+    funded = [item for item in anomalies if item.metric == "funded_ratio"][0]
+    assert funded.period == "2025"
+    assert funded.evidence_context["previous_period"] == "2024"
+    assert funded.evidence_context["current_period"] == "2025"
+
+
+def test_naive_datetimes_are_normalized_to_utc_in_evidence_and_queue() -> None:
+    points = [
+        _point(
+            plan_id="naive-time",
+            period="2024",
+            observed_at=datetime(2025, 1, 1, 0, 0),
+            funded_ratio=0.80,
+            equity=0.50,
+            fixed_income=0.30,
+            confidence=0.95,
+        ),
+        _point(
+            plan_id="naive-time",
+            period="2025",
+            observed_at=datetime(2026, 1, 1, 0, 0),
+            funded_ratio=0.60,
+            equity=0.65,
+            fixed_income=0.20,
+            confidence=0.95,
+        ),
+    ]
+    anomalies = detect_anomalies(points)
+    assert anomalies
+    funded = [item for item in anomalies if item.metric == "funded_ratio"][0]
+    assert funded.evidence_context["previous_observed_at"] == "2025-01-01T00:00:00+00:00"
+    assert funded.evidence_context["current_observed_at"] == "2026-01-01T00:00:00+00:00"
+
+    queued = route_anomalies_to_review_queue(
+        anomalies,
+        queued_at=datetime(2026, 1, 2, 0, 0),
+    )
+    assert queued
+    assert queued[0].created_at == datetime(2026, 1, 2, 0, 0, tzinfo=UTC)

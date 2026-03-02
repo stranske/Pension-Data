@@ -36,7 +36,9 @@ def route_anomalies_to_review_queue(
     queued_at: datetime | None = None,
 ) -> list[ReviewQueueItem]:
     """Route anomaly records into prioritized review-queue items."""
-    created_at = (queued_at or datetime.now(UTC)).astimezone(UTC)
+    base_dt = queued_at or datetime.now(UTC)
+    base_dt = base_dt.replace(tzinfo=UTC) if base_dt.tzinfo is None else base_dt
+    created_at = base_dt.astimezone(UTC)
     queue_items: list[ReviewQueueItem] = []
 
     for anomaly in anomalies:
