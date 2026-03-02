@@ -1,0 +1,17 @@
+{
+  "view_name": "funding_trend",
+  "version": "v1",
+  "description": "Plan-level funding trend with year-over-year funded ratio and net external flow context.",
+  "sql": "SELECT plan_id, plan_period, funded_ratio, employer_contributions_usd, employee_contributions_usd, benefit_payments_usd FROM plan_funding_metrics ORDER BY plan_id, plan_period;",
+  "assumptions": [
+    "plan_period values are sortable fiscal-year tokens such as FY2024 or 2024",
+    "benefit_payments_usd is reported as positive outflow and is subtracted in net flow"
+  ],
+  "output_schema": [
+    {"name": "plan_id", "type": "string"},
+    {"name": "plan_period", "type": "string"},
+    {"name": "funded_ratio", "type": "number"},
+    {"name": "funded_ratio_change", "type": "number|null"},
+    {"name": "net_external_cash_flow_usd", "type": "number|null"}
+  ]
+}
