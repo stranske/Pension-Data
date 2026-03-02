@@ -20,6 +20,37 @@ class AnomalyThresholds:
     allocation_shift_critical: float = 0.12
     min_confidence_for_medium_priority: float = 0.40
 
+    def __post_init__(self) -> None:
+        _validate_threshold_range(
+            "funded_shift_warning",
+            self.funded_shift_warning,
+        )
+        _validate_threshold_range(
+            "funded_shift_critical",
+            self.funded_shift_critical,
+        )
+        _validate_threshold_range(
+            "allocation_shift_warning",
+            self.allocation_shift_warning,
+        )
+        _validate_threshold_range(
+            "allocation_shift_critical",
+            self.allocation_shift_critical,
+        )
+        _validate_threshold_range(
+            "min_confidence_for_medium_priority",
+            self.min_confidence_for_medium_priority,
+        )
+        if self.funded_shift_warning > self.funded_shift_critical:
+            raise ValueError("funded_shift_warning must be <= funded_shift_critical")
+        if self.allocation_shift_warning > self.allocation_shift_critical:
+            raise ValueError("allocation_shift_warning must be <= allocation_shift_critical")
+
+
+def _validate_threshold_range(name: str, value: float) -> None:
+    if value < 0.0 or value > 1.0:
+        raise ValueError(f"{name} must be within [0.0, 1.0]")
+
 
 DEFAULT_THRESHOLDS = AnomalyThresholds()
 
@@ -73,7 +104,9 @@ def _priority_for_anomaly(
     return "medium" if confidence >= thresholds.min_confidence_for_medium_priority else "low"
 
 
-def _build_evidence_context(*, previous: TimeSeriesPoint, current: TimeSeriesPoint) -> dict[str, object]:
+def _build_evidence_context(
+    *, previous: TimeSeriesPoint, current: TimeSeriesPoint
+) -> dict[str, object]:
     return {
         "previous_period": previous.period,
         "current_period": current.period,

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from pension_data.quality.anomaly_rules import AnomalyThresholds, TimeSeriesPoint, detect_anomalies
 from pension_data.review_queue.anomalies import route_anomalies_to_review_queue
 
@@ -143,7 +145,9 @@ def test_allocation_shift_thresholds_and_review_queue_routing() -> None:
         ),
     ]
 
-    anomalies = detect_anomalies(points, thresholds=AnomalyThresholds(allocation_shift_warning=0.08))
+    anomalies = detect_anomalies(
+        points, thresholds=AnomalyThresholds(allocation_shift_warning=0.08)
+    )
     allocation = [item for item in anomalies if item.metric.startswith("allocation:")]
 
     assert allocation
@@ -155,3 +159,28 @@ def test_allocation_shift_thresholds_and_review_queue_routing() -> None:
     assert queue_items[0].priority in {"high", "medium"}
     assert "shift" in queue_items[0].reason
     assert queue_items[0].created_at == datetime(2026, 1, 2, 0, 0, tzinfo=UTC)
+
+
+def test_anomaly_thresholds_reject_out_of_range_values() -> None:
+    with pytest.raises(ValueError, match=r"funded_shift_warning must be within \[0.0, 1.0\]"):
+        AnomalyThresholds(funded_shift_warning=-0.01)
+
+    with pytest.raises(
+        ValueError,
+        match=r"min_confidence_for_medium_priority must be within \[0.0, 1.0\]",
+    ):
+        AnomalyThresholds(min_confidence_for_medium_priority=1.01)
+
+
+def test_anomaly_thresholds_require_warning_not_exceed_critical() -> None:
+    with pytest.raises(
+        ValueError,
+        match="funded_shift_warning must be <= funded_shift_critical",
+    ):
+        AnomalyThresholds(funded_shift_warning=0.11, funded_shift_critical=0.10)
+
+    with pytest.raises(
+        ValueError,
+        match="allocation_shift_warning must be <= allocation_shift_critical",
+    ):
+        AnomalyThresholds(allocation_shift_warning=0.13, allocation_shift_critical=0.12)
