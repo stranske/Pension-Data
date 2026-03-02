@@ -143,6 +143,28 @@ def _build_evidence_context(
     }
 
 
+def _metric_evidence_context(
+    *,
+    metric: str,
+    previous_value: float,
+    current_value: float,
+    warning_threshold: float,
+    critical_threshold: float,
+) -> dict[str, object]:
+    signed_delta = current_value - previous_value
+    return {
+        "metric": metric,
+        "previous_value": round(previous_value, 6),
+        "current_value": round(current_value, 6),
+        "signed_delta": round(signed_delta, 6),
+        "absolute_delta": round(abs(signed_delta), 6),
+        "thresholds": {
+            "warning": warning_threshold,
+            "critical": critical_threshold,
+        },
+    }
+
+
 def _detect_funded_shift(
     *,
     previous: TimeSeriesPoint,
@@ -174,6 +196,13 @@ def _detect_funded_shift(
         critical=thresholds.funded_shift_critical,
     )
     evidence_context = _build_evidence_context(previous=previous, current=current)
+    evidence_context["metric_evidence"] = _metric_evidence_context(
+        metric="funded_ratio",
+        previous_value=previous.funded_ratio,
+        current_value=current.funded_ratio,
+        warning_threshold=thresholds.funded_shift_warning,
+        critical_threshold=thresholds.funded_shift_critical,
+    )
     return [
         AnomalyRecord(
             anomaly_id=f"{current.plan_id}:{current.period}:funded_ratio_shift",
@@ -225,6 +254,13 @@ def _detect_allocation_shifts(
             critical=thresholds.allocation_shift_critical,
         )
         evidence_context = _build_evidence_context(previous=previous, current=current)
+        evidence_context["metric_evidence"] = _metric_evidence_context(
+            metric=f"allocation:{asset_class}",
+            previous_value=previous_value,
+            current_value=current_value,
+            warning_threshold=thresholds.allocation_shift_warning,
+            critical_threshold=thresholds.allocation_shift_critical,
+        )
         anomalies.append(
             AnomalyRecord(
                 anomaly_id=(

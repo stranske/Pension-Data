@@ -66,6 +66,14 @@ def test_material_funded_shift_is_flagged_with_evidence_context() -> None:
     assert funded[0].score > 1.0
     assert funded[0].evidence_context["previous_period"] == "2024"
     assert funded[0].evidence_context["current_period"] == "2025"
+    assert funded[0].evidence_context["metric_evidence"] == {
+        "metric": "funded_ratio",
+        "previous_value": 0.82,
+        "current_value": 0.69,
+        "signed_delta": -0.13,
+        "absolute_delta": 0.13,
+        "thresholds": {"warning": 0.05, "critical": 0.1},
+    }
 
 
 def test_small_shifts_do_not_trigger_false_positive_anomalies() -> None:
@@ -161,6 +169,7 @@ def test_allocation_shift_thresholds_and_review_queue_routing() -> None:
     assert queue_items[0].priority in {"high", "medium"}
     assert "shift" in queue_items[0].reason
     assert queue_items[0].created_at == datetime(2026, 1, 2, 0, 0, tzinfo=UTC)
+    assert queue_items[0].evidence_context["metric_evidence"]["metric"].startswith("allocation:")
 
 
 def test_higher_shift_gets_higher_score_and_sorts_first_within_period() -> None:
