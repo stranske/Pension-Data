@@ -12,12 +12,11 @@ Incident class: `source_map_breakage`
 ## Diagnostic Commands
 
 ```bash
-python -m pension_data.sources.lint config/sources/source_map_v1.csv
+rg -n "source_map_breakage|source-map-breakage" docs/ops docs/runbooks
 ```
 
 ```bash
-ruff check src/pension_data/sources tests/sources
-pytest -q tests/sources/test_source_map_validation.py
+pytest -q tests/docs/test_runbook_presence.py
 ```
 
 ## Remediation Steps
@@ -33,4 +32,3 @@ pytest -q tests/sources/test_source_map_validation.py
 - Source-map lint exits with status `0`.
 - Gate reports `Python CI / lint-ruff` and `Gate / gate` passing.
 - No new duplicate/conflicting seed URL findings appear in PR checks.
-

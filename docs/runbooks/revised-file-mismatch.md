@@ -12,11 +12,11 @@ Incident class: `revised_file_mismatch`
 ## Diagnostic Commands
 
 ```bash
-pytest -q tests/registry/test_registry_loader.py
+pytest -q tests/test_main.py tests/test_dependency_version_alignment.py
 ```
 
 ```bash
-rg -n "stale_period|wrong_plan|non_official_only" config/sources src/pension_data
+rg -n "revised_file_mismatch|revised-file-mismatch|mismatch" docs/ops docs/runbooks
 ```
 
 ## Remediation Steps
@@ -32,4 +32,3 @@ rg -n "stale_period|wrong_plan|non_official_only" config/sources src/pension_dat
 - Mismatch findings drop to expected baseline after metadata correction.
 - CI tests for registry and sources complete without failures.
 - Coverage/readiness outputs show consistent period assignment.
-
