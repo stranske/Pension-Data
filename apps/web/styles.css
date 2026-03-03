@@ -123,6 +123,18 @@ h2 {
   font-size: 0.84rem;
 }
 
+.hint[data-level="ok"] {
+  color: #166534;
+}
+
+.hint[data-level="warn"] {
+  color: #b45309;
+}
+
+.hint[data-level="error"] {
+  color: #b91c1c;
+}
+
 .inventory-list {
   list-style: none;
   margin: 0;
@@ -195,6 +207,10 @@ button {
   font-size: 0.88rem;
   background: #fff;
   color: var(--ink);
+}
+
+#local-bundle-file {
+  max-width: 320px;
 }
 
 button {

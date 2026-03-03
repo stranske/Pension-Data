@@ -16,6 +16,9 @@ REQUIRED_LOCAL_FILES = (
     "index.html",
     "styles.css",
     "app.js",
+    "sw.js",
+    "manifest.webmanifest",
+    "icons/pension-data-mark.svg",
     "config/default.json",
     "data/workspace.json",
 )
@@ -44,6 +47,7 @@ def _smoke_local(base_dir: Path, *, require_runtime: bool) -> None:
     markers = (
         'data-testid="web-foundation-root"',
         'data-testid="environment-badge"',
+        "./manifest.webmanifest",
         "./styles.css",
         "./app.js",
     )
@@ -86,6 +90,16 @@ def _smoke_url(base_url: str, *, expect_runtime: bool, headers: dict[str, str] |
     if not isinstance(default_payload, dict):
         raise ValueError("default config endpoint did not return object JSON")
     _assert_config(default_payload, path_label="config/default.json")
+
+    manifest_payload = json.loads(_fetch_text(urljoin(root, "manifest.webmanifest"), headers=headers))
+    if not isinstance(manifest_payload, dict):
+        raise ValueError("manifest endpoint did not return object JSON")
+    if not isinstance(manifest_payload.get("name"), str) or not manifest_payload.get("name"):
+        raise ValueError("manifest missing required name field")
+    if not isinstance(manifest_payload.get("start_url"), str) or not manifest_payload.get("start_url"):
+        raise ValueError("manifest missing required start_url field")
+
+    _fetch_text(urljoin(root, "sw.js"), headers=headers)
 
     workspace_payload = json.loads(_fetch_text(urljoin(root, "data/workspace.json"), headers=headers))
     if not isinstance(workspace_payload, dict):
