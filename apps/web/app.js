@@ -10,6 +10,7 @@ const state = {
   selectedDatasetId: "",
   selectedRowIndex: null,
   storageWarningShown: false,
+  currentChartSpec: null,
   filters: {
     entity: "",
     period: "",
@@ -26,6 +27,11 @@ function normalizeText(value) {
 
 function normalizeLower(value) {
   return normalizeText(value).toLowerCase();
+}
+
+function numeric(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 async function loadJson(path) {
@@ -315,6 +321,7 @@ function applyFilterInputs() {
   state.selectedRowIndex = null;
   renderTable();
   renderDetail();
+  buildChartFromTemplate();
 }
 
 function bindFilterHandlers() {
@@ -434,13 +441,20 @@ function buildCsv(rows) {
 }
 
 function downloadFile(filename, content, mimeType) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
-  anchor.href = url;
   anchor.download = filename;
+  let objectUrl = null;
+  if (typeof content === "string" && content.startsWith("data:")) {
+    anchor.href = content;
+  } else {
+    const blob = new Blob([content], { type: mimeType });
+    objectUrl = URL.createObjectURL(blob);
+    anchor.href = objectUrl;
+  }
   anchor.click();
-  URL.revokeObjectURL(url);
+  if (objectUrl) {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function bindExportHandlers() {
@@ -455,11 +469,243 @@ function bindExportHandlers() {
   });
 }
 
+function chartTitle(template) {
+  const labels = {
+    timeSeries: "Time Series",
+    distribution: "Distribution",
+    attribution: "Attribution",
+    riskReturn: "Risk / Return Scatter",
+    heatmap: "Heatmap",
+  };
+  return labels[template] || "Chart";
+}
+
+function chartTemplateSpec(template, rows) {
+  if (!rows.length) {
+    return {
+      data: [],
+      layout: {
+        title: "No rows available for chart",
+        paper_bgcolor: "rgba(0,0,0,0)",
+        plot_bgcolor: "rgba(0,0,0,0)",
+      },
+    };
+  }
+
+  if (template === "distribution") {
+    return {
+      data: [
+        {
+          type: "histogram",
+          x: rows.map((row) => numeric(row.value)),
+          marker: { color: "#0f766e" },
+        },
+      ],
+      layout: {
+        title: `${chartTitle(template)} · ${rows.length} rows`,
+        xaxis: { title: "Value" },
+        yaxis: { title: "Count" },
+      },
+    };
+  }
+
+  if (template === "attribution") {
+    const byEntity = {};
+    rows.forEach((row) => {
+      byEntity[row.entity] = (byEntity[row.entity] || 0) + numeric(row.value);
+    });
+    return {
+      data: [
+        {
+          type: "bar",
+          x: Object.keys(byEntity),
+          y: Object.values(byEntity),
+          marker: { color: "#f06f42" },
+        },
+      ],
+      layout: {
+        title: `${chartTitle(template)} · by Entity`,
+        xaxis: { title: "Entity" },
+        yaxis: { title: "Aggregate Value" },
+      },
+    };
+  }
+
+  if (template === "riskReturn") {
+    return {
+      data: [
+        {
+          type: "scatter",
+          mode: "markers",
+          x: rows.map((row) => numeric(row.confidence)),
+          y: rows.map((row) => numeric(row.value)),
+          text: rows.map((row) => `${row.entity} · ${row.metric}`),
+          marker: {
+            size: rows.map((row) => Math.max(8, numeric(row.confidence) * 22)),
+            color: rows.map((row) => numeric(row.confidence)),
+            colorscale: "Viridis",
+          },
+        },
+      ],
+      layout: {
+        title: `${chartTitle(template)} · Confidence vs Value`,
+        xaxis: { title: "Confidence" },
+        yaxis: { title: "Value" },
+      },
+    };
+  }
+
+  if (template === "heatmap") {
+    const entities = [...new Set(rows.map((row) => row.entity))];
+    const families = [...new Set(rows.map((row) => row.metric_family))];
+    const z = entities.map((entity) =>
+      families.map((family) => {
+        const scoped = rows.filter((row) => row.entity === entity && row.metric_family === family);
+        if (!scoped.length) {
+          return 0;
+        }
+        return scoped.reduce((sum, row) => sum + numeric(row.value), 0) / scoped.length;
+      })
+    );
+    return {
+      data: [
+        {
+          type: "heatmap",
+          x: families,
+          y: entities,
+          z,
+          colorscale: "YlGnBu",
+        },
+      ],
+      layout: {
+        title: `${chartTitle(template)} · Entity x Metric Family`,
+      },
+    };
+  }
+
+  if (template === "timeSeries") {
+    const entityGroups = {};
+    rows.forEach((row) => {
+      const key = row.entity || "Unknown";
+      if (!entityGroups[key]) {
+        entityGroups[key] = [];
+      }
+      entityGroups[key].push(row);
+    });
+    const traces = Object.entries(entityGroups).map(([entity, values]) => {
+      const sorted = [...values].sort((left, right) =>
+        String(left.plan_period).localeCompare(String(right.plan_period))
+      );
+      return {
+        type: "scatter",
+        mode: "lines+markers",
+        name: entity,
+        x: sorted.map((row) => row.plan_period),
+        y: sorted.map((row) => numeric(row.value)),
+      };
+    });
+    return {
+      data: traces,
+      layout: {
+        title: `${chartTitle(template)} · by Plan Period`,
+        xaxis: { title: "Plan Period" },
+        yaxis: { title: "Value" },
+      },
+    };
+  }
+
+  return { data: [], layout: { title: "Unsupported chart template" } };
+}
+
+function normalizeChartSpec(spec) {
+  const baseLayout = {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: {
+      family: "Space Grotesk, IBM Plex Sans, Segoe UI, sans-serif",
+      color: "#122321",
+    },
+    margin: { l: 55, r: 24, t: 52, b: 52 },
+  };
+  return {
+    data: Array.isArray(spec.data) ? spec.data : [],
+    layout: { ...baseLayout, ...(spec.layout || {}) },
+  };
+}
+
+function renderChartSpec(spec) {
+  const normalized = normalizeChartSpec(spec);
+  state.currentChartSpec = normalized;
+  document.getElementById("chart-spec").value = `${JSON.stringify(normalized, null, 2)}\n`;
+  window.Plotly.react("chart-preview", normalized.data, normalized.layout, {
+    responsive: true,
+    displaylogo: false,
+  });
+}
+
+function buildChartFromTemplate() {
+  const template = document.getElementById("chart-template").value;
+  renderChartSpec(chartTemplateSpec(template, filteredRows()));
+}
+
+function bindChartStudio() {
+  document.getElementById("chart-build").addEventListener("click", buildChartFromTemplate);
+  document.getElementById("chart-template").addEventListener("change", buildChartFromTemplate);
+  document.getElementById("chart-apply-spec").addEventListener("click", () => {
+    const raw = document.getElementById("chart-spec").value;
+    const spec = JSON.parse(raw);
+    renderChartSpec(spec);
+  });
+  document.getElementById("chart-export-json").addEventListener("click", () => {
+    const spec = state.currentChartSpec || { data: [], layout: {} };
+    downloadFile("pension-data-chart-spec.json", `${JSON.stringify(spec, null, 2)}\n`, "application/json");
+  });
+  document.getElementById("chart-export-png").addEventListener("click", async () => {
+    const dataUrl = await window.Plotly.toImage("chart-preview", {
+      format: "png",
+      width: 1400,
+      height: 840,
+      scale: 2,
+    });
+    downloadFile("pension-data-chart.png", dataUrl, "image/png");
+  });
+  document.getElementById("chart-export-svg").addEventListener("click", async () => {
+    const dataUrl = await window.Plotly.toImage("chart-preview", {
+      format: "svg",
+      width: 1400,
+      height: 840,
+    });
+    downloadFile("pension-data-chart.svg", dataUrl, "image/svg+xml");
+  });
+  document.getElementById("chart-export-html").addEventListener("click", () => {
+    const spec = state.currentChartSpec || { data: [], layout: {} };
+    const html = `<!doctype html>
+<html lang=\"en\">
+  <head>
+    <meta charset=\"UTF-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+    <title>Pension-Data Chart Export</title>
+    <script src=\"https://cdn.plot.ly/plotly-2.35.2.min.js\"></script>
+  </head>
+  <body>
+    <div id=\"chart\" style=\"width:100%;height:100vh;\"></div>
+    <script>
+      const spec = ${JSON.stringify(spec)};
+      Plotly.newPlot(\"chart\", spec.data, spec.layout, { responsive: true });
+    </script>
+  </body>
+</html>
+`;
+    downloadFile("pension-data-chart.html", html, "text/html");
+  });
+}
+
 function renderWorkspace() {
   renderMeta();
   renderInventory();
   applyFilterInputs();
   renderSavedViews();
+  buildChartFromTemplate();
 }
 
 async function init() {
@@ -485,6 +731,7 @@ async function init() {
   bindFilterHandlers();
   bindSavedViewHandlers();
   bindExportHandlers();
+  bindChartStudio();
   renderWorkspace();
 
   window.PensionDataApp = {
