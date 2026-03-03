@@ -3,14 +3,14 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "my-project"
+name = "pension-data"
 version = "0.1.0"
-description = "Template Python project with stranske/Workflows CI integration"
+description = "Pension data extraction, normalization, and quality pipeline toolkit"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    {name = "Pension-Data Maintainers"},
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -33,8 +33,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/stranske/Template"
-Repository = "https://github.com/stranske/Template"
+Homepage = "https://github.com/stranske/Pension-Data"
+Repository = "https://github.com/stranske/Pension-Data"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -42,7 +42,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --cov=src --cov-report=term-missing --cov-report=xml"
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 
 [tool.coverage.run]
 source = ["src"]
@@ -80,7 +80,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["my_project", "pension_data", "tools"]
+known-first-party = ["pension_data", "tools"]
 
 [tool.mypy]
 python_version = "3.11"
