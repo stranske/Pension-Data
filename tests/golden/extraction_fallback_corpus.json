@@ -1,0 +1,16 @@
+{
+  "documents": [
+    {
+      "document_id": "funded-table-primary",
+      "content": "{\"domain\": \"funded\", \"plan_id\": \"CA-PERS\", \"plan_period\": \"FY2025\", \"raw\": {\"source_document_id\": \"doc:ca:2025:funded\", \"source_url\": \"https://example.gov/ca-2025-funded.pdf\", \"effective_date\": \"2025-06-30\", \"ingestion_date\": \"2026-01-15\", \"default_money_unit_scale\": \"million_usd\", \"text_blocks\": [], \"table_rows\": [{\"label\": \"Funded Ratio\", \"value\": \"80.0%\", \"evidence_ref\": \"p.45\"}, {\"label\": \"AAL\", \"value\": \"$600 million\", \"evidence_ref\": \"p.45\"}, {\"label\": \"AVA\", \"value\": \"$480 million\", \"evidence_ref\": \"p.45\"}, {\"label\": \"Discount Rate\", \"value\": \"6.75%\", \"evidence_ref\": \"p.46\"}, {\"label\": \"Employer Contribution Rate\", \"value\": \"12.4%\", \"evidence_ref\": \"p.47\"}, {\"label\": \"Employee Contribution Rate\", \"value\": \"7.5%\", \"evidence_ref\": \"p.47\"}, {\"label\": \"Participant Count\", \"value\": \"320000\", \"evidence_ref\": \"p.48\"}]}}"
+    },
+    {
+      "document_id": "funded-text-fallback",
+      "content": "{\"domain\": \"funded\", \"plan_id\": \"TX-ERS\", \"plan_period\": \"FY2025\", \"raw\": {\"source_document_id\": \"doc:tx:2025:funded\", \"source_url\": \"https://example.gov/tx-2025-funded.pdf\", \"effective_date\": \"2025-08-31\", \"ingestion_date\": \"2026-02-02\", \"default_money_unit_scale\": \"million_usd\", \"text_blocks\": [\"Funded ratio 81.2%.\", \"Actuarial accrued liability was $410.5 million.\", \"Actuarial value of assets was $333.7 million.\", \"Discount rate remained 6.75%.\", \"Employer contribution rate was 11.1%.\", \"Employee contribution rate was 7.1%.\", \"Participant count was 112000.\"], \"table_rows\": []}}"
+    },
+    {
+      "document_id": "funded-fallback-exhausted",
+      "content": "{\"domain\": \"funded\", \"plan_id\": \"WA-SRS\", \"plan_period\": \"FY2025\", \"raw\": {\"source_document_id\": \"doc:wa:2025:funded\", \"source_url\": \"https://example.gov/wa-2025-funded.pdf\", \"effective_date\": \"2025-06-30\", \"ingestion_date\": \"2026-01-15\", \"default_money_unit_scale\": \"million_usd\", \"text_blocks\": [\"No funded metrics disclosed in this section.\"], \"table_rows\": []}}"
+    }
+  ]
+}
