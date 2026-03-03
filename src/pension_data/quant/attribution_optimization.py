@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass
 from itertools import product
 from typing import Literal
+
+_MAX_GRID_CANDIDATES = 250_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,8 +68,12 @@ class OptimizationResult:
 
 
 def _grid_values(min_weight: float, max_weight: float, step: float) -> tuple[float, ...]:
-    count = int(round((max_weight - min_weight) / step))
-    return tuple(round(min_weight + (index * step), 10) for index in range(count + 1))
+    span = max_weight - min_weight
+    count = int(math.floor((span / step) + 1e-12))
+    values = [round(min_weight + (index * step), 10) for index in range(count + 1)]
+    if not math.isclose(values[-1], max_weight, rel_tol=0.0, abs_tol=1e-10):
+        values.append(round(max_weight, 10))
+    return tuple(values)
 
 
 def _valid_weight_sum(weights: tuple[float, ...], *, target_total_weight: float) -> bool:
@@ -94,6 +101,10 @@ def optimize_allocation(
             raise ValueError(f"missing constraints for bucket '{bucket}'")
         if bucket not in risk_penalties:
             raise ValueError(f"missing risk penalty for bucket '{bucket}'")
+        min_weight = constraints.min_weight[bucket]
+        max_weight = constraints.max_weight[bucket]
+        if min_weight > max_weight:
+            raise ValueError(f"invalid constraints for bucket '{bucket}': min_weight > max_weight")
 
     value_ranges = [
         _grid_values(
@@ -103,6 +114,14 @@ def optimize_allocation(
         )
         for bucket in buckets
     ]
+    candidate_count = 1
+    for values in value_ranges:
+        candidate_count *= len(values)
+    if candidate_count > _MAX_GRID_CANDIDATES:
+        raise ValueError(
+            "optimization grid too large for sandbox execution; "
+            "adjust precision_step or bucket constraints"
+        )
 
     best: OptimizationResult | None = None
     for candidate in product(*value_ranges):
@@ -162,6 +181,8 @@ class QuantExperimentRegistry:
         return hashlib.sha256(encoded).hexdigest()
 
     def add_record(self, record: QuantExperimentRecord) -> None:
+        if record.experiment_id in self._records:
+            raise ValueError(f"duplicate experiment_id '{record.experiment_id}'")
         self._records[record.experiment_id] = record
 
     def compare(self, left_experiment_id: str, right_experiment_id: str) -> ExperimentComparison:

@@ -39,7 +39,39 @@ def test_optimizer_respects_weight_constraints() -> None:
     assert 0.2 <= result.weights["equity"] <= 0.8
     assert 0.2 <= result.weights["fixed_income"] <= 0.8
     assert round(sum(result.weights.values()), 6) == 1.0
-    assert result.objective_value == result.expected_return - (0.5 * result.penalty)
+    assert result.objective_value == pytest.approx(result.expected_return - (0.5 * result.penalty))
+
+
+def test_optimizer_rejects_invalid_constraint_ranges() -> None:
+    with pytest.raises(ValueError, match="min_weight > max_weight"):
+        optimize_allocation(
+            expected_returns={"equity": 0.08},
+            risk_penalties={"equity": 0.12},
+            constraints=OptimizationConstraints(
+                min_weight={"equity": 0.7},
+                max_weight={"equity": 0.4},
+                target_total_weight=1.0,
+                precision_step=0.1,
+            ),
+            sensitivity_lambda=0.5,
+        )
+
+
+def test_experiment_registry_rejects_duplicate_experiment_ids() -> None:
+    registry = QuantExperimentRegistry()
+    record = QuantExperimentRecord(
+        experiment_id="exp-a",
+        module="optimization",
+        seed=42,
+        input_hash=registry.stable_hash({"name": "baseline"}),
+        output_hash=registry.stable_hash({"objective": 0.021}),
+        artifact_links=("artifacts/exp-a.json",),
+        objective_value=0.021,
+        total_return=0.054,
+    )
+    registry.add_record(record)
+    with pytest.raises(ValueError, match="duplicate experiment_id"):
+        registry.add_record(record)
 
 
 def test_experiment_registry_comparison_emits_deltas() -> None:
