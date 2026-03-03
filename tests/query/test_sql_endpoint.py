@@ -177,7 +177,9 @@ def test_sql_service_rejects_statement_separator_before_execution() -> None:
     try:
         response = execute_sql_query(
             connection=connection,
-            request=SQLQueryRequest(sql="SELECT id FROM sample_metrics; SELECT value FROM sample_metrics"),
+            request=SQLQueryRequest(
+                sql="SELECT id FROM sample_metrics; SELECT value FROM sample_metrics"
+            ),
             caller_key_id="key:test",
         )
     finally:
