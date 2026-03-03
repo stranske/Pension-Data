@@ -29,7 +29,9 @@ Relevant env vars:
 - `PENSION_DATA_OPENAI_MODEL`
 - `PENSION_DATA_ANTHROPIC_MODEL`
 - `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
 - `ANTHROPIC_API_KEY`
+- `ANTHROPIC_BASE_URL`
 - `PENSION_DATA_LLM_API_KEY` (global fallback)
 
 ## LangSmith Tracing
@@ -53,4 +55,3 @@ Use shared helpers from `pension_data.langchain.prompts`:
 All findings-explainer outputs should include:
 
 `This is analytical output, not financial advice. Always verify metrics independently.`
-

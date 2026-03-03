@@ -20,11 +20,13 @@ def _env_truthy(env: MutableMapping[str, str], key: str) -> bool:
 def configure_langsmith_env(env: MutableMapping[str, str] | None = None) -> bool:
     """Enable tracing env vars only when an API key is configured."""
     active_env = os.environ if env is None else env
-    api_key = active_env.get("LANGSMITH_API_KEY") or active_env.get("LANGCHAIN_API_KEY")
-    if api_key is None or not api_key.strip():
+    raw_api_key = active_env.get("LANGSMITH_API_KEY") or active_env.get("LANGCHAIN_API_KEY")
+    if raw_api_key is None:
         return False
-    if not active_env.get("LANGCHAIN_API_KEY"):
-        active_env["LANGCHAIN_API_KEY"] = api_key.strip()
+    api_key = raw_api_key.strip()
+    if not api_key:
+        return False
+    active_env["LANGCHAIN_API_KEY"] = api_key
     active_env.setdefault("LANGCHAIN_TRACING_V2", "true")
     return True
 
