@@ -186,7 +186,9 @@ def run_one_pdf_pilot(
             list[dict[str, object]],
             orchestration_artifacts["staging_manager_fund_vehicle_relationship_rows"],
         ),
-        warning_rows=cast(list[dict[str, object]], orchestration_artifacts["extraction_warning_rows"]),
+        warning_rows=cast(
+            list[dict[str, object]], orchestration_artifacts["extraction_warning_rows"]
+        ),
     )
 
     persistence_paths = write_extraction_persistence_artifacts(
