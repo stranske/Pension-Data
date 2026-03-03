@@ -2,9 +2,12 @@
 # Auto-fixes lint and format issues on PRs
 #
 # Triggers:
-# - Gate workflow completes with failure (lint/format issues detected)
+# - Gate/CI/Python CI workflow completes with failure (lint/format issues detected)
 # - Lint job fails early (workflow_job completed)
 # - PR labeled with 'autofix' or 'autofix:clean' (manual trigger)
+#
+# Note: push trigger removed — it caused "This isn't working right now" errors
+# because GitHub Actions can't resolve the reusable workflow reference on push events
 #
 # Copy this file to: .github/workflows/autofix.yml
 #
