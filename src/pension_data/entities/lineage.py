@@ -53,16 +53,20 @@ def _sorted_events(events: Sequence[EntityLineageEvent]) -> list[EntityLineageEv
     return sorted(events, key=lambda event: (event.occurred_at, event.event_id))
 
 
-def _build_forward_graph(events: Sequence[EntityLineageEvent]) -> dict[str, set[str]]:
+def _build_forward_graph(
+    events: Sequence[EntityLineageEvent],
+    *,
+    assume_sorted: bool = False,
+) -> dict[str, set[str]]:
     graph: dict[str, set[str]] = defaultdict(set)
-    for event in _sorted_events(events):
+    for event in events if assume_sorted else _sorted_events(events):
         for source in event.source_entity_ids:
             graph[source].update(event.target_entity_ids)
     return graph
 
 
-def _assert_no_cycles(events: Sequence[EntityLineageEvent]) -> None:
-    graph = _build_forward_graph(events)
+def _assert_no_cycles(events: Sequence[EntityLineageEvent], *, assume_sorted: bool = False) -> None:
+    graph = _build_forward_graph(events, assume_sorted=assume_sorted)
     visiting: set[str] = set()
     visited: set[str] = set()
 
@@ -92,7 +96,7 @@ def record_lineage_event(
     actor: str,
     rationale: str,
 ) -> list[EntityLineageEvent]:
-    """Persist one lineage event with schema constraints and cycle validation."""
+    """Validate and add one lineage event to an in-memory collection."""
     normalized_event_id = event_id.strip()
     if not normalized_event_id:
         raise ValueError("event_id is required")
@@ -116,9 +120,9 @@ def record_lineage_event(
         actor=actor.strip() or "unknown",
         rationale=rationale.strip() or "lineage update",
     )
-    candidate = [*events, event]
-    _assert_no_cycles(candidate)
-    return _sorted_events(candidate)
+    candidate = _sorted_events([*events, event])
+    _assert_no_cycles(candidate, assume_sorted=True)
+    return candidate
 
 
 def successor_chain(
@@ -130,7 +134,7 @@ def successor_chain(
     graph = _build_forward_graph(events)
     start = entity_id.strip()
     if not start:
-        return []
+        raise ValueError("entity_id is required")
 
     queue: deque[str] = deque(sorted(graph.get(start, set())))
     seen: set[str] = set()
@@ -160,7 +164,7 @@ def historical_predecessors(
 
     start = entity_id.strip()
     if not start:
-        return []
+        raise ValueError("entity_id is required")
 
     queue: deque[str] = deque(sorted(reverse_graph.get(start, set())))
     seen: set[str] = set()

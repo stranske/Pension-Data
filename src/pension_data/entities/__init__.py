@@ -1,4 +1,4 @@
-"""Entity lookup services for cross-plan exposure discovery."""
+"""Entity lookup and lineage services for cross-plan exposure discovery."""
 
 from pension_data.entities.lineage import (
     current_canonical_entity_id,

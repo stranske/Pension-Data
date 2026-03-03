@@ -151,3 +151,51 @@ def test_circular_lineage_is_rejected_explicitly() -> None:
             actor="reviewer-e",
             rationale="invalid cycle",
         )
+
+
+def test_duplicate_event_id_and_overlapping_source_target_are_rejected() -> None:
+    events = record_lineage_event(
+        [],
+        event_id="evt:dup",
+        event_type="successor",
+        source_entity_ids=("manager:epsilon",),
+        target_entity_ids=("manager:epsilon next",),
+        occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
+        actor="reviewer-f",
+        rationale="initial event",
+    )
+
+    with pytest.raises(ValueError, match="duplicate lineage event_id"):
+        record_lineage_event(
+            events,
+            event_id="evt:dup",
+            event_type="successor",
+            source_entity_ids=("manager:epsilon next",),
+            target_entity_ids=("manager:epsilon final",),
+            occurred_at=datetime(2026, 1, 2, tzinfo=UTC),
+            actor="reviewer-f",
+            rationale="duplicate id",
+        )
+
+    with pytest.raises(ValueError, match="must not overlap"):
+        record_lineage_event(
+            [],
+            event_id="evt:overlap",
+            event_type="successor",
+            source_entity_ids=("manager:zeta",),
+            target_entity_ids=("manager:zeta",),
+            occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
+            actor="reviewer-f",
+            rationale="invalid overlap",
+        )
+
+
+def test_blank_entity_id_is_rejected_consistently() -> None:
+    events: list = []
+
+    with pytest.raises(ValueError, match="entity_id is required"):
+        successor_chain(events, entity_id=" ")
+    with pytest.raises(ValueError, match="entity_id is required"):
+        historical_predecessors(events, entity_id="")
+    with pytest.raises(ValueError, match="entity_id is required"):
+        current_canonical_entity_id(events, entity_id=" ")
