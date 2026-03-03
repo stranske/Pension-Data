@@ -17,6 +17,7 @@ REQUIRED_LOCAL_FILES = (
     "styles.css",
     "app.js",
     "config/default.json",
+    "data/workspace.json",
 )
 
 
@@ -85,6 +86,13 @@ def _smoke_url(base_url: str, *, expect_runtime: bool, headers: dict[str, str] |
     if not isinstance(default_payload, dict):
         raise ValueError("default config endpoint did not return object JSON")
     _assert_config(default_payload, path_label="config/default.json")
+
+    workspace_payload = json.loads(_fetch_text(urljoin(root, "data/workspace.json"), headers=headers))
+    if not isinstance(workspace_payload, dict):
+        raise ValueError("workspace endpoint did not return object JSON")
+    datasets = workspace_payload.get("datasets")
+    if not isinstance(datasets, list) or not datasets:
+        raise ValueError("workspace dataset inventory is empty")
 
     if expect_runtime:
         runtime_payload = json.loads(
