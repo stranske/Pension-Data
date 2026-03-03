@@ -35,6 +35,8 @@ pytest -q tests/quality/test_sla_metrics.py
   - `src/pension_data/quality/anomaly_rules.py`
 - Prioritized review queue routing with evidence context:
   - `src/pension_data/review_queue/anomalies.py`
+- Parser-output validation and confidence/failure review routing:
+  - `src/pension_data/quality/parser_output_validation.py`
 
 Policy note:
 - Publication must not be blocked solely by review routing.
@@ -43,7 +45,7 @@ Policy note:
 Operator checks:
 
 ```bash
-pytest -q tests/quality/test_anomaly_rules.py tests/coverage/test_readiness_outputs.py
+pytest -q tests/quality/test_anomaly_rules.py tests/quality/test_parser_output_validation.py tests/coverage/test_readiness_outputs.py
 ```
 
 ## Replay Regression Harness And CI Gate
@@ -70,6 +72,8 @@ Top failure/anomaly classes are documented in:
 - `docs/runbooks/source-map-breakage.md`
 - `docs/runbooks/revised-file-mismatch.md`
 - `docs/runbooks/parser-fallback-exhaustion.md`
+- `docs/runbooks/parser-output-validation-failure.md`
+- `docs/runbooks/parser-low-confidence-output.md`
 - `docs/runbooks/anomaly-flood.md`
 
 Runbook documentation checks:

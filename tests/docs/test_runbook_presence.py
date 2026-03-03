@@ -13,6 +13,8 @@ RUNBOOKS: dict[str, str] = {
     "source_map_breakage": "source-map-breakage.md",
     "revised_file_mismatch": "revised-file-mismatch.md",
     "parser_fallback_exhaustion": "parser-fallback-exhaustion.md",
+    "parser_output_validation_failure": "parser-output-validation-failure.md",
+    "parser_low_confidence_output": "parser-low-confidence-output.md",
     "anomaly_flood": "anomaly-flood.md",
 }
 

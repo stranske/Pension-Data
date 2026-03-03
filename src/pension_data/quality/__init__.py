@@ -14,6 +14,13 @@ from pension_data.quality.confidence import (
     route_confidence_row,
     route_confidence_rows,
 )
+from pension_data.quality.parser_output_validation import (
+    PARSER_INCIDENT_RUNBOOKS,
+    ParserOutputAnomaly,
+    ParserOutputValidationFinding,
+    ParserOutputValidationResult,
+    validate_parser_outputs,
+)
 from pension_data.quality.sla_metrics import (
     CORE_SLA_METRICS,
     SLA_METRIC_CATALOG,
@@ -38,10 +45,15 @@ __all__ = [
     "SLA_METRIC_CATALOG",
     "TimeSeriesPoint",
     "WARNING_QUEUE_THRESHOLD",
+    "PARSER_INCIDENT_RUNBOOKS",
+    "ParserOutputAnomaly",
+    "ParserOutputValidationFinding",
+    "ParserOutputValidationResult",
     "aggregate_disclosure_coverage_by_cohort_period",
     "core_sla_metric_catalog",
     "compute_sla_metrics",
     "detect_anomalies",
     "route_confidence_row",
     "route_confidence_rows",
+    "validate_parser_outputs",
 ]
