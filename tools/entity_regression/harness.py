@@ -167,7 +167,10 @@ def _alias_similarity(*, query_alias: str, candidate_alias: str) -> float:
 
 def _candidate_score(*, query_alias: str, candidate: AliasCandidate) -> float:
     return max(
-        (_alias_similarity(query_alias=query_alias, candidate_alias=alias) for alias in candidate.aliases),
+        (
+            _alias_similarity(query_alias=query_alias, candidate_alias=alias)
+            for alias in candidate.aliases
+        ),
         default=0.0,
     )
 
@@ -176,7 +179,10 @@ def evaluate_alias_case(case: AliasCase) -> AliasCaseResult:
     """Evaluate one alias case with deterministic tie-breaking and routing."""
     scored = sorted(
         (
-            (_candidate_score(query_alias=case.query_alias, candidate=candidate), candidate.entity_id)
+            (
+                _candidate_score(query_alias=case.query_alias, candidate=candidate),
+                candidate.entity_id,
+            )
             for candidate in case.candidates
         ),
         key=lambda row: (row[0], row[1]),
@@ -250,11 +256,7 @@ def evaluate_lineage_case(case: LineageCase) -> LineageCaseResult:
             reachable.add(neighbor)
             queue.append(neighbor)
 
-    terminal_entities = sorted(
-        entity
-        for entity in reachable
-        if not adjacency.get(entity)
-    )
+    terminal_entities = sorted(entity for entity in reachable if not adjacency.get(entity))
     return LineageCaseResult(
         case_id=case.case_id,
         reachable_entities=tuple(sorted(reachable)),
@@ -329,7 +331,9 @@ def _parse_alias_case(payload: object, *, location: str) -> AliasCase:
         for index, item in enumerate(candidates_raw)
     )
     expected = _parse_alias_expectation(expected_raw, location=f"{location}.expected")
-    return AliasCase(case_id=case_id, query_alias=query_alias, candidates=candidates, expected=expected)
+    return AliasCase(
+        case_id=case_id, query_alias=query_alias, candidates=candidates, expected=expected
+    )
 
 
 def _parse_lineage_event(payload: object, *, location: str) -> LineageEvent:
@@ -439,7 +443,9 @@ def load_fixture(path: Path) -> EntityRegressionFixture:
     )
 
 
-def _alias_mismatches(*, fixture: EntityRegressionFixture, observed: list[AliasCaseResult]) -> list[RegressionMismatch]:
+def _alias_mismatches(
+    *, fixture: EntityRegressionFixture, observed: list[AliasCaseResult]
+) -> list[RegressionMismatch]:
     observed_by_case_id = {row.case_id: row for row in observed}
     mismatches: list[RegressionMismatch] = []
     for case in fixture.alias_cases:
@@ -473,8 +479,16 @@ def _lineage_mismatches(
     for case in fixture.lineage_cases:
         row = observed_by_case_id[case.case_id]
         for field, expected, actual in (
-            ("reachable_entities", tuple(sorted(case.expected.reachable_entities)), row.reachable_entities),
-            ("terminal_entities", tuple(sorted(case.expected.terminal_entities)), row.terminal_entities),
+            (
+                "reachable_entities",
+                tuple(sorted(case.expected.reachable_entities)),
+                row.reachable_entities,
+            ),
+            (
+                "terminal_entities",
+                tuple(sorted(case.expected.terminal_entities)),
+                row.terminal_entities,
+            ),
         ):
             if expected == actual:
                 continue

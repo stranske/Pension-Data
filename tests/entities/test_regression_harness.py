@@ -51,9 +51,9 @@ def test_entity_regression_detects_expected_mismatch(tmp_path: Path) -> None:
 
 def test_lineage_split_case_emits_two_terminals() -> None:
     fixture = load_fixture(FIXTURE_PATH)
-    split_case = [case for case in fixture.lineage_cases if case.case_id == "split_lineage_two_terminals"][
-        0
-    ]
+    split_case = [
+        case for case in fixture.lineage_cases if case.case_id == "split_lineage_two_terminals"
+    ][0]
 
     result = evaluate_lineage_case(split_case)
     assert result.reachable_entities == (

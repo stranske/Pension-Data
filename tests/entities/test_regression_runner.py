@@ -31,7 +31,9 @@ def test_runner_fails_when_regressions_exceed_tolerance(tmp_path: Path) -> None:
     payload["lineage_cases"][0]["expected"]["terminal_entities"] = ["mgr:legacy_asset_rebrand"]
 
     modified_fixture = tmp_path / "entity_regression_cases_modified.json"
-    modified_fixture.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    modified_fixture.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     report_path = tmp_path / "entity_regression_report.json"
     exit_code = run(
         [
