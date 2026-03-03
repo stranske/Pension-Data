@@ -20,6 +20,11 @@ class CanonicalEntityAliasRecord:
     canonical_name: str
     aliases: tuple[str, ...] = ()
 
+    @property
+    def canonical_entity_id(self) -> str:
+        """Compatibility alias clarifying that `stable_id` is the canonical entity ID."""
+        return self.stable_id
+
 
 @dataclass(frozen=True, slots=True)
 class AliasMatchCandidate:
@@ -29,6 +34,11 @@ class AliasMatchCandidate:
     stable_id: str
     strategy: MatchStrategy
     confidence: float
+
+    @property
+    def canonical_entity_id(self) -> str:
+        """Compatibility alias clarifying that `stable_id` is the canonical entity ID."""
+        return self.stable_id
 
 
 def _token_set(value: str) -> set[str]:
@@ -40,7 +50,12 @@ def _token_set(value: str) -> set[str]:
 
 def _normalized_forms(record: CanonicalEntityAliasRecord) -> tuple[str, ...]:
     forms = [record.canonical_name, *record.aliases]
-    normalized = [normalize_entity_token(value) for value in forms if normalize_entity_token(value)]
+    normalized: list[str] = []
+    for value in forms:
+        token = normalize_entity_token(value)
+        if not token:
+            continue
+        normalized.append(token)
     return tuple(dict.fromkeys(normalized))
 
 

@@ -11,10 +11,12 @@ from pension_data.entities.matching import (
     CanonicalEntityAliasRecord,
     generate_alias_match_candidates,
 )
+from pension_data.extract.common.evidence import canonicalize_evidence_ref
 from pension_data.normalize.entity_tokens import normalize_entity_token
 
 AliasRoutingStatus = Literal["auto_link", "review"]
-ReviewPriority = Literal["high", "medium"]
+ReviewPriority = Literal["none", "high", "medium"]
+QueueReviewPriority = Literal["high", "medium"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +39,7 @@ class AliasRoutingDecision:
     status: AliasRoutingStatus
     chosen_stable_id: str | None
     confidence: float
-    review_priority: ReviewPriority | None
+    review_priority: ReviewPriority
     reason: str
     candidates: tuple[AliasMatchCandidate, ...]
     evidence_refs: tuple[str, ...]
@@ -52,9 +54,33 @@ class AliasReviewQueueCandidate:
     source_field: str
     candidate_entity_ids: tuple[str, ...]
     confidence: float
-    review_priority: ReviewPriority
+    review_priority: QueueReviewPriority
     reason: str
     evidence_refs: tuple[str, ...]
+
+
+def _normalize_evidence_refs(values: Sequence[str]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for raw_ref in values:
+        token = canonicalize_evidence_ref(raw_ref)
+        if not token:
+            continue
+        normalized.append(token)
+    return tuple(dict.fromkeys(normalized))
+
+
+def _collapse_whitespace(value: str) -> str:
+    return " ".join(value.split()).strip()
+
+
+def _preferred_source_name(existing: str | None, candidate: str) -> str:
+    if existing is None:
+        return candidate
+    if existing.isupper() != candidate.isupper():
+        return candidate if existing.isupper() else existing
+    if existing.casefold() != candidate.casefold():
+        return candidate if candidate.casefold() < existing.casefold() else existing
+    return candidate if candidate < existing else existing
 
 
 def capture_alias_observations(
@@ -65,30 +91,31 @@ def capture_alias_observations(
     evidence_refs: Sequence[str] = (),
 ) -> list[CapturedAliasObservation]:
     """Capture deterministic alias observations from raw source names."""
-    seen: set[str] = set()
-    normalized_refs = tuple(
-        value
-        for value in dict.fromkeys(ref.strip() for ref in evidence_refs if ref.strip())
-        if value
-    )
-    observations: list[CapturedAliasObservation] = []
+    normalized_refs = _normalize_evidence_refs(evidence_refs)
+    normalized_record_id = source_record_id.strip()
+    normalized_source_field = source_field.strip()
+    selected_name_by_normalized: dict[str, str] = {}
     for raw_name in names:
-        normalized_name = normalize_entity_token(raw_name)
-        if not normalized_name or normalized_name in seen:
+        collapsed_name = _collapse_whitespace(raw_name)
+        normalized_name = normalize_entity_token(collapsed_name)
+        if not normalized_name:
             continue
-        seen.add(normalized_name)
+        selected_name_by_normalized[normalized_name] = _preferred_source_name(
+            selected_name_by_normalized.get(normalized_name),
+            collapsed_name,
+        )
+
+    observations: list[CapturedAliasObservation] = []
+    for normalized_name in sorted(selected_name_by_normalized):
         observations.append(
             CapturedAliasObservation(
-                source_name=raw_name.strip(),
-                source_record_id=source_record_id.strip(),
-                source_field=source_field.strip(),
+                source_name=selected_name_by_normalized[normalized_name],
+                source_record_id=normalized_record_id,
+                source_field=normalized_source_field,
                 evidence_refs=normalized_refs,
             )
         )
-    return sorted(
-        observations,
-        key=lambda item: (normalize_entity_token(item.source_name), item.source_record_id),
-    )
+    return observations
 
 
 def route_alias_observations(
@@ -142,7 +169,7 @@ def route_alias_observations(
                     status="auto_link",
                     chosen_stable_id=top.stable_id,
                     confidence=top.confidence,
-                    review_priority=None,
+                    review_priority="none",
                     reason=f"high-confidence {top.strategy} match",
                     candidates=tuple(candidates),
                     evidence_refs=observation.evidence_refs,
@@ -185,16 +212,23 @@ def build_alias_review_queue_candidates(
     """Build unresolved alias review-queue payloads from routing decisions."""
     queue_rows: list[AliasReviewQueueCandidate] = []
     for decision in decisions:
-        if decision.status != "review":
+        if decision.status != "review" or decision.review_priority == "none":
             continue
+        if decision.review_priority not in {"high", "medium"}:
+            raise ValueError(
+                "review decision must use high/medium priority, got "
+                f"{decision.review_priority!r}"
+            )
         queue_rows.append(
             AliasReviewQueueCandidate(
                 source_name=decision.source_name,
                 source_record_id=decision.source_record_id,
                 source_field=decision.source_field,
-                candidate_entity_ids=tuple(item.stable_id for item in decision.candidates),
+                candidate_entity_ids=tuple(
+                    item.canonical_entity_id for item in decision.candidates
+                ),
                 confidence=decision.confidence,
-                review_priority=decision.review_priority or "high",
+                review_priority=decision.review_priority,
                 reason=decision.reason,
                 evidence_refs=decision.evidence_refs,
             )

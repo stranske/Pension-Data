@@ -43,13 +43,13 @@ def test_capture_alias_observations_dedupes_and_preserves_provenance() -> None:
         source_record_id="row:1",
         source_field="manager_name",
         names=[" Alpha Capital ", "ALPHA CAPITAL", "", "Beta Partners"],
-        evidence_refs=("p.12", "p.12", "p.13"),
+        evidence_refs=("p 12", "p.12", "p.13 # appendix"),
     )
 
     assert [item.source_name for item in captured] == ["Alpha Capital", "Beta Partners"]
     assert all(item.source_record_id == "row:1" for item in captured)
     assert all(item.source_field == "manager_name" for item in captured)
-    assert all(item.evidence_refs == ("p.12", "p.13") for item in captured)
+    assert all(item.evidence_refs == ("p.12", "p.13#appendix") for item in captured)
 
 
 def test_candidate_generation_covers_exact_normalized_and_fuzzy_controls() -> None:
@@ -87,7 +87,7 @@ def test_routing_auto_links_high_confidence_and_reviews_ambiguous_candidates() -
 
     assert auto_link.status == "auto_link"
     assert auto_link.chosen_stable_id == "manager:alpha capital"
-    assert auto_link.review_priority is None
+    assert auto_link.review_priority == "none"
     assert ambiguous.status == "review"
     assert ambiguous.chosen_stable_id is None
     assert ambiguous.review_priority == "medium"
