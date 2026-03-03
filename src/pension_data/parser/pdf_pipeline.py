@@ -26,6 +26,8 @@ from pension_data.extract.orchestration.fallback import (
 from pension_data.normalize.financial_units import UnitScale
 
 _TEXT_TOKEN_PATTERN = re.compile(r"\((?P<token>(?:\\.|[^\\)])+)\)\s*Tj")
+_TEXT_ARRAY_PATTERN = re.compile(r"\[(?P<array>(?:\\.|[^\]])*)\]\s*TJ", re.DOTALL)
+_STRING_TOKEN_PATTERN = re.compile(r"\((?P<token>(?:\\.|[^\\)])+)\)")
 _PAGE_MARKER_PATTERN = re.compile(r"(?m)^\s*%%Page:\s*\d+\s+\d+\s*$")
 _TABLE_SPLIT_PATTERN = re.compile(r"\s{2,}|\|")
 _NON_PRINTABLE_PATTERN = re.compile(r"[^\x20-\x7E]")
@@ -156,12 +158,27 @@ def _split_pages(decoded: str) -> tuple[str, ...]:
 
 
 def _extract_page_lines(page_text: str) -> list[str]:
-    token_lines = [
-        _coerce_printable(match.group("token").replace("\\(", "(").replace("\\)", ")"))
-        for match in _TEXT_TOKEN_PATTERN.finditer(page_text)
-    ]
+    token_lines: list[tuple[int, str]] = []
+    for match in _TEXT_TOKEN_PATTERN.finditer(page_text):
+        token_lines.append(
+            (
+                match.start(),
+                _coerce_printable(match.group("token").replace("\\(", "(").replace("\\)", ")")),
+            )
+        )
+    for match in _TEXT_ARRAY_PATTERN.finditer(page_text):
+        raw_array = match.group("array")
+        string_parts = [
+            part.group("token").replace("\\(", "(").replace("\\)", ")")
+            for part in _STRING_TOKEN_PATTERN.finditer(raw_array)
+        ]
+        if not string_parts:
+            continue
+        token_lines.append((match.start(), _coerce_printable("".join(string_parts))))
+
     if token_lines:
-        return _normalize_candidate_lines(token_lines)
+        ordered = [line for _, line in sorted(token_lines, key=lambda row: row[0])]
+        return _normalize_candidate_lines(ordered)
 
     return _normalize_candidate_lines(page_text.splitlines())
 

@@ -210,3 +210,24 @@ def test_ocr_stage_runs_after_low_signal_native_text_stage() -> None:
     assert parser_result.attempts[1].failure_reason == "incomplete-required-fields"
     assert parser_result.attempts[2].stage_name == "full_fallback"
     assert parser_result.attempts[2].succeeded is True
+
+
+def test_table_primary_parses_pdf_tj_array_text_tokens() -> None:
+    tj_array_pdf = (
+        b"%PDF-1.4\n%%Page: 1 1\n"
+        b"[(Funded ratio ) 10 (83.4%)] TJ\n"
+        b"[(AAL ) 10 ($450.0 million)] TJ\n"
+        b"[(AVA ) 10 ($377.0 million)] TJ\n"
+        b"[(Discount rate ) 10 (6.8%)] TJ\n"
+        b"[(Employer contribution rate ) 10 (10.9%)] TJ\n"
+        b"[(Employee contribution rate ) 10 (7.0%)] TJ\n"
+        b"[(Participant count ) 10 (132000)] TJ\n"
+    )
+
+    parser_result = parse_pdf_to_funded_input(_base_input(pdf_bytes=tj_array_pdf))
+    assert parser_result.stage_name == "table_primary"
+    assert parser_result.escalation_required is False
+    assert parser_result.raw is not None
+    assert parser_result.missing_metrics == ()
+    assert len(parser_result.raw.table_rows) >= 7
+    assert all(row["evidence_ref"].startswith("p.1#table") for row in parser_result.raw.table_rows)
