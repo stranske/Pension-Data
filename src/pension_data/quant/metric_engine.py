@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from statistics import fmean
@@ -54,6 +55,9 @@ class _MetricInput:
     evidence_refs: tuple[str, ...]
     plan_id: str
     plan_period: str
+
+
+GroupKey = tuple[str, str]
 
 
 def default_metric_catalog() -> tuple[DerivedMetricDefinition, ...]:
@@ -121,8 +125,21 @@ def _to_float(value: object) -> float | None:
     return None
 
 
+def _bounded_confidence(value: object) -> float | None:
+    parsed = _to_float(value)
+    if parsed is None or not math.isfinite(parsed):
+        return None
+    if parsed < 0:
+        return 0.0
+    if parsed > 1:
+        return 1.0
+    return parsed
+
+
 def _as_refs(values: object) -> tuple[str, ...]:
-    if not isinstance(values, list):
+    if isinstance(values, (str, bytes, bytearray)):
+        return ()
+    if not isinstance(values, Sequence):
         return ()
     refs: list[str] = []
     for value in values:
@@ -136,9 +153,18 @@ def _as_refs(values: object) -> tuple[str, ...]:
 
 def _build_metric_input_index(
     core_metric_rows: Sequence[Mapping[str, object]],
-) -> dict[str, _MetricInput]:
-    index: dict[str, _MetricInput] = {}
-    for row in core_metric_rows:
+) -> dict[GroupKey, dict[str, _MetricInput]]:
+    index: dict[GroupKey, dict[str, _MetricInput]] = {}
+    ordered_rows = sorted(
+        core_metric_rows,
+        key=lambda row: (
+            str(row.get("plan_id") or ""),
+            str(row.get("plan_period") or ""),
+            str(row.get("metric_name") or ""),
+            str(row.get("fact_id") or ""),
+        ),
+    )
+    for row in ordered_rows:
         metric_name = row.get("metric_name")
         if not isinstance(metric_name, str) or not metric_name.strip():
             continue
@@ -154,20 +180,23 @@ def _build_metric_input_index(
             continue
         if not isinstance(fact_id, str) or not fact_id.strip():
             continue
-        index[metric_name.strip()] = _MetricInput(
+        group_key = (plan_id.strip(), plan_period.strip())
+        group_metrics = index.setdefault(group_key, {})
+        group_metrics[metric_name.strip()] = _MetricInput(
             value=normalized_value,
-            confidence=_to_float(row.get("confidence")),
+            confidence=_bounded_confidence(row.get("confidence")),
             fact_id=fact_id,
             evidence_refs=_as_refs(row.get("evidence_refs")),
-            plan_id=plan_id.strip(),
-            plan_period=plan_period.strip(),
+            plan_id=group_key[0],
+            plan_period=group_key[1],
         )
     return index
 
 
-def _cash_flow_input(
+def _cash_flow_inputs(
     cash_flow_rows: Sequence[Mapping[str, object]],
-) -> tuple[str, str, str, dict[str, float], tuple[str, ...]]:
+) -> tuple[tuple[str, str, str, dict[str, float], tuple[str, ...]], ...]:
+    entries: list[tuple[str, str, str, dict[str, float], tuple[str, ...]]] = []
     for row in cash_flow_rows:
         plan_id = row.get("plan_id")
         plan_period = row.get("plan_period")
@@ -188,14 +217,16 @@ def _cash_flow_input(
             parsed = _to_float(row.get(field))
             if parsed is not None:
                 values[field] = parsed
-        return (
-            plan_id.strip(),
-            plan_period.strip(),
-            cash_flow_id,
-            values,
-            _as_refs(row.get("evidence_refs")),
+        entries.append(
+            (
+                plan_id.strip(),
+                plan_period.strip(),
+                cash_flow_id,
+                values,
+                _as_refs(row.get("evidence_refs")),
+            )
         )
-    return ("", "", "", {}, ())
+    return tuple(sorted(entries, key=lambda item: (item[0], item[1], item[2])))
 
 
 def _min_confidence(inputs: Sequence[_MetricInput]) -> float | None:
@@ -214,10 +245,12 @@ def compute_derived_metrics(
     index = _build_metric_input_index(core_metric_rows)
     observations: list[DerivedMetricObservation] = []
 
-    aal = index.get("aal_usd")
-    ava = index.get("ava_usd")
-    if aal is not None and ava is not None:
-        sources = (aal.fact_id, ava.fact_id)
+    for _, group_metrics in sorted(index.items()):
+        aal = group_metrics.get("aal_usd")
+        ava = group_metrics.get("ava_usd")
+        if aal is None or ava is None:
+            continue
+        sources = tuple(sorted((aal.fact_id, ava.fact_id)))
         refs = tuple(sorted(set(aal.evidence_refs) | set(ava.evidence_refs)))
         confidence = _min_confidence((aal, ava))
         funded_gap = aal.value - ava.value
@@ -249,8 +282,9 @@ def compute_derived_metrics(
                 )
             )
 
-    plan_id, plan_period, cash_flow_id, cash_values, cash_refs = _cash_flow_input(cash_flow_rows)
-    if cash_flow_id:
+    for plan_id, plan_period, cash_flow_id, cash_values, cash_refs in _cash_flow_inputs(
+        cash_flow_rows
+    ):
         employer = cash_values.get("employer_contributions_normalized")
         employee = cash_values.get("employee_contributions_normalized")
         benefit = cash_values.get("benefit_payments_normalized")

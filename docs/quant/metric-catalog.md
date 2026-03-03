@@ -18,7 +18,7 @@ Define derived metrics computed from Pension-Data core facts and cash-flow rows 
 ## Provenance and Lineage
 
 - Every derived metric observation carries:
-  - source identifiers (`source_fact_ids` or `cash_flow_id`)
+  - source identifiers (`source_fact_ids`; cash-flow derived metrics include the cash-flow row id there)
   - provenance references (`provenance_refs`)
   - explicit lineage formula (`lineage_formula`)
 - Confidence-aware weighting is used for aggregate rollups:

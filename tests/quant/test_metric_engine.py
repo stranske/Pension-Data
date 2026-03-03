@@ -32,6 +32,30 @@ def _core_rows() -> list[dict[str, object]]:
     ]
 
 
+def _core_rows_multi_plan() -> list[dict[str, object]]:
+    return [
+        *_core_rows(),
+        {
+            "fact_id": "fact:ny:aal",
+            "plan_id": "NY-ERS",
+            "plan_period": "FY2024",
+            "metric_name": "aal_usd",
+            "normalized_value": 420.0,
+            "confidence": 1.5,
+            "evidence_refs": ("p.11",),
+        },
+        {
+            "fact_id": "fact:ny:ava",
+            "plan_id": "NY-ERS",
+            "plan_period": "FY2024",
+            "metric_name": "ava_usd",
+            "normalized_value": 400.0,
+            "confidence": -0.2,
+            "evidence_refs": ("p.11",),
+        },
+    ]
+
+
 def _cash_flow_rows() -> list[dict[str, object]]:
     return [
         {
@@ -44,6 +68,22 @@ def _cash_flow_rows() -> list[dict[str, object]]:
             "refunds_normalized": -1.0,
             "evidence_refs": ["p.55"],
         }
+    ]
+
+
+def _cash_flow_rows_multi_plan() -> list[dict[str, object]]:
+    return [
+        *_cash_flow_rows(),
+        {
+            "cash_flow_id": "flow:ny:2024",
+            "plan_id": "NY-ERS",
+            "plan_period": "FY2024",
+            "employer_contributions_normalized": 10.0,
+            "employee_contributions_normalized": 5.0,
+            "benefit_payments_normalized": -7.0,
+            "refunds_normalized": -0.5,
+            "evidence_refs": ("p.12",),
+        },
     ]
 
 
@@ -89,3 +129,21 @@ def test_confidence_weighted_aggregation_uses_confidence_when_present() -> None:
     assert aggregate.sample_count == 2
     assert aggregate.confidence_weight_sum == 1.76
     assert round(aggregate.weighted_mean, 6) == round(unfunded_ratio.value, 6)
+
+
+def test_compute_derived_metrics_handles_multiple_plan_groups() -> None:
+    observations = compute_derived_metrics(
+        core_metric_rows=_core_rows_multi_plan(),
+        cash_flow_rows=_cash_flow_rows_multi_plan(),
+    )
+    by_plan_metric = {
+        (row.plan_id, row.metric_name): row
+        for row in observations
+        if row.metric_name in {"funded_gap_usd", "net_cash_flow_usd"}
+    }
+    assert ("CA-PERS", "funded_gap_usd") in by_plan_metric
+    assert ("NY-ERS", "funded_gap_usd") in by_plan_metric
+    assert by_plan_metric[("NY-ERS", "funded_gap_usd")].value == 20.0
+    assert by_plan_metric[("NY-ERS", "funded_gap_usd")].confidence == 0.0
+    assert by_plan_metric[("NY-ERS", "net_cash_flow_usd")].value == 7.5
+    assert by_plan_metric[("NY-ERS", "net_cash_flow_usd")].provenance_refs == ("p.12",)
