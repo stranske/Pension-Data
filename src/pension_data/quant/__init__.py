@@ -14,6 +14,16 @@ from pension_data.quant.attribution_optimization import (
     optimize_allocation,
     reconcile_attribution,
 )
+from pension_data.quant.scenarios import (
+    ReproducibilityMetadata,
+    ScenarioInput,
+    ScenarioMode,
+    ScenarioResult,
+    ScenarioResultRow,
+    ScenarioRunConfig,
+    run_deterministic_scenario,
+    run_monte_carlo_scenario,
+)
 
 __all__ = [
     "AttributionReconciliation",
@@ -25,7 +35,15 @@ __all__ = [
     "QuantExperimentRecord",
     "QuantExperimentRegistry",
     "QuantExperimentRunner",
+    "ReproducibilityMetadata",
+    "ScenarioInput",
+    "ScenarioMode",
+    "ScenarioResult",
+    "ScenarioResultRow",
+    "ScenarioRunConfig",
     "compute_attribution",
     "optimize_allocation",
     "reconcile_attribution",
+    "run_deterministic_scenario",
+    "run_monte_carlo_scenario",
 ]
