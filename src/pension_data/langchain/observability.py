@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import fmean
+from types import ModuleType
 from typing import Literal
 
 from pension_data.langchain.nl_sql_chain import (
@@ -112,12 +113,15 @@ def append_nl_operation_log(
         raise ValueError("retention_limit must be >= 1")
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+", encoding="utf-8") as handle:
+        fcntl_module: ModuleType | None = None
         try:
-            import fcntl  # type: ignore[attr-defined]
+            import fcntl as fcntl_module
+        except ImportError:
+            pass
 
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        except Exception:
-            fcntl = None  # type: ignore[assignment]
+        if fcntl_module is not None:
+            with suppress(OSError):
+                fcntl_module.flock(handle.fileno(), fcntl_module.LOCK_EX)
 
         handle.write(json.dumps(asdict(entry), sort_keys=True) + "\n")
         handle.flush()
@@ -130,9 +134,9 @@ def append_nl_operation_log(
             temp_path.write_text("\n".join(trimmed) + "\n", encoding="utf-8")
             temp_path.replace(path)
 
-        if fcntl is not None:
+        if fcntl_module is not None:
             with suppress(Exception):
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                fcntl_module.flock(handle.fileno(), fcntl_module.LOCK_UN)
 
 
 def load_nl_operation_logs(
@@ -173,7 +177,9 @@ def load_nl_operation_logs(
                     returned_rows=int(payload.get("returned_rows", 0)),
                     trace_event_count=int(payload.get("trace_event_count", 0)),
                     error_code=(
-                        None if payload.get("error_code") is None else str(payload.get("error_code"))
+                        None
+                        if payload.get("error_code") is None
+                        else str(payload.get("error_code"))
                     ),
                     error_message=(
                         None
