@@ -214,6 +214,10 @@ button:hover {
   align-items: center;
 }
 
+.saved-row label {
+  min-width: 220px;
+}
+
 .saved-row + .saved-row {
   margin-top: 8px;
 }
@@ -267,6 +271,26 @@ tr.active-row {
   overflow: auto;
 }
 
+.spec-editor {
+  width: 100%;
+  min-height: 180px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.chart-preview {
+  min-height: 360px;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  overflow: auto;
+}
+
 .detail-list {
   list-style: none;
   margin: 0;
@@ -305,6 +329,10 @@ a {
   .panel {
     border-radius: 12px;
     padding: 12px;
+  }
+
+  .spec-editor {
+    min-height: 140px;
   }
 
   th,

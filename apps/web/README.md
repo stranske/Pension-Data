@@ -9,6 +9,8 @@ Static browser-first data interaction workspace for Cloudflare Pages.
 - Record drilldowns with provenance/evidence references
 - Saved views (localStorage)
 - Filtered export to JSON or CSV
+- Chart studio templates (time series, distribution, attribution, risk/return scatter, heatmap)
+- Live JSON spec editor with Plotly preview and export (PNG, SVG, interactive HTML, editable spec)
 
 ## Local Preview
 

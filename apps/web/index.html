@@ -116,7 +116,40 @@
           <div id="detail-content" class="detail-content">Select a row to inspect details.</div>
         </article>
       </section>
+
+      <section class="panel stack">
+        <div class="panel-head">
+          <h2>Chart Studio</h2>
+          <p class="hint">
+            Build publication-quality charts from filtered rows, edit JSON spec live, and export
+            in presentation + editable formats.
+          </p>
+        </div>
+        <div class="saved-row">
+          <label>
+            Template
+            <select id="chart-template">
+              <option value="timeSeries">Time Series</option>
+              <option value="distribution">Distribution</option>
+              <option value="attribution">Attribution</option>
+              <option value="riskReturn">Risk / Return Scatter</option>
+              <option value="heatmap">Heatmap</option>
+            </select>
+          </label>
+          <button id="chart-build" type="button">Build from Filtered Rows</button>
+          <button id="chart-apply-spec" type="button">Apply Spec JSON</button>
+        </div>
+        <textarea id="chart-spec" class="spec-editor" spellcheck="false"></textarea>
+        <div class="saved-row">
+          <button id="chart-export-json" type="button">Export Spec JSON</button>
+          <button id="chart-export-png" type="button">Export PNG</button>
+          <button id="chart-export-svg" type="button">Export SVG</button>
+          <button id="chart-export-html" type="button">Export Interactive HTML</button>
+        </div>
+        <div id="chart-preview" class="chart-preview"></div>
+      </section>
     </main>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
     <script src="./app.js" type="module"></script>
   </body>
 </html>
