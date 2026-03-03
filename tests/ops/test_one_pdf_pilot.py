@@ -94,3 +94,53 @@ def test_one_pdf_pilot_fails_when_required_metrics_are_missing(tmp_path: Path) -
             output_root=tmp_path / "outputs",
             run_id="pilot-missing-metrics",
         )
+
+
+def test_one_pdf_pilot_default_source_document_id_is_content_stable(
+    tmp_path: Path,
+) -> None:
+    payload = "\n".join(
+        (
+            "Funded Ratio: 78.4%",
+            "AAL: $640 million",
+            "AVA: $501.8 million",
+            "Discount Rate: 6.8%",
+            "Employer Contribution Rate: 12.4%",
+            "Employee Contribution Rate: 7.5%",
+            "Participant Count: 325000",
+        )
+    )
+    first_pdf = tmp_path / "a" / "pilot.pdf"
+    second_pdf = tmp_path / "b" / "renamed.pdf"
+    first_pdf.parent.mkdir(parents=True, exist_ok=True)
+    second_pdf.parent.mkdir(parents=True, exist_ok=True)
+    _write_pdf_like_text(first_pdf, payload)
+    _write_pdf_like_text(second_pdf, payload)
+
+    first = run_one_pdf_pilot(
+        pilot_input=OnePdfPilotInput(
+            pdf_path=first_pdf,
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            effective_date="2024-06-30",
+            ingestion_date="2026-03-03",
+        ),
+        output_root=tmp_path / "outputs",
+        run_id="pilot-first",
+    )
+    second = run_one_pdf_pilot(
+        pilot_input=OnePdfPilotInput(
+            pdf_path=second_pdf,
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            effective_date="2024-06-30",
+            ingestion_date="2026-03-03",
+        ),
+        output_root=tmp_path / "outputs",
+        run_id="pilot-second",
+    )
+
+    first_manifest = json.loads(Path(first["run_manifest_json"]).read_text(encoding="utf-8"))
+    second_manifest = json.loads(Path(second["run_manifest_json"]).read_text(encoding="utf-8"))
+
+    assert first_manifest["input"]["source_document_id"] == second_manifest["input"]["source_document_id"]

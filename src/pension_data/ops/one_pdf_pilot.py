@@ -51,10 +51,10 @@ def _default_source_document_id(
     *,
     plan_id: str,
     plan_period: str,
-    pdf_path: Path,
+    pdf_bytes: bytes,
 ) -> str:
     fingerprint = hashlib.sha256(
-        f"{plan_id}|{plan_period}|{pdf_path.resolve()}".encode()
+        pdf_bytes
     ).hexdigest()[:16]
     return f"pilot:{plan_id}:{plan_period}:{fingerprint}"
 
@@ -114,7 +114,7 @@ def run_one_pdf_pilot(
     source_document_id = pilot_input.source_document_id or _default_source_document_id(
         plan_id=pilot_input.plan_id,
         plan_period=pilot_input.plan_period,
-        pdf_path=pdf_path,
+        pdf_bytes=pdf_bytes,
     )
     fetched_at = pilot_input.fetched_at or _utc_now_iso()
     effective_run_id = run_id or f"one-pdf-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
