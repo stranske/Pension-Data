@@ -54,7 +54,9 @@ def test_table_layout_extracts_all_required_metrics_with_confidence() -> None:
     assert all(item.parser_version == PARSER_VERSION for item in facts)
     assert all(item.effective_date == "2024-06-30" for item in facts)
     assert all(item.ingestion_date == "2025-01-05" for item in facts)
-    assert all(item.evidence_refs and item.evidence_refs[0].startswith("p.") for item in facts)
+    assert all(
+        bool(item.evidence_refs) and item.evidence_refs[0].startswith("p.") for item in facts
+    )
 
 
 def test_text_layout_emits_missing_metric_warning_for_participant_count() -> None:
@@ -76,7 +78,9 @@ def test_text_layout_emits_missing_metric_warning_for_participant_count() -> Non
     missing = [item for item in diagnostics if item.code == "missing_metric"]
     assert any(item.metric_name == "participant_count" for item in missing)
     assert all(item.severity == "warning" for item in diagnostics)
-    assert all(item.evidence_refs and item.evidence_refs[0].startswith("text:") for item in facts)
+    assert all(
+        bool(item.evidence_refs) and item.evidence_refs[0].startswith("text:") for item in facts
+    )
 
 
 def test_ambiguous_values_produce_diagnostic_and_choose_table_candidate() -> None:

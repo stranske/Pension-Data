@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
+from urllib.parse import quote
 
 from pension_data.db.models.provenance import EvidenceReference, MetricEvidenceLink
 
@@ -12,9 +13,9 @@ def _artifact_locator(evidence: EvidenceReference) -> str:
     if evidence.page_number is not None:
         return f"{evidence.source_document_id}#page={evidence.page_number}"
     if evidence.snippet_anchor is not None:
-        return f"{evidence.source_document_id}#anchor={evidence.snippet_anchor}"
+        return f"{evidence.source_document_id}#anchor={quote(evidence.snippet_anchor, safe='')}"
     if evidence.section_hint is not None:
-        return f"{evidence.source_document_id}#section={evidence.section_hint}"
+        return f"{evidence.source_document_id}#section={quote(evidence.section_hint, safe='')}"
     return evidence.source_document_id
 
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 
 from pension_data.db.models.core_facts import (
@@ -16,6 +14,7 @@ from pension_data.db.models.core_facts import (
 )
 from pension_data.db.models.provenance import EvidenceReference, MetricEvidenceLink
 from pension_data.extract.common.evidence import build_evidence_reference, canonicalize_evidence_ref
+from pension_data.extract.common.ids import stable_id
 
 
 class EvidenceValidationError(ValueError):
@@ -37,12 +36,6 @@ _HIGH_IMPACT_FAMILIES: frozenset[str] = frozenset(
 )
 
 
-def _stable_id(prefix: str, *parts: object) -> str:
-    encoded_parts = [json.dumps(part, sort_keys=True) for part in parts]
-    digest = hashlib.sha256("|".join(encoded_parts).encode("utf-8")).hexdigest()[:20]
-    return f"{prefix}:{digest}"
-
-
 def _metric_row_id(
     *,
     metric_family: str,
@@ -52,7 +45,7 @@ def _metric_row_id(
     fund_name: str | None = None,
     vehicle_name: str | None = None,
 ) -> str:
-    return _stable_id(
+    return stable_id(
         "metric",
         metric_family,
         metric_name,
@@ -217,7 +210,7 @@ def build_core_metric_evidence_artifacts(
             )
             evidence_by_id[evidence.evidence_ref_id] = evidence
             link = MetricEvidenceLink(
-                link_id=_stable_id(
+                link_id=stable_id(
                     "metric-evidence-link", source.metric_row_id, evidence.evidence_ref_id
                 ),
                 metric_row_id=source.metric_row_id,

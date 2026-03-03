@@ -2,22 +2,15 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 
 from pension_data.db.models.provenance import EvidenceReference
+from pension_data.extract.common.ids import stable_id
 
 _PAGE_REF_PATTERN = re.compile(
     r"^(?:p(?:age)?[\s\.:#-]*)(?P<page>\d+)(?:\s*(?:#|:|-)\s*(?P<section>.+))?$",
     re.IGNORECASE,
 )
-
-
-def _stable_id(prefix: str, *parts: object) -> str:
-    encoded_parts = [json.dumps(part, sort_keys=True) for part in parts]
-    digest = hashlib.sha256("|".join(encoded_parts).encode("utf-8")).hexdigest()[:20]
-    return f"{prefix}:{digest}"
 
 
 def canonicalize_evidence_ref(raw_ref: str) -> str:
@@ -53,7 +46,11 @@ def table_evidence_ref(raw_ref: str | None) -> str:
     if raw_ref is None:
         return "table:unknown"
     normalized = canonicalize_evidence_ref(raw_ref)
-    return normalized or "table:unknown"
+    if not normalized:
+        return "table:unknown"
+    if normalized.startswith(("p.", "text:", "table:")):
+        return normalized
+    return f"table:{normalized}"
 
 
 def build_evidence_reference(
@@ -84,7 +81,7 @@ def build_evidence_reference(
             section_hint = normalized_ref
 
     return EvidenceReference(
-        evidence_ref_id=_stable_id(
+        evidence_ref_id=stable_id(
             "evidence",
             report_id,
             source_document_id,
