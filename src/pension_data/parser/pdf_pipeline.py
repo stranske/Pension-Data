@@ -126,7 +126,12 @@ def _extract_page_lines(page_text: str) -> list[str]:
     if token_lines:
         return [line for line in token_lines if line]
 
-    return [_coerce_printable(line) for line in page_text.splitlines() if _coerce_printable(line)]
+    normalized_lines: list[str] = []
+    for line in page_text.splitlines():
+        normalized = _coerce_printable(line)
+        if normalized:
+            normalized_lines.append(normalized)
+    return normalized_lines
 
 
 def _looks_like_metric_label(label: str) -> bool:
@@ -322,7 +327,7 @@ def parse_pdf_to_funded_input(input_payload: PDFParserInput) -> PDFParserResult:
     ordered_stages = (
         _stage("table_primary", "pdf_table_primary", _build_table_only_stage),
         _stage("text_fallback", "pdf_text_fallback", _build_text_only_stage),
-        _stage("ocr_fallback", "pdf_ocr_fallback", _build_ocr_stage),
+        _stage("full_fallback", "pdf_ocr_fallback", _build_ocr_stage),
     )
     outcome = run_fallback_chain(
         domain="funded",

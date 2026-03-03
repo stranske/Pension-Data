@@ -98,7 +98,7 @@ def test_ocr_fallback_stage_handles_non_selectable_pdf_bytes() -> None:
             ocr_extract=_ocr_stub,
         )
     )
-    assert parser_result.stage_name == "ocr_fallback"
+    assert parser_result.stage_name == "full_fallback"
     assert parser_result.escalation_required is False
     assert parser_result.raw is not None
     assert parser_result.missing_metrics == ()
