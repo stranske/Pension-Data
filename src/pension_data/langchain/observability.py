@@ -114,10 +114,8 @@ def append_nl_operation_log(
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+", encoding="utf-8") as handle:
         fcntl_module: ModuleType | None = None
-        try:
+        with suppress(ImportError):
             import fcntl as fcntl_module
-        except ImportError:
-            pass
 
         if fcntl_module is not None:
             with suppress(OSError):
