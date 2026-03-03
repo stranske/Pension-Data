@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "workspaceBundle": {
+    "requiredTopLevelFields": ["contractVersion", "datasets"],
+    "datasetRequiredFields": ["id", "name", "domain", "kind", "freshness", "lastUpdated", "rows"],
+    "rowRecommendedFields": ["entity", "plan_period", "metric_family", "metric", "value", "confidence", "provenance"]
+  }
+}
