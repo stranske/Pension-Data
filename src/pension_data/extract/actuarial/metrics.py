@@ -13,6 +13,7 @@ from pension_data.db.models.funded_actuarial import (
     FundedActuarialStagingFact,
     MetricExtractionMethod,
 )
+from pension_data.extract.common.evidence import table_evidence_ref, text_block_evidence_ref
 from pension_data.normalize.financial_units import UnitScale, normalize_money_to_usd
 
 ParserMetricKind = Literal["money", "ratio", "count"]
@@ -186,7 +187,7 @@ def _find_candidate_in_table_row(
         raw_value=numeric,
         fallback_money_scale=fallback_money_scale,
     )
-    evidence_ref = row.get("evidence_ref", "").strip() or "table"
+    evidence_ref = table_evidence_ref(row.get("evidence_ref"))
     return _CandidateMetric(
         metric_name=metric_name,
         as_reported_value=as_reported,
@@ -270,7 +271,7 @@ def extract_funded_and_actuarial_metrics(
                 metric_kind=metric_kind,
                 aliases=aliases,
                 text=block,
-                evidence_ref=f"text:{index + 1}",
+                evidence_ref=text_block_evidence_ref(index),
                 fallback_money_scale=raw.default_money_unit_scale,
             )
             if candidate is not None:
