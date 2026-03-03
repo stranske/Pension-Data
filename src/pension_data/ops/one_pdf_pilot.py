@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,8 +61,8 @@ def _default_source_document_id(
 
 def _coverage_summary(
     *,
-    parser_result: dict[str, object],
-    orchestration_artifacts: dict[str, object],
+    parser_result: Mapping[str, object],
+    orchestration_artifacts: Mapping[str, object],
 ) -> dict[str, object]:
     published_rows = cast(list[dict[str, object]], orchestration_artifacts["published_rows"])
     review_queue_rows = cast(list[dict[str, object]], orchestration_artifacts["review_queue_rows"])
