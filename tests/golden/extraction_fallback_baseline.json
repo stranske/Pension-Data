@@ -1,0 +1,109 @@
+{
+  "artifact_type": "pension_replay_baseline",
+  "baseline_version": "v1",
+  "documents": [
+    {
+      "document_id": "funded-fallback-exhausted",
+      "fields": {
+        "__escalation__": {
+          "confidence": 0.0,
+          "evidence": "stages:3",
+          "value": "parser_fallback_exhaustion"
+        }
+      }
+    },
+    {
+      "document_id": "funded-table-primary",
+      "fields": {
+        "__fallback_stage__": {
+          "confidence": 1.0,
+          "evidence": "funded_table_only",
+          "value": "table_primary"
+        },
+        "aal_usd": {
+          "confidence": 0.93,
+          "evidence": "p.45",
+          "value": 600000000.0
+        },
+        "ava_usd": {
+          "confidence": 0.93,
+          "evidence": "p.45",
+          "value": 480000000.0
+        },
+        "discount_rate": {
+          "confidence": 0.93,
+          "evidence": "p.46",
+          "value": 0.0675
+        },
+        "employee_contribution_rate": {
+          "confidence": 0.93,
+          "evidence": "p.47",
+          "value": 0.075
+        },
+        "employer_contribution_rate": {
+          "confidence": 0.93,
+          "evidence": "p.47",
+          "value": 0.124
+        },
+        "funded_ratio": {
+          "confidence": 0.93,
+          "evidence": "p.45",
+          "value": 0.8
+        },
+        "participant_count": {
+          "confidence": 0.93,
+          "evidence": "p.48",
+          "value": 320000.0
+        }
+      }
+    },
+    {
+      "document_id": "funded-text-fallback",
+      "fields": {
+        "__fallback_stage__": {
+          "confidence": 1.0,
+          "evidence": "funded_text_only",
+          "value": "text_fallback"
+        },
+        "aal_usd": {
+          "confidence": 0.84,
+          "evidence": "text:2",
+          "value": 410500000.0
+        },
+        "ava_usd": {
+          "confidence": 0.84,
+          "evidence": "text:3",
+          "value": 333700000.0
+        },
+        "discount_rate": {
+          "confidence": 0.84,
+          "evidence": "text:4",
+          "value": 0.0675
+        },
+        "employee_contribution_rate": {
+          "confidence": 0.84,
+          "evidence": "text:6",
+          "value": 0.071
+        },
+        "employer_contribution_rate": {
+          "confidence": 0.84,
+          "evidence": "text:5",
+          "value": 0.111
+        },
+        "funded_ratio": {
+          "confidence": 0.84,
+          "evidence": "text:1",
+          "value": 0.812
+        },
+        "participant_count": {
+          "confidence": 0.84,
+          "evidence": "text:7",
+          "value": 112000.0
+        }
+      }
+    }
+  ],
+  "generated_at": "2026-03-03T00:00:00+00:00",
+  "parser_id": "tools.golden_extract.fallback_extract_parser:parse",
+  "schema_version": 1
+}

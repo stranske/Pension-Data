@@ -1,0 +1,65 @@
+name: Extraction Golden Regression
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  extraction-golden-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run extraction golden corpus replay
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/golden_extract
+          PYTHONPATH=src:. python tools/replay/runner.py \
+            --corpus tests/golden/extraction_fallback_corpus.json \
+            --parser tools.golden_extract.fallback_extract_parser:parse \
+            --snapshot-out artifacts/golden_extract/current_snapshot.json
+
+      - name: Build extraction replay diff
+        run: |
+          set -euo pipefail
+          set +e
+          PYTHONPATH=src:. python tools/replay/diff_runner.py \
+            --baseline tests/golden/extraction_fallback_baseline.json \
+            --current artifacts/golden_extract/current_snapshot.json \
+            --report-out artifacts/golden_extract/diff_report.json
+          diff_exit=$?
+          set -e
+          if [ "$diff_exit" -ne 0 ] && [ "$diff_exit" -ne 2 ]; then
+            exit "$diff_exit"
+          fi
+
+      - name: Gate extraction replay drift
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src:. python tools/ci_quality/replay_gate.py \
+            --diff artifacts/golden_extract/diff_report.json \
+            --max-unexpected 0 \
+            --report-out artifacts/golden_extract/replay_gate_report.json
+
+      - name: Upload extraction regression artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: extraction-golden-regression
+          path: |
+            artifacts/golden_extract/current_snapshot.json
+            artifacts/golden_extract/diff_report.json
+            artifacts/golden_extract/replay_gate_report.json
+          if-no-files-found: warn
