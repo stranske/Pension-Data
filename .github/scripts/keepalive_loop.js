@@ -9,6 +9,7 @@ const { loadKeepaliveState, formatStateComment } = require('./keepalive_state');
 const { resolvePromptMode } = require('./keepalive_prompt_routing');
 const { classifyError, ERROR_CATEGORIES } = require('./error_classifier');
 const { formatFailureComment } = require('./failure_comment_formatter');
+const { buildIncidentRunbookSection } = require('./incident_runbook_links');
 const { detectConflicts } = require('./conflict_detector');
 const { parseTimeoutConfig } = require('./timeout_config');
 const { ensureRateLimitWrapped } = require('./github-rate-limited-wrapper');
@@ -3416,6 +3417,19 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
       if (errorRecovery) {
         summaryLines.push(`| Suggested recovery | ${errorRecovery} |`);
       }
+    }
+
+    const runbookSectionLines = buildIncidentRunbookSection([
+      summaryReason,
+      baseReason,
+      errorType,
+      errorCategory,
+      errorRecovery,
+      failure.reason,
+      agentSummary,
+    ]);
+    if (runbookSectionLines.length > 0) {
+      summaryLines.push(...runbookSectionLines);
     }
 
     // LLM analysis details - show which provider was used for task completion detection
