@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -68,11 +69,12 @@ def run_nl_query_endpoint(
         model=model,
         correlation_id=correlation_id,
     )
-    append_nl_operation_log(
-        path=log_path or default_nl_log_path(),
-        entry=entry,
-        retention_limit=log_retention_limit,
-    )
+    with suppress(Exception):
+        append_nl_operation_log(
+            path=log_path or default_nl_log_path(),
+            entry=entry,
+            retention_limit=log_retention_limit,
+        )
     event_payload = dict(event or {})
     event_payload.update(
         {

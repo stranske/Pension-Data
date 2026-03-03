@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -59,12 +61,14 @@ def _project_root(start: Path) -> Path:
     for candidate in (start, *start.parents):
         if (candidate / "pyproject.toml").exists():
             return candidate
-    msg = "Unable to locate project root containing pyproject.toml"
-    raise ValueError(msg)
+    return Path.cwd()
 
 
 def default_nl_log_path() -> Path:
     """Return default JSONL path for NL operation logs."""
+    override = os.getenv("PENSION_DATA_NL_LOG_PATH", "").strip()
+    if override:
+        return Path(override).expanduser()
     root = _project_root(Path(__file__).resolve())
     return root / "artifacts" / "langchain" / "nl_operations.jsonl"
 
@@ -107,13 +111,28 @@ def append_nl_operation_log(
     if retention_limit < 1:
         raise ValueError("retention_limit must be >= 1")
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
+    with path.open("a+", encoding="utf-8") as handle:
+        try:
+            import fcntl  # type: ignore[attr-defined]
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except Exception:
+            fcntl = None  # type: ignore[assignment]
+
         handle.write(json.dumps(asdict(entry), sort_keys=True) + "\n")
-    lines = path.read_text(encoding="utf-8").splitlines()
-    if len(lines) <= retention_limit:
-        return
-    trimmed = lines[-retention_limit:]
-    path.write_text("\n".join(trimmed) + "\n", encoding="utf-8")
+        handle.flush()
+        handle.seek(0)
+        lines = handle.read().splitlines()
+        retention_trigger = retention_limit
+        if len(lines) > retention_trigger:
+            trimmed = lines[-retention_limit:]
+            temp_path = path.with_suffix(path.suffix + ".tmp")
+            temp_path.write_text("\n".join(trimmed) + "\n", encoding="utf-8")
+            temp_path.replace(path)
+
+        if fcntl is not None:
+            with suppress(Exception):
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def load_nl_operation_logs(
@@ -129,38 +148,44 @@ def load_nl_operation_logs(
     for row in rows:
         if not row.strip():
             continue
-        payload = json.loads(row)
+        try:
+            payload = json.loads(row)
+        except json.JSONDecodeError:
+            continue
         if not isinstance(payload, Mapping):
             continue
-        entries.append(
-            NLOperationLogEntry(
-                timestamp=str(payload.get("timestamp", "")),
-                request_id=str(payload.get("request_id", "")),
-                correlation_id=str(payload.get("correlation_id", "")),
-                provider=str(payload.get("provider", "")),
-                model=str(payload.get("model", "")),
-                question=str(payload.get("question", "")),
-                generated_sql=(
-                    None
-                    if payload.get("generated_sql") is None
-                    else str(payload.get("generated_sql"))
-                ),
-                status="ok" if str(payload.get("status", "")) == "ok" else "error",
-                latency_ms=int(payload.get("latency_ms", 0)),
-                returned_rows=int(payload.get("returned_rows", 0)),
-                trace_event_count=int(payload.get("trace_event_count", 0)),
-                error_code=(
-                    None if payload.get("error_code") is None else str(payload.get("error_code"))
-                ),
-                error_message=(
-                    None
-                    if payload.get("error_message") is None
-                    else str(payload.get("error_message"))
-                ),
-                max_rows=int(payload.get("max_rows", 0)),
-                timeout_ms=int(payload.get("timeout_ms", 0)),
+        try:
+            entries.append(
+                NLOperationLogEntry(
+                    timestamp=str(payload.get("timestamp", "")),
+                    request_id=str(payload.get("request_id", "")),
+                    correlation_id=str(payload.get("correlation_id", "")),
+                    provider=str(payload.get("provider", "")),
+                    model=str(payload.get("model", "")),
+                    question=str(payload.get("question", "")),
+                    generated_sql=(
+                        None
+                        if payload.get("generated_sql") is None
+                        else str(payload.get("generated_sql"))
+                    ),
+                    status="ok" if str(payload.get("status", "")) == "ok" else "error",
+                    latency_ms=int(payload.get("latency_ms", 0)),
+                    returned_rows=int(payload.get("returned_rows", 0)),
+                    trace_event_count=int(payload.get("trace_event_count", 0)),
+                    error_code=(
+                        None if payload.get("error_code") is None else str(payload.get("error_code"))
+                    ),
+                    error_message=(
+                        None
+                        if payload.get("error_message") is None
+                        else str(payload.get("error_message"))
+                    ),
+                    max_rows=int(payload.get("max_rows", 0)),
+                    timeout_ms=int(payload.get("timeout_ms", 0)),
+                )
             )
-        )
+        except (TypeError, ValueError):
+            continue
     return tuple(entries)
 
 
