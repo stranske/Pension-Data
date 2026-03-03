@@ -3391,16 +3391,6 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
         summaryLines.push('', `**${agentDisplayName} output:**`, `> ${truncatedSummary}`);
       }
 
-      const runbookSectionLines = buildIncidentRunbookSection([
-        agentSummary,
-        summaryReason,
-        runResult,
-        errorRecovery,
-      ]);
-      if (runbookSectionLines.length > 0) {
-        summaryLines.push(...runbookSectionLines);
-      }
-
       // Task reconciliation warning: agent made changes but didn't check off tasks
       if (madeChangesButNoTasksChecked) {
         summaryLines.push(
@@ -3427,6 +3417,19 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
       if (errorRecovery) {
         summaryLines.push(`| Suggested recovery | ${errorRecovery} |`);
       }
+    }
+
+    const runbookSectionLines = buildIncidentRunbookSection([
+      summaryReason,
+      baseReason,
+      errorType,
+      errorCategory,
+      errorRecovery,
+      failure.reason,
+      agentSummary,
+    ]);
+    if (runbookSectionLines.length > 0) {
+      summaryLines.push(...runbookSectionLines);
     }
 
     // LLM analysis details - show which provider was used for task completion detection
