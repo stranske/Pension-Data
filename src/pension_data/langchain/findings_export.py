@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pension_data.langchain.findings_common import normalize_text
+from pension_data.langchain.findings_common import normalize_string_tuple, normalize_text
 
 ExportType = Literal["explain", "compare"]
 
@@ -55,19 +55,18 @@ def build_findings_export_artifact(
         if isinstance(value, str):
             sanitized_payload[field] = normalize_text(value)
             continue
-        if isinstance(value, tuple):
-            sanitized_payload[field] = tuple(
-                normalize_text(item) for item in value if normalize_text(item)
-            )
+        if isinstance(value, (tuple, list)):
+            sanitized_payload[field] = normalize_string_tuple(value)
             continue
         sanitized_payload[field] = value
+    normalized_citations = normalize_string_tuple(citations)
     return FindingsExportArtifact(
         artifact_type=artifact_type,
         request_id=request_id,
         generated_at=_utc_now_iso(),
         trace=_normalize_trace(trace),
         payload=sanitized_payload,
-        citations=tuple(citation for citation in citations if citation),
+        citations=normalized_citations,
     )
 
 

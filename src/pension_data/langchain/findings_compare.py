@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 from uuid import uuid4
 
@@ -15,6 +13,9 @@ from pension_data.langchain.findings_common import (
     filter_allowed_citations,
     normalize_string_tuple,
     normalize_text,
+    parse_chain_output,
+    slice_payload,
+    utc_now_iso,
 )
 
 CompareStatus = Literal["ok", "error"]
@@ -66,34 +67,6 @@ class FindingsCompareChain(Protocol):
         """Invoke compare chain with structured inputs."""
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-def _parse_chain_output(output: Mapping[str, Any] | str) -> Mapping[str, Any]:
-    if isinstance(output, Mapping):
-        return output
-    if not isinstance(output, str):
-        raise ValueError("chain output must be a mapping or JSON string")
-    try:
-        parsed = json.loads(output)
-    except ValueError as exc:
-        raise ValueError("chain output must be valid JSON") from exc
-    if not isinstance(parsed, Mapping):
-        raise ValueError("chain output JSON must decode to an object")
-    return parsed
-
-
-def _slice_payload(finding_slice: FindingSlice) -> dict[str, object]:
-    return {
-        "slice_id": finding_slice.slice_id,
-        "plan_id": finding_slice.plan_id,
-        "plan_period": finding_slice.plan_period,
-        "metrics": dict(sorted(finding_slice.metrics.items())),
-        "citations": list(finding_slice.citations),
-    }
-
-
 def run_findings_compare_chain(
     *,
     request: CompareRequest,
@@ -104,7 +77,7 @@ def run_findings_compare_chain(
     trace_id = request_id or f"fc:{uuid4().hex}"
     metadata = CompareMetadata(
         request_id=trace_id,
-        generated_at=_utc_now_iso(),
+        generated_at=utc_now_iso(),
         chain_name="findings_compare",
     )
     try:
@@ -112,8 +85,8 @@ def run_findings_compare_chain(
         chain_output = chain.invoke(
             {
                 "question": question,
-                "left_slice": _slice_payload(request.left_slice),
-                "right_slice": _slice_payload(request.right_slice),
+                "left_slice": slice_payload(request.left_slice),
+                "right_slice": slice_payload(request.right_slice),
                 "schema_contract": {
                     "summary": "string",
                     "key_differences": "string[]",
@@ -123,7 +96,7 @@ def run_findings_compare_chain(
                 },
             }
         )
-        payload = _parse_chain_output(chain_output)
+        payload = parse_chain_output(chain_output)
         summary = normalize_text(payload.get("summary"))
         if not summary:
             raise ValueError("summary is required")

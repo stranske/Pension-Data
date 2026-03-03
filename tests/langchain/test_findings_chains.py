@@ -149,15 +149,16 @@ def test_export_artifact_contains_trace_and_renders_text() -> None:
         request_id="fx:test",
         payload={
             "summary": "Improved funded ratio",
-            "key_drivers": ("Contributions rose",),
+            "key_drivers": [" Contributions rose ", "Contributions rose"],
         },
-        citations=("doc:1#p.12",),
+        citations=("doc:1#p.12", " doc:1#p.12 "),
         trace={"trace_url": "https://smith.langchain.com/r/example"},
     )
     text = render_findings_export_text(artifact)
 
     assert artifact.generated_at
     assert artifact.trace["trace_url"].startswith("https://")
+    assert artifact.payload["key_drivers"] == ("Contributions rose",)
     assert artifact.citations == ("doc:1#p.12",)
     assert "artifact_type: explain" in text
     assert "trace_url" in text
@@ -220,9 +221,14 @@ def test_findings_routes_require_nl_scope_and_emit_audit_fields() -> None:
                 "citations": ["doc:1#p.10", "doc:1#p.12"],
             }
         ),
-        event={"request_origin": "unit-test"},
+        event={
+            "request_origin": "unit-test",
+            "operation": "override-attempt",
+            "api_key_id": "override-attempt",
+        },
     )
     assert compare_result.response.status == "ok"
     assert compare_result.audit_event["operation"] == "nl.findings.compare"
+    assert compare_result.audit_event["api_key_id"] != "override-attempt"
     assert compare_result.audit_event["request_origin"] == "unit-test"
     assert compare_result.audit_event["citation_count"] == 2

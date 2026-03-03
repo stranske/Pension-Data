@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pension_data.api.auth import SCOPE_NL, APIKeyStore, authenticate_request, build_audit_event
+from pension_data.api.auth.audit import RESERVED_AUDIT_KEYS
 from pension_data.langchain.findings_compare import (
     CompareRequest,
     CompareResponse,
@@ -37,6 +38,13 @@ class FindingsCompareRouteResult:
     audit_event: dict[str, Any]
 
 
+def _sanitize_event(event: Mapping[str, Any] | None) -> dict[str, Any]:
+    payload = dict(event or {})
+    for reserved_key in RESERVED_AUDIT_KEYS:
+        payload.pop(reserved_key, None)
+    return payload
+
+
 def run_findings_explain_endpoint(
     *,
     api_key_header: str | None,
@@ -52,7 +60,7 @@ def run_findings_explain_endpoint(
         key_store=key_store,
     )
     response = run_findings_explain_chain(request=request, chain=chain)
-    event_payload = dict(event or {})
+    event_payload = _sanitize_event(event)
     event_payload.update(
         {
             "request_id": response.metadata.request_id,
@@ -85,7 +93,7 @@ def run_findings_compare_endpoint(
         key_store=key_store,
     )
     response = run_findings_compare_chain(request=request, chain=chain)
-    event_payload = dict(event or {})
+    event_payload = _sanitize_event(event)
     event_payload.update(
         {
             "request_id": response.metadata.request_id,

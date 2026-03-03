@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
 
 _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"sk-[A-Za-z0-9_-]{8,}"),
@@ -82,3 +85,34 @@ def ensure_question(question: str) -> str:
     if len(normalized.split()) < 3:
         raise ValueError("question is ambiguous; provide a specific request")
     return normalized
+
+
+def utc_now_iso() -> str:
+    """Return UTC timestamp in ISO format."""
+    return datetime.now(UTC).isoformat()
+
+
+def parse_chain_output(output: Mapping[str, Any] | str) -> Mapping[str, Any]:
+    """Parse chain output as object mapping (mapping input or JSON string)."""
+    if isinstance(output, Mapping):
+        return output
+    if not isinstance(output, str):
+        raise ValueError("chain output must be a mapping or JSON string")
+    try:
+        parsed = json.loads(output)
+    except ValueError as exc:
+        raise ValueError("chain output must be valid JSON") from exc
+    if not isinstance(parsed, Mapping):
+        raise ValueError("chain output JSON must decode to an object")
+    return parsed
+
+
+def slice_payload(finding_slice: FindingSlice) -> dict[str, object]:
+    """Render stable chain payload for one finding slice."""
+    return {
+        "slice_id": finding_slice.slice_id,
+        "plan_id": finding_slice.plan_id,
+        "plan_period": finding_slice.plan_period,
+        "metrics": dict(sorted(finding_slice.metrics.items())),
+        "citations": list(finding_slice.citations),
+    }
