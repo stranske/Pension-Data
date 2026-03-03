@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 from pension_data.db.models.investment_allocations_fees import AssetAllocationObservation
 from pension_data.db.models.investment_positions import PlanManagerFundPosition
 from pension_data.db.models.manager_lifecycle import ManagerLifecycleEvent
+from pension_data.normalize.entity_tokens import normalize_entity_token
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,15 +34,16 @@ class EntityExposureRow:
     evidence_refs: tuple[str, ...]
 
 
-def _normalize_token(value: str | None) -> str:
-    if value is None:
-        return ""
-    collapsed = re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
-    return " ".join(collapsed.split())
-
-
 def _canonical_id(*, entity_type: str, name: str) -> str:
-    return f"{entity_type}:{_normalize_token(name)}"
+    return f"{entity_type}:{normalize_entity_token(name)}"
+
+
+def _canonical_fund_id(*, manager_name: str | None, fund_name: str) -> str:
+    manager_token = normalize_entity_token(manager_name)
+    fund_token = normalize_entity_token(fund_name)
+    if manager_token:
+        return f"fund:{manager_token}:{fund_token}"
+    return f"fund:{fund_token}"
 
 
 def _dedupe_refs(*values: tuple[str, ...]) -> tuple[str, ...]:
@@ -91,8 +92,8 @@ def _lifecycle_index(
         key=lambda item: (
             item.plan_id,
             item.plan_period,
-            _normalize_token(item.manager_name),
-            _normalize_token(item.fund_name),
+            normalize_entity_token(item.manager_name),
+            normalize_entity_token(item.fund_name),
             item.event_type,
         ),
     ):
@@ -100,8 +101,8 @@ def _lifecycle_index(
             (
                 event.plan_id,
                 event.plan_period,
-                _normalize_token(event.manager_name),
-                _normalize_token(event.fund_name),
+                normalize_entity_token(event.manager_name),
+                normalize_entity_token(event.fund_name),
             )
         ] = event.event_type
     return indexed
@@ -119,8 +120,8 @@ def build_entity_exposure_views(
         key=lambda row: (
             row.plan_id,
             row.plan_period,
-            _normalize_token(row.manager_name),
-            _normalize_token(row.fund_name),
+            normalize_entity_token(row.manager_name),
+            normalize_entity_token(row.fund_name),
         ),
     )
     market_total_by_plan_period: dict[tuple[str, str], float] = {}
@@ -151,8 +152,8 @@ def build_entity_exposure_views(
             (
                 position.plan_id,
                 position.plan_period,
-                _normalize_token(position.manager_name),
-                _normalize_token(position.fund_name),
+                normalize_entity_token(position.manager_name),
+                normalize_entity_token(position.fund_name),
             )
         )
         evidence_refs = _dedupe_refs(position.evidence_refs)
@@ -185,7 +186,10 @@ def build_entity_exposure_views(
         if position.fund_name and position.fund_name.strip():
             exposure_rows.append(
                 EntityExposureRow(
-                    canonical_entity_id=_canonical_id(entity_type="fund", name=position.fund_name),
+                    canonical_entity_id=_canonical_fund_id(
+                        manager_name=position.manager_name,
+                        fund_name=position.fund_name,
+                    ),
                     canonical_entity_type="fund",
                     canonical_entity_name=position.fund_name,
                     plan_id=position.plan_id,
@@ -211,7 +215,7 @@ def build_entity_exposure_views(
             row.canonical_entity_id,
             row.plan_id,
             row.plan_period,
-            _normalize_token(row.manager_name),
-            _normalize_token(row.fund_name),
+            normalize_entity_token(row.manager_name),
+            normalize_entity_token(row.fund_name),
         ),
     )

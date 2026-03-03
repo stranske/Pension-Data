@@ -146,15 +146,55 @@ def test_lookup_resolves_aliases_and_includes_non_disclosure_states() -> None:
     assert nondisclosure_results[0].market_value is None
 
 
+def test_fund_lookup_uses_manager_scoped_canonical_ids_to_avoid_collisions() -> None:
+    positions = list(_positions())
+    positions.append(
+        PlanManagerFundPosition(
+            plan_id="NY-STRS",
+            plan_period="FY2025",
+            manager_name="Gamma Advisors",
+            fund_name="Fund I",
+            commitment=40.0,
+            unfunded=9.0,
+            market_value=31.0,
+            completeness="complete",
+            confidence=0.87,
+            evidence_refs=("p.66",),
+        )
+    )
+    rows = build_entity_exposure_views(positions=positions)
+    index = build_entity_exposure_index(rows)
+
+    alpha_fund_results, alpha_trace = lookup_entity_exposures(
+        index,
+        entity_query="FUND:ALPHA CAPITAL:FUND I",
+    )
+    gamma_fund_results, gamma_trace = lookup_entity_exposures(
+        index,
+        entity_query="fund:gamma advisors:fund i",
+    )
+    ambiguous_fund_name_results, ambiguous_trace = lookup_entity_exposures(
+        index,
+        entity_query="Fund I",
+    )
+
+    assert alpha_trace.resolved_entity_id == "fund:alpha capital:fund i"
+    assert {row.plan_id for row in alpha_fund_results} == {"CA-PERS", "TX-ERS"}
+    assert gamma_trace.resolved_entity_id == "fund:gamma advisors:fund i"
+    assert [row.plan_id for row in gamma_fund_results] == ["NY-STRS"]
+    assert ambiguous_trace.resolved_entity_id is None
+    assert ambiguous_fund_name_results == []
+
+
 def test_lookup_index_limits_candidate_scan_for_performance_sensitive_queries() -> None:
     expanded_positions = list(_positions())
-    for index in range(300):
+    for plan_index in range(300):
         expanded_positions.append(
             PlanManagerFundPosition(
-                plan_id=f"PLAN-{index:03d}",
+                plan_id=f"PLAN-{plan_index:03d}",
                 plan_period="FY2025",
-                manager_name=f"Manager {index:03d}",
-                fund_name=f"Fund {index:03d}",
+                manager_name=f"Manager {plan_index:03d}",
+                fund_name=f"Fund {plan_index:03d}",
                 commitment=10.0,
                 unfunded=2.0,
                 market_value=8.0,
@@ -165,8 +205,11 @@ def test_lookup_index_limits_candidate_scan_for_performance_sensitive_queries() 
         )
 
     materialized_rows = build_entity_exposure_views(positions=expanded_positions)
-    index = build_entity_exposure_index(materialized_rows)
-    results, trace = lookup_entity_exposures(index, entity_query="manager:alpha capital")
+    exposure_index = build_entity_exposure_index(materialized_rows)
+    results, trace = lookup_entity_exposures(
+        exposure_index,
+        entity_query="manager:alpha capital",
+    )
 
     assert len(materialized_rows) > 300
     assert len(results) == 2
