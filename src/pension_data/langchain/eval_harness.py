@@ -5,11 +5,12 @@ from __future__ import annotations
 import importlib
 import json
 import re
+import shlex
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from pension_data.query.sql_safety import SQLSafetyValidationError, validate_read_only_sql
 
@@ -136,12 +137,27 @@ def _as_mapping(value: object) -> Mapping[str, object]:
 
 def _load_yaml_or_json(path: Path) -> Mapping[str, object]:
     text = path.read_text(encoding="utf-8")
+    yaml_module: Any | None = None
+    yaml_error: Exception | None = None
     try:
         yaml_module = importlib.import_module("yaml")
-        safe_load = yaml_module.safe_load
-        payload = safe_load(text)
-    except Exception:
+    except ModuleNotFoundError:
+        yaml_module = None
+
+    if yaml_module is not None:
+        try:
+            payload = yaml_module.safe_load(text)
+            return _as_mapping(payload)
+        except Exception as exc:
+            yaml_error = exc
+
+    try:
         payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        message = "dataset file must be valid JSON"
+        if yaml_error is not None:
+            message = f"dataset file must be valid YAML or JSON (YAML parse error: {yaml_error})"
+        raise DatasetValidationError(message) from exc
     return _as_mapping(payload)
 
 
@@ -314,10 +330,12 @@ def _load_live_output(
             "question": case.question,
         }
     )
+    command_args = shlex.split(live_command)
+    if not command_args:
+        raise RuntimeError(f"live command is empty for case {case.case_id}")
     completed = subprocess.run(  # noqa: S603
-        live_command,
+        command_args,
         input=input_payload,
-        shell=True,  # noqa: S602
         capture_output=True,
         text=True,
         timeout=timeout_sec,
@@ -437,10 +455,6 @@ def evaluate_dataset(
     safety_regressions = [result.case_id for result in case_results if not result.safety_pass]
     if safety_regressions:
         failures.append("safety regressions detected in cases: " + ", ".join(safety_regressions))
-
-    for result in case_results:
-        if result.details:
-            failures.append(f"case {result.case_id}: " + "; ".join(result.details))
 
     status: Literal["pass", "fail"] = "fail" if failures else "pass"
     return EvaluationReport(

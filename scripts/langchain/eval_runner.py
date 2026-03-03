@@ -21,8 +21,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dataset",
         type=Path,
-        default=Path("tests/langchain/prompt_dataset.yml"),
-        help="Path to evaluation dataset (YAML or JSON-compatible YAML).",
+        default=Path("tests/langchain/prompt_dataset.json"),
+        help="Path to evaluation dataset (JSON or YAML).",
     )
     parser.add_argument(
         "--mode",
@@ -46,7 +46,10 @@ def parse_args() -> argparse.Namespace:
         default=Path("artifacts/langchain/eval_report.json"),
         help="Path to write evaluation report JSON.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.mode == "live" and not args.live_command:
+        parser.error("--live-command is required when --mode live")
+    return args
 
 
 def main() -> int:

@@ -19,7 +19,7 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
 
 
 def test_load_eval_dataset_from_repo_fixture() -> None:
-    dataset = load_eval_dataset(Path("tests/langchain/prompt_dataset.yml"))
+    dataset = load_eval_dataset(Path("tests/langchain/prompt_dataset.json"))
     assert dataset.version == 1
     assert len(dataset.cases) == 6
     assert dataset.thresholds.min_safety_pass_rate == 1.0
@@ -27,7 +27,7 @@ def test_load_eval_dataset_from_repo_fixture() -> None:
 
 
 def test_evaluate_dataset_mock_passes_for_repo_fixture() -> None:
-    dataset = load_eval_dataset(Path("tests/langchain/prompt_dataset.yml"))
+    dataset = load_eval_dataset(Path("tests/langchain/prompt_dataset.json"))
     report = evaluate_dataset(dataset, mode="mock")
     assert report.status == "pass"
     assert report.safety_pass_rate == 1.0
@@ -81,7 +81,8 @@ def test_evaluate_dataset_flags_safety_regression(tmp_path: Path) -> None:
         for failure in report.failures
     )
     assert any(
-        "only read-only SELECT/WITH queries are allowed" in failure for failure in report.failures
+        "only read-only SELECT/WITH queries are allowed" in detail
+        for detail in report.case_results[0].details
     )
 
 

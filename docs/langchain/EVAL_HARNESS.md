@@ -7,7 +7,7 @@ This harness provides deterministic regression checks for NL features with two m
 
 ## Dataset Contract
 
-Default dataset path: `tests/langchain/prompt_dataset.yml`
+Default dataset path: `tests/langchain/prompt_dataset.json`
 
 Required top-level keys:
 
@@ -37,7 +37,7 @@ Case fields:
 
 ```bash
 python scripts/langchain/eval_runner.py \
-  --dataset tests/langchain/prompt_dataset.yml \
+  --dataset tests/langchain/prompt_dataset.json \
   --mode mock \
   --output artifacts/langchain/eval_report.json
 ```
