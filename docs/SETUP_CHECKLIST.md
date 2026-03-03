@@ -205,7 +205,7 @@ scripts/                        # Python utility scripts
 ├── fallback_split.py
 └── parse_chatgpt_topics.py
 src/
-└── my_project/                 # Your Python package
+└── <package_name>/             # Your Python package
     ├── __init__.py
     └── main.py
 tests/
@@ -328,7 +328,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "my-project"
+name = "<project-name>"
 version = "0.1.0"
 description = "My project description"
 readme = "README.md"

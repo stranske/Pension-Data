@@ -305,10 +305,7 @@ def query_metric_history(
     for row in rows:
         if row.entity_id != entity_id:
             continue
-        if (
-            metric_name is not None
-            and _normalize_metric_token(row.metric_name) != metric_name
-        ):
+        if metric_name is not None and _normalize_metric_token(row.metric_name) != metric_name:
             continue
         if (
             metric_family is not None
