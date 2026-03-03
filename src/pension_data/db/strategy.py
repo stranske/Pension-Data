@@ -109,3 +109,22 @@ def database_setup_requirements(config: DatabaseConfig) -> tuple[str, ...]:
         "Install psycopg client dependency in runtime environment.",
         "Apply PostgreSQL migration sequence before enabling query endpoints.",
     )
+
+
+def bootstrap_database_connection(
+    *,
+    environment: DatabaseEnvironment = "local",
+    database_url: str | None = None,
+    apply_migrations_on_boot: bool = True,
+) -> tuple[DatabaseConfig, Any]:
+    """Resolve config, connect, and optionally apply migrations for runtime bootstrap."""
+    config = resolve_database_config(
+        environment=environment,
+        database_url=database_url,
+    )
+    connection = connect_database(config)
+    if apply_migrations_on_boot:
+        from pension_data.db.migrations_runner import apply_migrations
+
+        apply_migrations(connection, dialect=config.dialect)
+    return config, connection

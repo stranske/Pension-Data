@@ -8,6 +8,7 @@ import pytest
 
 from pension_data.db.strategy import (
     DEFAULT_LOCAL_SQLITE_URL,
+    bootstrap_database_connection,
     connect_database,
     database_setup_requirements,
     migration_file_paths,
@@ -75,3 +76,20 @@ def test_postgresql_connection_without_driver_raises_helpful_runtime_error() -> 
             connect_database(config)
     else:
         pytest.skip("psycopg is installed; runtime error path is not expected")
+
+
+def test_bootstrap_connection_applies_sqlite_migrations() -> None:
+    config, connection = bootstrap_database_connection(
+        environment="local",
+        database_url="sqlite:///:memory:",
+        apply_migrations_on_boot=True,
+    )
+    try:
+        row = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert config.dialect == "sqlite"
+    assert row == ("schema_migrations",)
