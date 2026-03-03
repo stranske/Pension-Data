@@ -213,11 +213,15 @@ def _metric_range_finding(row: FundedActuarialStagingFact) -> ParserOutputValida
             evidence_refs=row.evidence_refs,
             incident_class_id="parser_output_validation_failure",
         )
-    if row.metric_name in {
-        "discount_rate",
-        "employer_contribution_rate",
-        "employee_contribution_rate",
-    } and not 0.0 <= value <= 1.0:
+    if (
+        row.metric_name
+        in {
+            "discount_rate",
+            "employer_contribution_rate",
+            "employee_contribution_rate",
+        }
+        and not 0.0 <= value <= 1.0
+    ):
         return _finding(
             code="numeric_out_of_range",
             severity="error",
@@ -268,7 +272,9 @@ def _provenance_findings(row: FundedActuarialStagingFact) -> list[ParserOutputVa
             )
         ]
 
-    invalid_refs = [ref for ref in row.evidence_refs if _VALID_EVIDENCE_REF.match(ref.strip()) is None]
+    invalid_refs = [
+        ref for ref in row.evidence_refs if _VALID_EVIDENCE_REF.match(ref.strip()) is None
+    ]
     if not invalid_refs:
         return []
     return [
@@ -290,7 +296,9 @@ def _completeness_findings(
 ) -> list[ParserOutputValidationFinding]:
     observed = {row.metric_name for row in rows}
     missing_metrics = [
-        metric_name for metric_name in FUNDED_ACTUARIAL_REQUIRED_METRICS if metric_name not in observed
+        metric_name
+        for metric_name in FUNDED_ACTUARIAL_REQUIRED_METRICS
+        if metric_name not in observed
     ]
     plan_id, plan_period = _fallback_context(rows)
     return [
@@ -317,9 +325,13 @@ def _diagnostic_findings(
     findings: list[ParserOutputValidationFinding] = []
     for item in diagnostics:
         incident_class: ParserIncidentClassId = (
-            "parser_fallback_exhaustion" if item.code == "missing_metric" else "parser_output_validation_failure"
+            "parser_fallback_exhaustion"
+            if item.code == "missing_metric"
+            else "parser_output_validation_failure"
         )
-        severity: ParserValidationSeverity = "error" if item.code == "missing_metric" else item.severity
+        severity: ParserValidationSeverity = (
+            "error" if item.code == "missing_metric" else item.severity
+        )
         findings.append(
             _finding(
                 code=f"extract_diagnostic:{item.code}",

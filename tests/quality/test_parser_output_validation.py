@@ -117,8 +117,7 @@ def test_low_confidence_parser_outputs_are_visible_in_review_queue_without_block
     assert len(result.promotable_rows) == 7
     assert any(row.priority == "high" for row in result.review_queue_rows)
     assert any(
-        anomaly.incident_class_id == "parser_low_confidence_output"
-        for anomaly in result.anomalies
+        anomaly.incident_class_id == "parser_low_confidence_output" for anomaly in result.anomalies
     )
     assert all(anomaly.publish_blocked is False for anomaly in result.anomalies)
 
@@ -131,6 +130,5 @@ def test_validation_result_is_deterministic_and_review_queue_contract_safe() -> 
     assert first == second
     assert all(row.state == "new" for row in first.review_queue_rows)
     assert all(
-        row.audit_trail and row.audit_trail[0].actor == "system"
-        for row in first.review_queue_rows
+        row.audit_trail and row.audit_trail[0].actor == "system" for row in first.review_queue_rows
     )
