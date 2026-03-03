@@ -45,9 +45,6 @@ STAGING_CORE_METRICS_COLUMNS: tuple[str, ...] = (
     "ingestion_date",
     "benchmark_version",
     "source_document_id",
-    "source_url",
-    "parser_version",
-    "extraction_method",
 )
 
 STAGING_MANAGER_RELATIONSHIP_COLUMNS: tuple[str, ...] = (
@@ -59,12 +56,10 @@ STAGING_MANAGER_RELATIONSHIP_COLUMNS: tuple[str, ...] = (
     "vehicle_name",
     "relationship_completeness",
     "known_not_invested",
-    "evidence_refs",
     "effective_date",
     "ingestion_date",
     "benchmark_version",
     "source_document_id",
-    "source_url",
 )
 
 EXTRACTION_WARNING_COLUMNS: tuple[str, ...] = (
@@ -173,7 +168,7 @@ def persist_funded_actuarial_metrics(
                 row.ingestion_date,
                 current_benchmark,
                 row.source_document_id,
-                row.evidence_refs,
+                evidence_refs,
             ),
             "plan_id": row.plan_id,
             "plan_period": row.plan_period,
@@ -232,7 +227,7 @@ def _allocation_metric_rows(
                     row.ingestion_date,
                     benchmark_version,
                     row.source_document_id,
-                    row.evidence_refs,
+                    evidence_refs,
                 ),
                 "plan_id": row.plan_id,
                 "plan_period": row.plan_period,
@@ -272,7 +267,7 @@ def _allocation_metric_rows(
                     row.ingestion_date,
                     benchmark_version,
                     row.source_document_id,
-                    row.evidence_refs,
+                    evidence_refs,
                 ),
                 "plan_id": row.plan_id,
                 "plan_period": row.plan_period,
@@ -343,7 +338,7 @@ def _fee_metric_rows(
                     row.ingestion_date,
                     benchmark_version,
                     row.source_document_id,
-                    row.evidence_refs,
+                    evidence_refs,
                 ),
                 "plan_id": row.plan_id,
                 "plan_period": row.plan_period,
@@ -384,7 +379,7 @@ def _fee_metric_rows(
                     row.ingestion_date,
                     benchmark_version,
                     row.source_document_id,
-                    row.evidence_refs,
+                    evidence_refs,
                 ),
                 "plan_id": row.plan_id,
                 "plan_period": row.plan_period,
@@ -460,7 +455,7 @@ def persist_manager_positions(
                 context.ingestion_date,
                 context.benchmark_version,
                 context.source_document_id,
-                row.evidence_refs,
+                evidence_refs,
             ),
             "plan_id": row.plan_id,
             "plan_period": row.plan_period,
@@ -499,7 +494,7 @@ def persist_manager_positions(
                         context.ingestion_date,
                         context.benchmark_version,
                         context.source_document_id,
-                        row.evidence_refs,
+                        evidence_refs,
                     ),
                     "plan_id": row.plan_id,
                     "plan_period": row.plan_period,
@@ -560,6 +555,9 @@ def persist_extraction_warnings(
     manager_position_context: PositionPersistenceContext | None = None,
 ) -> list[dict[str, object]]:
     """Map extraction diagnostics and warnings into a dedicated persisted warning artifact."""
+    if funded_diagnostics and funded_context is None:
+        raise ValueError("funded_context is required when funded_diagnostics are provided")
+
     warning_rows: list[dict[str, object]] = []
 
     for diagnostic in funded_diagnostics:
@@ -624,21 +622,27 @@ def persist_extraction_warnings(
                 "metric_name": None,
                 "message": investment_warning.message,
                 "evidence_refs": list(evidence_refs),
-                "effective_date": "",
-                "ingestion_date": "",
-                "source_document_id": "",
-                "source_url": "",
+                "effective_date": None,
+                "ingestion_date": None,
+                "source_document_id": None,
+                "source_url": None,
             }
         )
 
     for position_warning in manager_position_warnings:
         position_context = manager_position_context
-        effective_date = position_context.effective_date if position_context is not None else ""
-        ingestion_date = position_context.ingestion_date if position_context is not None else ""
-        source_document_id = (
-            position_context.source_document_id if position_context is not None else ""
+        position_effective_date: str | None = (
+            position_context.effective_date if position_context is not None else None
         )
-        source_url = position_context.source_url if position_context is not None else ""
+        position_ingestion_date: str | None = (
+            position_context.ingestion_date if position_context is not None else None
+        )
+        position_source_document_id: str | None = (
+            position_context.source_document_id if position_context is not None else None
+        )
+        position_source_url: str | None = (
+            position_context.source_url if position_context is not None else None
+        )
         evidence_refs = _normalize_refs(position_warning.evidence_refs)
         warning_rows.append(
             {
@@ -663,10 +667,10 @@ def persist_extraction_warnings(
                 "metric_name": None,
                 "message": position_warning.message,
                 "evidence_refs": list(evidence_refs),
-                "effective_date": effective_date,
-                "ingestion_date": ingestion_date,
-                "source_document_id": source_document_id,
-                "source_url": source_url,
+                "effective_date": position_effective_date,
+                "ingestion_date": position_ingestion_date,
+                "source_document_id": position_source_document_id,
+                "source_url": position_source_url,
             }
         )
 

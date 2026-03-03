@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from pension_data.extract.actuarial.metrics import (
     RawFundedActuarialInput,
@@ -26,6 +29,8 @@ from pension_data.extract.persistence import (
     WarningPersistenceContext,
     build_extraction_persistence_artifacts,
     extraction_persistence_contract,
+    persist_extraction_warnings,
+    persist_funded_actuarial_metrics,
     write_extraction_persistence_artifacts,
 )
 
@@ -349,3 +354,70 @@ def test_persistence_artifacts_are_deterministic_for_input_order() -> None:
     )
 
     assert first == second
+
+
+def test_persisted_fact_ids_use_normalized_evidence_refs() -> None:
+    funded_fixture = _load_json(FUNDED_FIXTURE_PATH)["table_layout_complete"]
+    funded_rows, _ = extract_funded_and_actuarial_metrics(
+        plan_id=funded_fixture["plan_id"],
+        plan_period=funded_fixture["plan_period"],
+        raw=_raw_funded(funded_fixture["raw"]),
+    )
+    row = funded_rows[0]
+
+    id_from_whitespace_dupes = persist_funded_actuarial_metrics(
+        [replace(row, evidence_refs=(" p14 ", "p14"))],
+        benchmark_version="v1",
+    )[0]
+    id_from_canonical_refs = persist_funded_actuarial_metrics(
+        [replace(row, evidence_refs=("p14",))],
+        benchmark_version="v1",
+    )[0]
+
+    assert id_from_whitespace_dupes["fact_id"] == id_from_canonical_refs["fact_id"]
+    assert id_from_whitespace_dupes["evidence_refs"] == ["p14"]
+
+
+def test_funded_diagnostics_require_warning_context() -> None:
+    funded_fixture = _load_json(FUNDED_FIXTURE_PATH)["text_layout_missing_participants"]
+    _, funded_diagnostics = extract_funded_and_actuarial_metrics(
+        plan_id=funded_fixture["plan_id"],
+        plan_period=funded_fixture["plan_period"],
+        raw=_raw_funded(funded_fixture["raw"]),
+    )
+
+    with pytest.raises(ValueError, match="funded_context is required"):
+        build_extraction_persistence_artifacts(
+            funded_actuarial_diagnostics=funded_diagnostics,
+        )
+
+
+def test_investment_warnings_use_null_when_temporal_provenance_is_unknown() -> None:
+    investment_fixture = _load_json(INVESTMENT_FIXTURE_PATH)
+    fee_payload = investment_fixture["fee_schedule_partial_and_ambiguous"]
+    _, investment_warnings = extract_fee_observations(
+        plan_id=fee_payload["plan_id"],
+        plan_period=fee_payload["plan_period"],
+        effective_date=fee_payload["effective_date"],
+        ingestion_date=fee_payload["ingestion_date"],
+        source_document_id=fee_payload["source_document_id"],
+        rows=[
+            FeeDisclosureInput(
+                manager_name=row["manager_name"],
+                fee_type=row["fee_type"],
+                rate_value=row["rate_value"],
+                amount_value=row["amount_value"],
+                amount_unit=row["amount_unit"],
+                explicit_not_disclosed=row["explicit_not_disclosed"],
+                evidence_refs=tuple(row["evidence_refs"]),
+            )
+            for row in fee_payload["fee_rows"]
+        ],
+    )
+
+    warning_rows = persist_extraction_warnings(investment_warnings=investment_warnings)
+    for row in warning_rows:
+        assert row["effective_date"] is None
+        assert row["ingestion_date"] is None
+        assert row["source_document_id"] is None
+        assert row["source_url"] is None

@@ -21,11 +21,13 @@ This document defines what "persisted" means for funded/actuarial and investment
 The write path defines required columns for these artifacts:
 
 - `staging_core_metrics`
-  - Includes dual as-reported/normalized values, metric identity, relationship completeness, confidence, evidence refs, effective/ingestion dates, benchmark version, and source document provenance.
+  - Required columns align to `staging_core_metrics` table schema (dual as-reported/normalized values, metric identity, relationship completeness, confidence, evidence refs, effective/ingestion dates, benchmark version, and `source_document_id`).
 - `staging_manager_fund_vehicle_relationships`
-  - Includes manager/fund relationship completeness, known-not-invested flag, evidence refs, effective/ingestion dates, benchmark version, and source provenance.
+  - Required columns align to `staging_manager_fund_vehicle_relationships` table schema (relationship completeness, known-not-invested flag, effective/ingestion dates, benchmark version, and `source_document_id`).
 - `extraction_warnings`
   - Includes warning domain/code/severity, plan-period scope, optional manager/fund/metric references, message text, evidence refs, and available temporal/provenance fields.
+
+Artifact rows may include additional provenance metadata fields (for example `source_url`, parser metadata, and extraction method) to support debugging and lineage tracking before downstream table inserts.
 
 ## Bitemporal And Provenance Guarantees
 
@@ -39,7 +41,7 @@ The write path defines required columns for these artifacts:
   - `evidence_refs`
   - parser/extraction method metadata where available (`parser_version`, `extraction_method`)
 
-These fields are carried from extractor output into persisted rows without lossy transformation.
+These fields are carried from extractor output into persisted rows, with canonicalization of evidence references (trim/dedupe) to keep IDs deterministic.
 
 ## Manager Holdings And Non-Disclosure Handling
 
