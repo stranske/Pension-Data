@@ -107,7 +107,9 @@ def test_ops_quality_layer_contract_remains_wired_end_to_end() -> None:
         ),
     ]
     anomalies = detect_anomalies(anomaly_points)
-    queue_items = route_anomalies_to_review_queue(anomalies, queued_at=datetime(2026, 4, 2, tzinfo=UTC))
+    queue_items = route_anomalies_to_review_queue(
+        anomalies, queued_at=datetime(2026, 4, 2, tzinfo=UTC)
+    )
     assert anomalies
     assert queue_items
     assert queue_items[0].queue_id.startswith("review:")
@@ -125,5 +127,7 @@ def test_ops_quality_layer_contract_remains_wired_end_to_end() -> None:
     )
     diff = diff_snapshots(baseline=baseline, current=current)
     assert diff["unexpected_changes"] >= 1
-    violations = evaluate_replay_diff(unexpected_changes=diff["unexpected_changes"], max_unexpected=0)
+    violations = evaluate_replay_diff(
+        unexpected_changes=diff["unexpected_changes"], max_unexpected=0
+    )
     assert violations
