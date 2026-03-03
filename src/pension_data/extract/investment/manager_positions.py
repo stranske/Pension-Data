@@ -76,7 +76,9 @@ def _canonical_fund_id(*, manager_name: str | None, fund_name: str | None) -> st
     return f"fund:{fund_token}"
 
 
-def _linkage_status(*, completeness: PositionCompleteness, known_not_invested: bool) -> LinkageStatus:
+def _linkage_status(
+    *, completeness: PositionCompleteness, known_not_invested: bool
+) -> LinkageStatus:
     if completeness == "not_disclosed" and not known_not_invested:
         return "not_disclosed"
     return "resolved"
@@ -172,9 +174,9 @@ def build_manager_fund_positions(
         warnings.extend(_as_warning(position, code) for code in warning_codes)
 
     naming_key_to_indices: dict[tuple[str, str, str, str], list[int]] = {}
-    naming_key_to_raw_pairs: dict[tuple[str, str, str, str], set[tuple[str | None, str | None]]] = (
-        {}
-    )
+    naming_key_to_raw_pairs: dict[
+        tuple[str, str, str, str], set[tuple[str | None, str | None]]
+    ] = {}
 
     for index, position in enumerate(positions):
         manager_key = _normalize_token(position.manager_name)
