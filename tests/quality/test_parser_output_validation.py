@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import UTC, datetime
+
 from pension_data.db.models.funded_actuarial import (
     ExtractionDiagnostic,
     FundedActuarialMetricName,
@@ -132,3 +135,47 @@ def test_validation_result_is_deterministic_and_review_queue_contract_safe() -> 
     assert all(
         row.audit_trail and row.audit_trail[0].actor == "system" for row in first.review_queue_rows
     )
+
+
+def test_schema_validation_blocks_missing_normalized_units() -> None:
+    rows = _complete_rows()
+    rows[0] = replace(rows[0], normalized_unit=None)
+
+    result = validate_parser_outputs(rows=rows)
+
+    assert any(
+        finding.code == "schema_invalid" and "normalized_unit" in finding.message
+        for finding in result.findings
+    )
+    assert result.publish_blocked is True
+
+
+def test_canonical_text_unknown_evidence_ref_is_accepted() -> None:
+    rows = _complete_rows()
+    rows[0] = replace(rows[0], evidence_refs=("text:unknown",))
+
+    result = validate_parser_outputs(rows=rows)
+
+    assert result.publish_blocked is False
+    assert not any(finding.code == "provenance_invalid" for finding in result.findings)
+
+
+def test_schema_findings_keep_distinct_missing_field_messages() -> None:
+    rows = _complete_rows()
+    rows[0] = replace(rows[0], source_url="", parser_version="")
+
+    result = validate_parser_outputs(rows=rows)
+    schema_messages = [
+        finding.message for finding in result.findings if finding.code == "schema_invalid"
+    ]
+    assert "required field 'source_url' is missing or empty" in schema_messages
+    assert "required field 'parser_version' is missing or empty" in schema_messages
+
+
+def test_empty_rows_queue_uses_recent_timestamp() -> None:
+    result = validate_parser_outputs(rows=())
+
+    assert result.review_queue_rows
+    now = datetime.now(UTC)
+    assert all(row.created_at.year >= 2020 for row in result.review_queue_rows)
+    assert all(row.created_at <= now for row in result.review_queue_rows)

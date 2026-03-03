@@ -1,6 +1,6 @@
 # Incident Classes
 
-Last reviewed: 2026-03-02
+Last reviewed: 2026-03-03
 
 This document defines the top incident classes for ingestion and extraction
 quality operations. Each class uses a canonical identifier in snake_case.
@@ -13,5 +13,5 @@ runbook for deterministic remediation.
 | `revised_file_mismatch` | Revised report is discovered but supersession or plan-period matching cannot reconcile | [Revised File Mismatch](../runbooks/revised-file-mismatch.md#revised-file-mismatch) |
 | `parser_fallback_exhaustion` | Primary parser and all fallback stages fail to extract required fields | [Parser Fallback Exhaustion](../runbooks/parser-fallback-exhaustion.md#parser-fallback-exhaustion) |
 | `parser_output_validation_failure` | Parser outputs fail schema, numeric sanity, or provenance completeness validation and are blocked from promotion | [Parser Output Validation Failure](../runbooks/parser-output-validation-failure.md#parser-output-validation-failure) |
-| `parser_low_confidence_output` | Parser output passes validation but routes to high-priority review due low confidence | [Parser Low Confidence Output](../runbooks/parser-low-confidence-output.md#parser-low-confidence-output) |
+| `parser_low_confidence_output` | Parser output passes validation but routes to high-priority review due to low confidence | [Parser Low Confidence Output](../runbooks/parser-low-confidence-output.md#parser-low-confidence-output) |
 | `anomaly_flood` | Anomaly event volume spikes and overwhelms queue throughput or alert channels | [Anomaly Flood](../runbooks/anomaly-flood.md#anomaly-flood) |

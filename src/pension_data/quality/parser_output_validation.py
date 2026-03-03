@@ -49,8 +49,9 @@ _ROW_REQUIRED_STRING_FIELDS: tuple[tuple[str, str], ...] = (
     ("ingestion_date", "ingestion_date"),
     ("parser_version", "parser_version"),
     ("extraction_method", "extraction_method"),
+    ("normalized_unit", "normalized_unit"),
 )
-_VALID_EVIDENCE_REF = re.compile(r"^(?:p\.\d+(?:#.+)?|text:\d+|table:.+)$")
+_VALID_EVIDENCE_REF = re.compile(r"^(?:p\.\d+(?:#.+)?|text:(?:\d+|unknown)|table:.+)$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,13 +351,15 @@ def _diagnostic_findings(
 def _dedupe_findings(
     findings: Sequence[ParserOutputValidationFinding],
 ) -> tuple[ParserOutputValidationFinding, ...]:
-    unique: dict[tuple[str, str, str, str], ParserOutputValidationFinding] = {}
+    unique: dict[tuple[str, str, str, str, str, tuple[str, ...]], ParserOutputValidationFinding] = {}
     for finding in findings:
         key = (
             finding.code,
             finding.plan_id,
             finding.plan_period,
             finding.metric_name or "",
+            finding.message,
+            finding.evidence_refs,
         )
         unique[key] = finding
     return tuple(
@@ -438,17 +441,17 @@ def _route_decisions(
 
 
 def _review_queue_timestamp(rows: Sequence[FundedActuarialStagingFact]) -> datetime:
-    if not rows:
-        return datetime(1970, 1, 1, tzinfo=UTC)
-    token = rows[0].ingestion_date.strip()
-    if not token:
-        return datetime(1970, 1, 1, tzinfo=UTC)
-    iso_candidate = f"{token[:-1]}+00:00" if token.endswith("Z") else token
-    try:
-        parsed = datetime.fromisoformat(iso_candidate)
-    except ValueError:
-        return datetime(1970, 1, 1, tzinfo=UTC)
-    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+    for row in rows:
+        token = row.ingestion_date.strip()
+        if not token:
+            continue
+        iso_candidate = f"{token[:-1]}+00:00" if token.endswith("Z") else token
+        try:
+            parsed = datetime.fromisoformat(iso_candidate)
+        except ValueError:
+            continue
+        return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+    return datetime.now(UTC)
 
 
 def _build_anomalies(
