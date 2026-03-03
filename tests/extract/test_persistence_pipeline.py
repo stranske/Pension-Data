@@ -29,9 +29,7 @@ from pension_data.extract.persistence import (
     write_extraction_persistence_artifacts,
 )
 
-FUNDED_FIXTURE_PATH = (
-    Path(__file__).parent / "funded" / "fixtures" / "funded_actuarial_golden.json"
-)
+FUNDED_FIXTURE_PATH = Path(__file__).parent / "funded" / "fixtures" / "funded_actuarial_golden.json"
 INVESTMENT_FIXTURE_PATH = (
     Path(__file__).parent / "investment" / "fixtures" / "allocation_fee_golden.json"
 )

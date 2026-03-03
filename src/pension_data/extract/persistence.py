@@ -213,7 +213,9 @@ def persist_funded_actuarial_metrics(
     )
 
 
-def _allocation_metric_rows(row: AssetAllocationObservation, *, benchmark_version: str) -> list[dict[str, object]]:
+def _allocation_metric_rows(
+    row: AssetAllocationObservation, *, benchmark_version: str
+) -> list[dict[str, object]]:
     evidence_refs = _normalize_refs(row.evidence_refs)
     records: list[dict[str, object]] = []
     weight_name = f"{row.category}_weight"
@@ -305,7 +307,9 @@ def persist_asset_allocations(
 ) -> list[dict[str, object]]:
     """Map allocation observations into staging-core metric persistence rows."""
     persisted = [
-        record for row in rows for record in _allocation_metric_rows(row, benchmark_version=benchmark_version)
+        record
+        for row in rows
+        for record in _allocation_metric_rows(row, benchmark_version=benchmark_version)
     ]
     return sorted(
         persisted,
@@ -319,7 +323,9 @@ def persist_asset_allocations(
     )
 
 
-def _fee_metric_rows(row: ManagerFeeObservation, *, benchmark_version: str) -> list[dict[str, object]]:
+def _fee_metric_rows(
+    row: ManagerFeeObservation, *, benchmark_version: str
+) -> list[dict[str, object]]:
     evidence_refs = _normalize_refs(row.evidence_refs)
     records: list[dict[str, object]] = []
     rate_metric_name = f"{row.fee_type}_rate"
@@ -412,7 +418,11 @@ def persist_fee_observations(
     benchmark_version: str = "v1",
 ) -> list[dict[str, object]]:
     """Map fee observations into staging-core metric persistence rows."""
-    persisted = [record for row in rows for record in _fee_metric_rows(row, benchmark_version=benchmark_version)]
+    persisted = [
+        record
+        for row in rows
+        for record in _fee_metric_rows(row, benchmark_version=benchmark_version)
+    ]
     return sorted(
         persisted,
         key=lambda item: (
@@ -758,7 +768,9 @@ def write_extraction_persistence_artifacts(
     if not isinstance(core_rows, list):
         raise ValueError("artifacts['staging_core_metrics_rows'] must be a list")
     if not isinstance(relationship_rows, list):
-        raise ValueError("artifacts['staging_manager_fund_vehicle_relationship_rows'] must be a list")
+        raise ValueError(
+            "artifacts['staging_manager_fund_vehicle_relationship_rows'] must be a list"
+        )
     if not isinstance(warning_rows, list):
         raise ValueError("artifacts['extraction_warning_rows'] must be a list")
 
