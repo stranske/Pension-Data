@@ -7,6 +7,7 @@ from typing import Literal
 
 PositionCompleteness = Literal["complete", "partial", "not_disclosed"]
 PositionWarningCode = Literal["non_disclosure", "partial_disclosure", "ambiguous_naming"]
+LinkageStatus = Literal["resolved", "ambiguous", "not_disclosed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +22,9 @@ class PlanManagerFundPosition:
     unfunded: float | None
     market_value: float | None
     completeness: PositionCompleteness
+    manager_canonical_id: str | None = None
+    fund_canonical_id: str | None = None
+    linkage_status: LinkageStatus = "resolved"
     known_not_invested: bool = False
     confidence: float = 1.0
     evidence_refs: tuple[str, ...] = ()

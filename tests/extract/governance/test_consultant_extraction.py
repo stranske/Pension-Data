@@ -91,6 +91,13 @@ def test_consultant_rich_fixture_extracts_engagement_recommendation_and_attribut
     assert attributions[0].strength == "explicit"
     assert recommendations[0].evidence_refs == ("p20",)
     assert attributions[0].source_metadata["source_url"] == "https://example.org/ca-pers-2025.pdf"
+    mercer_entity = next(entity for entity in entities if entity.normalized_name == "mercer")
+    assert mercer_entity.consultant_canonical_id == "consultant:mercer"
+    assert mercer_entity.linkage_status == "resolved"
+    assert recommendations[0].consultant_canonical_id == "consultant:mercer"
+    assert recommendations[0].linkage_status == "resolved"
+    assert attributions[0].consultant_canonical_id == "consultant:mercer"
+    assert attributions[0].linkage_status == "resolved"
 
 
 def test_consultant_sparse_fixture_persists_non_disclosure_rows() -> None:
@@ -113,8 +120,12 @@ def test_consultant_sparse_fixture_persists_non_disclosure_rows() -> None:
     assert not engagements[0].is_disclosed
     assert len(recommendations) == 1
     assert recommendations[0].board_decision_status == "not_disclosed"
+    assert recommendations[0].consultant_canonical_id == "consultant:not_disclosed:tx ers:fy2025"
+    assert recommendations[0].linkage_status == "not_disclosed"
     assert len(attributions) == 1
     assert attributions[0].strength == "speculative"
+    assert attributions[0].consultant_canonical_id == "consultant:not_disclosed:tx ers:fy2025"
+    assert attributions[0].linkage_status == "not_disclosed"
     assert any(warning.code == "non_disclosure" for warning in warnings)
 
 

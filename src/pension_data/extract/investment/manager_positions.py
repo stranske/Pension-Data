@@ -5,10 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from pension_data.db.models.investment_positions import (
+    LinkageStatus,
     PlanManagerFundPosition,
     PositionCompleteness,
     PositionWarningCode,
 )
+from pension_data.normalize.entity_tokens import normalize_entity_token
 
 _WARNING_MESSAGES: dict[PositionWarningCode, str] = {
     "non_disclosure": "Investment exposure is not disclosed for this plan-period.",
@@ -55,6 +57,29 @@ def _normalize_token(value: str | None) -> str:
 
 def _dedupe_refs(evidence_refs: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(ref.strip() for ref in evidence_refs if ref.strip()))
+
+
+def _canonical_manager_id(manager_name: str | None) -> str | None:
+    token = normalize_entity_token(manager_name)
+    if not token:
+        return None
+    return f"manager:{token}"
+
+
+def _canonical_fund_id(*, manager_name: str | None, fund_name: str | None) -> str | None:
+    fund_token = normalize_entity_token(fund_name)
+    if not fund_token:
+        return None
+    manager_token = normalize_entity_token(manager_name)
+    if manager_token:
+        return f"fund:{manager_token}:{fund_token}"
+    return f"fund:{fund_token}"
+
+
+def _linkage_status(*, completeness: PositionCompleteness, known_not_invested: bool) -> LinkageStatus:
+    if completeness == "not_disclosed" and not known_not_invested:
+        return "not_disclosed"
+    return "resolved"
 
 
 def _infer_completeness(row: ManagerFundDisclosureInput) -> PositionCompleteness:
@@ -129,6 +154,15 @@ def build_manager_fund_positions(
             unfunded=row.unfunded,
             market_value=row.market_value,
             completeness=completeness,
+            manager_canonical_id=_canonical_manager_id(row.manager_name),
+            fund_canonical_id=_canonical_fund_id(
+                manager_name=row.manager_name,
+                fund_name=row.fund_name,
+            ),
+            linkage_status=_linkage_status(
+                completeness=completeness,
+                known_not_invested=row.known_not_invested,
+            ),
             known_not_invested=row.known_not_invested,
             confidence=max(0.0, min(1.0, row.confidence)),
             evidence_refs=_dedupe_refs(row.evidence_refs),
@@ -161,7 +195,7 @@ def build_manager_fund_positions(
             if "ambiguous_naming" in position.warnings:
                 continue
             updated_warnings = (*position.warnings, "ambiguous_naming")
-            updated = replace(position, warnings=updated_warnings)
+            updated = replace(position, warnings=updated_warnings, linkage_status="ambiguous")
             positions[index] = updated
             warnings.append(_as_warning(updated, "ambiguous_naming"))
 

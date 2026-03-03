@@ -17,6 +17,7 @@ from pension_data.db.models.consultants import (
     ConsultantRecommendation,
     PlanConsultantEngagement,
 )
+from pension_data.normalize.entity_tokens import normalize_entity_token
 
 ConsultantWarningCode = Literal["non_disclosure", "ambiguous_naming", "missing_topic"]
 
@@ -152,6 +153,26 @@ def _is_disclosed_name(value: str | None) -> bool:
     return bool(normalized_name) and normalized_name not in _NON_DISCLOSED_NAMES
 
 
+def _canonical_consultant_id(
+    *,
+    plan_id: str,
+    plan_period: str,
+    consultant_name: str | None,
+) -> str:
+    token = normalize_entity_token(consultant_name)
+    if token and token not in _NON_DISCLOSED_NAMES:
+        return f"consultant:{token}"
+    scoped_plan = normalize_entity_token(plan_id) or "unknown-plan"
+    scoped_period = normalize_entity_token(plan_period) or "unknown-period"
+    return f"consultant:not_disclosed:{scoped_plan}:{scoped_period}"
+
+
+def _linkage_status(consultant_name: str | None) -> Literal["resolved", "not_disclosed"]:
+    if _is_disclosed_name(consultant_name):
+        return "resolved"
+    return "not_disclosed"
+
+
 def normalize_board_decision_status(value: str | None) -> BoardDecisionStatus:
     """Normalize board decision status into controlled literals."""
     if value is None:
@@ -207,6 +228,12 @@ def extract_consultant_records(
         entity = ConsultantEntity(
             consultant_name=sorted(display_names)[0],
             normalized_name=normalized_name,
+            consultant_canonical_id=_canonical_consultant_id(
+                plan_id=plan_id,
+                plan_period=plan_period,
+                consultant_name=normalized_name,
+            ),
+            linkage_status="ambiguous" if len(display_names) > 1 else "resolved",
             confidence=max(
                 _bounded_confidence(consultant_mention.confidence)
                 for consultant_mention in consultant_group
@@ -227,6 +254,12 @@ def extract_consultant_records(
             consultant_name=_clean_text(
                 consultant_mention.consultant_name, fallback="not_disclosed"
             ),
+            consultant_canonical_id=_canonical_consultant_id(
+                plan_id=plan_id,
+                plan_period=plan_period,
+                consultant_name=consultant_mention.consultant_name,
+            ),
+            linkage_status=_linkage_status(consultant_mention.consultant_name),
             role_description=_clean_text(
                 consultant_mention.role_description, fallback="not_disclosed"
             ),
@@ -250,6 +283,12 @@ def extract_consultant_records(
                 plan_id=plan_id,
                 plan_period=plan_period,
                 consultant_name="not_disclosed",
+                consultant_canonical_id=_canonical_consultant_id(
+                    plan_id=plan_id,
+                    plan_period=plan_period,
+                    consultant_name=None,
+                ),
+                linkage_status="not_disclosed",
                 role_description="not_disclosed",
                 is_disclosed=False,
                 confidence=0.0,
@@ -294,6 +333,12 @@ def extract_consultant_records(
                 consultant_name=_clean_text(
                     recommendation_mention.consultant_name, fallback="not_disclosed"
                 ),
+                consultant_canonical_id=_canonical_consultant_id(
+                    plan_id=plan_id,
+                    plan_period=plan_period,
+                    consultant_name=recommendation_mention.consultant_name,
+                ),
+                linkage_status=_linkage_status(recommendation_mention.consultant_name),
                 topic=topic,
                 recommendation_text=_clean_text(
                     recommendation_mention.recommendation_text,
@@ -314,6 +359,12 @@ def extract_consultant_records(
                 plan_id=plan_id,
                 plan_period=plan_period,
                 consultant_name="not_disclosed",
+                consultant_canonical_id=_canonical_consultant_id(
+                    plan_id=plan_id,
+                    plan_period=plan_period,
+                    consultant_name=None,
+                ),
+                linkage_status="not_disclosed",
                 topic="not_disclosed",
                 recommendation_text="not_disclosed",
                 board_decision_status="not_disclosed",
@@ -328,6 +379,12 @@ def extract_consultant_records(
             plan_id=plan_id,
             plan_period=plan_period,
             consultant_name=_clean_text(attr_mention.consultant_name, fallback="not_disclosed"),
+            consultant_canonical_id=_canonical_consultant_id(
+                plan_id=plan_id,
+                plan_period=plan_period,
+                consultant_name=attr_mention.consultant_name,
+            ),
+            linkage_status=_linkage_status(attr_mention.consultant_name),
             recommendation_topic=_clean_text(attr_mention.topic, fallback="not_disclosed"),
             observed_outcome=_clean_text(attr_mention.observed_outcome, fallback="not_disclosed"),
             strength=normalize_attribution_strength(attr_mention.strength),
@@ -350,6 +407,12 @@ def extract_consultant_records(
                 plan_id=plan_id,
                 plan_period=plan_period,
                 consultant_name="not_disclosed",
+                consultant_canonical_id=_canonical_consultant_id(
+                    plan_id=plan_id,
+                    plan_period=plan_period,
+                    consultant_name=None,
+                ),
+                linkage_status="not_disclosed",
                 recommendation_topic="not_disclosed",
                 observed_outcome="not_disclosed",
                 strength="speculative",

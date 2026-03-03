@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 AttributionStrength = Literal["explicit", "implied", "speculative"]
+LinkageStatus = Literal["resolved", "ambiguous", "not_disclosed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +17,8 @@ class ConsultantAttributionObservation:
     plan_id: str
     plan_period: str
     consultant_name: str
+    consultant_canonical_id: str
+    linkage_status: LinkageStatus
     recommendation_topic: str
     observed_outcome: str
     strength: AttributionStrength

@@ -21,3 +21,5 @@ class ManagerLifecycleEvent:
     basis: LifecycleEventBasis
     confidence: float
     evidence_refs: tuple[str, ...]
+    manager_canonical_id: str | None = None
+    fund_canonical_id: str | None = None

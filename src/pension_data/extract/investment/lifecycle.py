@@ -12,6 +12,7 @@ from pension_data.db.models.manager_lifecycle import (
     ManagerLifecycleEvent,
 )
 from pension_data.extract.investment.manager_positions import ExtractionWarning
+from pension_data.normalize.entity_tokens import normalize_entity_token
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +33,23 @@ def _normalize_token(value: str | None) -> str:
     if value is None:
         return ""
     return " ".join(value.strip().lower().split())
+
+
+def _canonical_manager_id(manager_name: str | None) -> str | None:
+    token = normalize_entity_token(manager_name)
+    if not token:
+        return None
+    return f"manager:{token}"
+
+
+def _canonical_fund_id(*, manager_name: str | None, fund_name: str | None) -> str | None:
+    fund_token = normalize_entity_token(fund_name)
+    if not fund_token:
+        return None
+    manager_token = normalize_entity_token(manager_name)
+    if manager_token:
+        return f"fund:{manager_token}:{fund_token}"
+    return f"fund:{fund_token}"
 
 
 def _plan_period_sort_key(plan_period: str) -> tuple[int, str]:
@@ -162,6 +180,13 @@ def infer_lifecycle_events(
                 basis="table_presence_change",
                 confidence=round(max(0.0, min(1.0, current.confidence)), 6),
                 evidence_refs=_merge_evidence_refs(current.evidence_refs),
+                manager_canonical_id=current.manager_canonical_id
+                or _canonical_manager_id(current.manager_name),
+                fund_canonical_id=current.fund_canonical_id
+                or _canonical_fund_id(
+                    manager_name=current.manager_name,
+                    fund_name=current.fund_name,
+                ),
             )
         else:
             event = ManagerLifecycleEvent(
@@ -176,6 +201,15 @@ def infer_lifecycle_events(
                     6,
                 ),
                 evidence_refs=_merge_evidence_refs(previous.evidence_refs, current.evidence_refs),
+                manager_canonical_id=current.manager_canonical_id
+                or previous.manager_canonical_id
+                or _canonical_manager_id(current.manager_name or previous.manager_name),
+                fund_canonical_id=current.fund_canonical_id
+                or previous.fund_canonical_id
+                or _canonical_fund_id(
+                    manager_name=current.manager_name or previous.manager_name,
+                    fund_name=current.fund_name or previous.fund_name,
+                ),
             )
         events_by_key[_event_key(event)] = event
 
@@ -192,6 +226,13 @@ def infer_lifecycle_events(
             basis="table_presence_change",
             confidence=round(max(0.0, min(1.0, previous.confidence)), 6),
             evidence_refs=_merge_evidence_refs(previous.evidence_refs),
+            manager_canonical_id=previous.manager_canonical_id
+            or _canonical_manager_id(previous.manager_name),
+            fund_canonical_id=previous.fund_canonical_id
+            or _canonical_fund_id(
+                manager_name=previous.manager_name,
+                fund_name=previous.fund_name,
+            ),
         )
         events_by_key[_event_key(event)] = event
 
@@ -214,6 +255,11 @@ def infer_lifecycle_events(
             basis=signal.basis,
             confidence=round(max(0.0, min(1.0, signal.confidence)), 6),
             evidence_refs=_merge_evidence_refs(signal.evidence_refs),
+            manager_canonical_id=_canonical_manager_id(signal.manager_name),
+            fund_canonical_id=_canonical_fund_id(
+                manager_name=signal.manager_name,
+                fund_name=signal.fund_name,
+            ),
         )
         events_by_key[_signal_key(signal)] = event
 
