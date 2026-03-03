@@ -71,6 +71,7 @@ from pension_data.extract.persistence import (
     PositionPersistenceContext,
     WarningPersistenceContext,
     build_extraction_persistence_artifacts,
+    extraction_persistence_contract,
 )
 from pension_data.ingest.artifacts import RawArtifactIngestionInput, ingest_raw_artifacts
 from pension_data.normalize.financial_units import UnitScale
@@ -742,6 +743,9 @@ def run_document_orchestration(
     document_outcomes: list[DocumentOutcome] = []
     published_rows: list[dict[str, object]] = []
     review_queue_rows: list[dict[str, object]] = []
+    persisted_core_rows: list[dict[str, object]] = []
+    persisted_relationship_rows: list[dict[str, object]] = []
+    persisted_warning_rows: list[dict[str, object]] = []
     total_attempts = 0
 
     try:
@@ -1294,6 +1298,10 @@ def run_document_orchestration(
         warning_rows = artifacts["extraction_warning_rows"]
         assert isinstance(warning_rows, list)
 
+        persisted_core_rows.extend(core_rows)
+        persisted_relationship_rows.extend(relationship_rows)
+        persisted_warning_rows.extend(warning_rows)
+
         new_rows = [row for row in core_rows if str(row.get("fact_id")) not in published_ids]
         for row in new_rows:
             published_ids.add(str(row["fact_id"]))
@@ -1449,7 +1457,19 @@ def run_document_orchestration(
         "consultant_attribution_rows": consultant_attribution_rows,
         "lifecycle_event_rows": lifecycle_event_rows,
         "manager_relationship_rows": manager_relationship_rows,
-        "extraction_warning_rows": extraction_warning_rows,
+        "persistence_contract": extraction_persistence_contract(),
+        "staging_core_metrics_rows": sorted(
+            persisted_core_rows,
+            key=lambda item: json.dumps(item, sort_keys=True),
+        ),
+        "staging_manager_fund_vehicle_relationship_rows": sorted(
+            persisted_relationship_rows,
+            key=lambda item: json.dumps(item, sort_keys=True),
+        ),
+        "extraction_warning_rows": sorted(
+            persisted_warning_rows,
+            key=lambda item: json.dumps(item, sort_keys=True),
+        ),
         "state": asdict(next_state),
     }
     if output_root is not None:
