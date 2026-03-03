@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 BoardDecisionStatus = Literal["adopted", "partially_adopted", "rejected", "not_disclosed"]
+LinkageStatus = Literal["resolved", "ambiguous", "not_disclosed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +16,8 @@ class ConsultantEntity:
 
     consultant_name: str
     normalized_name: str
+    consultant_canonical_id: str
+    linkage_status: LinkageStatus
     confidence: float
     evidence_refs: tuple[str, ...]
     source_metadata: Mapping[str, str] = field(compare=False, hash=False)
@@ -27,6 +30,8 @@ class PlanConsultantEngagement:
     plan_id: str
     plan_period: str
     consultant_name: str
+    consultant_canonical_id: str
+    linkage_status: LinkageStatus
     role_description: str
     is_disclosed: bool
     confidence: float
@@ -41,6 +46,8 @@ class ConsultantRecommendation:
     plan_id: str
     plan_period: str
     consultant_name: str
+    consultant_canonical_id: str
+    linkage_status: LinkageStatus
     topic: str
     recommendation_text: str
     board_decision_status: BoardDecisionStatus

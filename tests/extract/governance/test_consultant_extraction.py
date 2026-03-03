@@ -91,6 +91,13 @@ def test_consultant_rich_fixture_extracts_engagement_recommendation_and_attribut
     assert attributions[0].strength == "explicit"
     assert recommendations[0].evidence_refs == ("p20",)
     assert attributions[0].source_metadata["source_url"] == "https://example.org/ca-pers-2025.pdf"
+    mercer_entity = next(entity for entity in entities if entity.normalized_name == "mercer")
+    assert mercer_entity.consultant_canonical_id == "consultant:mercer"
+    assert mercer_entity.linkage_status == "resolved"
+    assert recommendations[0].consultant_canonical_id == "consultant:mercer"
+    assert recommendations[0].linkage_status == "resolved"
+    assert attributions[0].consultant_canonical_id == "consultant:mercer"
+    assert attributions[0].linkage_status == "resolved"
 
 
 def test_consultant_sparse_fixture_persists_non_disclosure_rows() -> None:
@@ -113,8 +120,12 @@ def test_consultant_sparse_fixture_persists_non_disclosure_rows() -> None:
     assert not engagements[0].is_disclosed
     assert len(recommendations) == 1
     assert recommendations[0].board_decision_status == "not_disclosed"
+    assert recommendations[0].consultant_canonical_id == "consultant:not_disclosed:tx ers:fy2025"
+    assert recommendations[0].linkage_status == "not_disclosed"
     assert len(attributions) == 1
     assert attributions[0].strength == "speculative"
+    assert attributions[0].consultant_canonical_id == "consultant:not_disclosed:tx ers:fy2025"
+    assert attributions[0].linkage_status == "not_disclosed"
     assert any(warning.code == "non_disclosure" for warning in warnings)
 
 
@@ -173,6 +184,28 @@ def test_non_disclosure_sentinels_do_not_mark_engagement_as_disclosed() -> None:
     assert not extracted["plan_consultant_engagements"][0].is_disclosed
 
 
+def test_non_disclosed_entity_uses_not_disclosed_linkage_status() -> None:
+    extracted = extract_consultant_records(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        consultant_mentions=[
+            ConsultantMention(
+                consultant_name="N/A",
+                role_description="consultant information unavailable",
+                confidence=0.6,
+                evidence_refs=("p7",),
+                source_url="https://example.org/ca-pers-2025.pdf",
+            )
+        ],
+        recommendation_mentions=[],
+        attribution_mentions=[],
+    )
+
+    entity = extracted["consultant_entities"][0]
+    assert entity.consultant_canonical_id == "consultant:not_disclosed:ca pers:fy2025"
+    assert entity.linkage_status == "not_disclosed"
+
+
 def test_entity_metadata_and_evidence_refs_are_deterministic_for_grouped_mentions() -> None:
     extracted = extract_consultant_records(
         plan_id="CA-PERS",
@@ -200,3 +233,53 @@ def test_entity_metadata_and_evidence_refs_are_deterministic_for_grouped_mention
     entity = extracted["consultant_entities"][0]
     assert entity.evidence_refs == ("p1", "p2", "p3")
     assert entity.source_metadata["source_url"] == "https://example.org/a-source.pdf"
+
+
+def test_ambiguous_consultant_names_propagate_ambiguous_linkage_status() -> None:
+    extracted = extract_consultant_records(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        consultant_mentions=[
+            ConsultantMention(
+                consultant_name="Mercer",
+                role_description="advisor",
+                confidence=0.9,
+                evidence_refs=("p1",),
+                source_url="https://example.org/ca-pers-2025.pdf",
+            ),
+            ConsultantMention(
+                consultant_name="MERCER",
+                role_description="advisor",
+                confidence=0.8,
+                evidence_refs=("p2",),
+                source_url="https://example.org/ca-pers-2025.pdf",
+            ),
+        ],
+        recommendation_mentions=[
+            RecommendationMention(
+                consultant_name="Mercer",
+                topic="allocation pacing",
+                recommendation_text="keep pacing flat",
+                board_decision_status="adopted",
+                confidence=0.7,
+                evidence_refs=("p3",),
+                source_url="https://example.org/ca-pers-2025.pdf",
+            )
+        ],
+        attribution_mentions=[
+            AttributionMention(
+                consultant_name="MERCER",
+                topic="allocation pacing",
+                observed_outcome="no change",
+                strength="implied",
+                confidence=0.7,
+                evidence_refs=("p4",),
+                source_url="https://example.org/ca-pers-2025.pdf",
+            )
+        ],
+    )
+
+    assert extracted["consultant_entities"][0].linkage_status == "ambiguous"
+    assert extracted["plan_consultant_engagements"][0].linkage_status == "ambiguous"
+    assert extracted["consultant_recommendations"][0].linkage_status == "ambiguous"
+    assert extracted["consultant_attribution_observations"][0].linkage_status == "ambiguous"

@@ -170,9 +170,8 @@ def build_entity_exposure_views(
         if position.manager_name and position.manager_name.strip():
             exposure_rows.append(
                 EntityExposureRow(
-                    canonical_entity_id=_canonical_id(
-                        entity_type="manager", name=position.manager_name
-                    ),
+                    canonical_entity_id=position.manager_canonical_id
+                    or _canonical_id(entity_type="manager", name=position.manager_name),
                     canonical_entity_type="manager",
                     canonical_entity_name=position.manager_name,
                     plan_id=position.plan_id,
@@ -195,7 +194,8 @@ def build_entity_exposure_views(
         if position.fund_name and position.fund_name.strip():
             exposure_rows.append(
                 EntityExposureRow(
-                    canonical_entity_id=_canonical_fund_id(
+                    canonical_entity_id=position.fund_canonical_id
+                    or _canonical_fund_id(
                         manager_name=position.manager_name,
                         fund_name=position.fund_name,
                     ),

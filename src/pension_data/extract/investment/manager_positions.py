@@ -5,10 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from pension_data.db.models.investment_positions import (
+    LinkageStatus,
     PlanManagerFundPosition,
     PositionCompleteness,
     PositionWarningCode,
 )
+from pension_data.extract.common.entity_ids import canonical_fund_id, canonical_manager_id
 
 _WARNING_MESSAGES: dict[PositionWarningCode, str] = {
     "non_disclosure": "Investment exposure is not disclosed for this plan-period.",
@@ -55,6 +57,14 @@ def _normalize_token(value: str | None) -> str:
 
 def _dedupe_refs(evidence_refs: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(ref.strip() for ref in evidence_refs if ref.strip()))
+
+
+def _linkage_status(
+    *, completeness: PositionCompleteness, known_not_invested: bool
+) -> LinkageStatus:
+    if completeness == "not_disclosed" and not known_not_invested:
+        return "not_disclosed"
+    return "resolved"
 
 
 def _infer_completeness(row: ManagerFundDisclosureInput) -> PositionCompleteness:
@@ -129,6 +139,15 @@ def build_manager_fund_positions(
             unfunded=row.unfunded,
             market_value=row.market_value,
             completeness=completeness,
+            manager_canonical_id=canonical_manager_id(row.manager_name),
+            fund_canonical_id=canonical_fund_id(
+                manager_name=row.manager_name,
+                fund_name=row.fund_name,
+            ),
+            linkage_status=_linkage_status(
+                completeness=completeness,
+                known_not_invested=row.known_not_invested,
+            ),
             known_not_invested=row.known_not_invested,
             confidence=max(0.0, min(1.0, row.confidence)),
             evidence_refs=_dedupe_refs(row.evidence_refs),
@@ -161,7 +180,7 @@ def build_manager_fund_positions(
             if "ambiguous_naming" in position.warnings:
                 continue
             updated_warnings = (*position.warnings, "ambiguous_naming")
-            updated = replace(position, warnings=updated_warnings)
+            updated = replace(position, warnings=updated_warnings, linkage_status="ambiguous")
             positions[index] = updated
             warnings.append(_as_warning(updated, "ambiguous_naming"))
 

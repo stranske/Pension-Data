@@ -263,3 +263,45 @@ def test_partial_rows_with_blank_identifiers_are_not_used_for_lifecycle_events()
     events, warnings = infer_lifecycle_events([], current_positions)
     assert events == []
     assert warnings == []
+
+
+def test_linkage_fields_are_emitted_for_positions_and_lifecycle_events() -> None:
+    previous_positions, _ = build_manager_fund_positions(
+        [
+            ManagerFundDisclosureInput(
+                plan_id="plan-link",
+                plan_period="2024",
+                manager_name="North Ridge",
+                fund_name="Opportunities I",
+                commitment=40.0,
+                unfunded=10.0,
+                market_value=30.0,
+                confidence=0.86,
+                evidence_refs=("p1",),
+            )
+        ]
+    )
+    current_positions, _ = build_manager_fund_positions(
+        [
+            ManagerFundDisclosureInput(
+                plan_id="plan-link",
+                plan_period="2025",
+                manager_name="North   Ridge",
+                fund_name="Opportunities I",
+                commitment=42.0,
+                unfunded=9.0,
+                market_value=33.0,
+                confidence=0.9,
+                evidence_refs=("p2",),
+            )
+        ]
+    )
+
+    assert current_positions[0].manager_canonical_id == "manager:north ridge"
+    assert current_positions[0].fund_canonical_id == "fund:north ridge:opportunities i"
+    assert current_positions[0].linkage_status == "resolved"
+
+    events, _ = infer_lifecycle_events(previous_positions, current_positions)
+    assert len(events) == 1
+    assert events[0].manager_canonical_id == "manager:north ridge"
+    assert events[0].fund_canonical_id == "fund:north ridge:opportunities i"
