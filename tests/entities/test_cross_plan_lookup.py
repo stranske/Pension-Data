@@ -173,6 +173,37 @@ def test_lookup_resolves_lineage_alias_to_current_canonical_id() -> None:
     assert {row.plan_id for row in results} == {"CA-PERS", "TX-ERS"}
 
 
+def test_lifecycle_evidence_refs_are_merged_for_same_key() -> None:
+    lifecycle_events = list(_lifecycle_events())
+    lifecycle_events.append(
+        ManagerLifecycleEvent(
+            plan_id="CA-PERS",
+            plan_period="FY2025",
+            manager_name="Alpha Capital",
+            fund_name="Fund I",
+            event_type="still_invested",
+            basis="inferred",
+            confidence=0.93,
+            evidence_refs=("p.47",),
+        )
+    )
+
+    rows = build_entity_exposure_views(
+        positions=_positions(),
+        allocation_observations=_allocations(),
+        lifecycle_events=lifecycle_events,
+    )
+    index = build_entity_exposure_index(rows)
+    results, _ = lookup_entity_exposures(
+        index,
+        entity_query="manager:alpha capital",
+    )
+
+    ca_row = next(row for row in results if row.plan_id == "CA-PERS")
+    assert "p.46" in ca_row.evidence_refs
+    assert "p.47" in ca_row.evidence_refs
+
+
 def test_fund_lookup_uses_manager_scoped_canonical_ids_to_avoid_collisions() -> None:
     positions = list(_positions())
     positions.append(

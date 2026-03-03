@@ -99,14 +99,20 @@ def _lifecycle_index(
             item.event_type,
         ),
     ):
-        indexed[
-            (
-                event.plan_id,
-                event.plan_period,
-                normalize_entity_token(event.manager_name),
-                normalize_entity_token(event.fund_name),
-            )
-        ] = (event.event_type, event.evidence_refs)
+        key = (
+            event.plan_id,
+            event.plan_period,
+            normalize_entity_token(event.manager_name),
+            normalize_entity_token(event.fund_name),
+        )
+        existing = indexed.get(key)
+        if existing is None:
+            indexed[key] = (event.event_type, event.evidence_refs)
+            continue
+        indexed[key] = (
+            event.event_type,
+            _dedupe_refs(existing[1], event.evidence_refs),
+        )
     return indexed
 
 
