@@ -5,6 +5,7 @@ const SAVED_VIEWS_KEY = "pension-data.saved-views.v1";
 const OFFLINE_WORKSPACE_KEY = "pension-data.offline-workspace.v1";
 const OFFLINE_WORKSPACE_SOURCE_KEY = "pension-data.offline-workspace-source.v1";
 const SERVICE_WORKER_PATH = "./sw.js";
+const RUNTIME_CONTRACT_VERSION = "1.0.0";
 const REQUIRED_CONFIG_KEYS = ["environment", "apiBaseUrl", "artifactBaseUrl"];
 
 const state = {
@@ -87,6 +88,15 @@ function setBundleStatus(message, level = "ok") {
 function normalizeWorkspaceBundle(payload) {
   if (!payload || typeof payload !== "object") {
     throw new Error("workspace bundle must be a JSON object");
+  }
+  const contractVersion = normalizeText(payload.contractVersion);
+  if (!contractVersion) {
+    throw new Error("workspace bundle is missing contractVersion");
+  }
+  if (contractVersion !== RUNTIME_CONTRACT_VERSION) {
+    console.warn(
+      `workspace contractVersion '${contractVersion}' differs from expected '${RUNTIME_CONTRACT_VERSION}'`
+    );
   }
   const datasets = payload.datasets;
   if (!Array.isArray(datasets) || !datasets.length) {

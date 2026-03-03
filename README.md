@@ -42,6 +42,7 @@ See [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md) and
 .github/workflows/        CI and agent automation workflows
 apps/web/                 Cloudflare Pages web app scaffold
 apps/mac-desktop/         Packaged macOS desktop app scaffold
+apps/contracts/           Shared runtime contracts for web/desktop
 src/pension_data/         Application modules
 tests/                    Unit/integration/contract tests
 docs/                     Runbooks, guides, issue formatting, ops notes
@@ -71,7 +72,9 @@ See [docs/UI_LANGCHAIN_OPTIONS.md](docs/UI_LANGCHAIN_OPTIONS.md) for deployment 
 - [docs/KEEPALIVE_TROUBLESHOOTING.md](docs/KEEPALIVE_TROUBLESHOOTING.md)
 - [docs/deploy/CLOUDFLARE_PAGES_SETUP.md](docs/deploy/CLOUDFLARE_PAGES_SETUP.md)
 - [docs/deploy/PC_ZERO_INSTALL_IT_REVIEW.md](docs/deploy/PC_ZERO_INSTALL_IT_REVIEW.md)
+- [docs/deploy/MAC_DESKTOP_TAURI_SETUP.md](docs/deploy/MAC_DESKTOP_TAURI_SETUP.md)
 - [docs/ux/CAPABILITY_MATRIX.md](docs/ux/CAPABILITY_MATRIX.md)
+- [docs/ux/ELECTRON_COMPATIBILITY_TRACK.md](docs/ux/ELECTRON_COMPATIBILITY_TRACK.md)
 - [docs/ops/QUALITY_LAYER_OPERATIONS.md](docs/ops/QUALITY_LAYER_OPERATIONS.md)
 - [docs/contracts/DOCUMENT_ORCHESTRATION_JOB_CONTRACT.md](docs/contracts/DOCUMENT_ORCHESTRATION_JOB_CONTRACT.md)
 - [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md)

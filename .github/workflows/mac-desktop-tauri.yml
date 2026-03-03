@@ -1,0 +1,55 @@
+name: Mac Desktop Tauri
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode"
+        required: true
+        default: "validate"
+        type: choice
+        options:
+          - validate
+          - bundle
+
+jobs:
+  validate:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Sync web UI assets
+        run: bash apps/mac-desktop/scripts/sync_web_ui.sh
+
+      - name: Validate runtime contract
+        run: node apps/mac-desktop/scripts/validate_runtime_contract.mjs
+
+      - name: Generate benchmark report
+        run: python apps/mac-desktop/benchmarks/benchmark_shells.py --tauri apps/mac-desktop/metrics/tauri-sample.json --electron apps/mac-desktop/metrics/electron-sample.json --out apps/mac-desktop/benchmarks/latest_report.md
+
+  bundle:
+    if: ${{ inputs.mode == 'bundle' }}
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install desktop dependencies
+        run: npm install --prefix apps/mac-desktop
+
+      - name: Build Tauri app bundle
+        run: npm --prefix apps/mac-desktop run tauri:build
