@@ -100,19 +100,25 @@ def _smoke_url(base_url: str, *, expect_runtime: bool, headers: dict[str, str] |
         raise ValueError("default config endpoint did not return object JSON")
     _assert_config(default_payload, path_label="config/default.json")
 
-    manifest_payload = json.loads(_fetch_text(urljoin(root, "manifest.webmanifest"), headers=headers))
+    manifest_payload = json.loads(
+        _fetch_text(urljoin(root, "manifest.webmanifest"), headers=headers)
+    )
     if not isinstance(manifest_payload, dict):
         raise ValueError("manifest endpoint did not return object JSON")
     if not isinstance(manifest_payload.get("name"), str) or not manifest_payload.get("name"):
         raise ValueError("manifest missing required name field")
-    if not isinstance(manifest_payload.get("start_url"), str) or not manifest_payload.get("start_url"):
+    if not isinstance(manifest_payload.get("start_url"), str) or not manifest_payload.get(
+        "start_url"
+    ):
         raise ValueError("manifest missing required start_url field")
 
     _fetch_text(urljoin(root, "sw.js"), headers=headers)
     _fetch_text(urljoin(root, "icons/pension-data-mark-192.png"), headers=headers)
     _fetch_text(urljoin(root, "icons/pension-data-mark-512.png"), headers=headers)
 
-    workspace_payload = json.loads(_fetch_text(urljoin(root, "data/workspace.json"), headers=headers))
+    workspace_payload = json.loads(
+        _fetch_text(urljoin(root, "data/workspace.json"), headers=headers)
+    )
     if not isinstance(workspace_payload, dict):
         raise ValueError("workspace endpoint did not return object JSON")
     contract_version = workspace_payload.get("contractVersion")

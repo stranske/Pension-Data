@@ -59,7 +59,9 @@ def _build_report(tauri: ShellMetrics, electron: ShellMetrics) -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tauri", type=Path, required=True, help="Path to Tauri metrics JSON")
-    parser.add_argument("--electron", type=Path, required=True, help="Path to Electron metrics JSON")
+    parser.add_argument(
+        "--electron", type=Path, required=True, help="Path to Electron metrics JSON"
+    )
     parser.add_argument("--out", type=Path, required=True, help="Path to markdown output report")
     return parser.parse_args()
 
