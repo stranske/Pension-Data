@@ -9,6 +9,7 @@ const state = {
   datasets: [],
   selectedDatasetId: "",
   selectedRowIndex: null,
+  storageWarningShown: false,
   filters: {
     entity: "",
     period: "",
@@ -75,7 +76,19 @@ function loadSavedViews() {
 }
 
 function persistSavedViews() {
-  localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(state.savedViews));
+  try {
+    localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(state.savedViews));
+    return true;
+  } catch (error) {
+    console.warn("Unable to persist saved views.", error);
+    if (!state.storageWarningShown) {
+      state.storageWarningShown = true;
+      window.alert(
+        "Unable to save views in local storage. Browser storage appears unavailable."
+      );
+    }
+    return false;
+  }
 }
 
 function selectedDataset() {
@@ -126,21 +139,36 @@ function renderMeta() {
 function renderInventory() {
   const list = document.getElementById("inventory-list");
   const meta = document.getElementById("dataset-meta");
-  list.innerHTML = "";
+  list.textContent = "";
 
   for (const dataset of state.datasets) {
     const item = document.createElement("li");
     item.className = `inventory-item${dataset.id === state.selectedDatasetId ? " active" : ""}`;
-    item.innerHTML = `
-      <div class="inventory-title">${dataset.name}</div>
-      <div class="inventory-meta">${dataset.domain} · ${dataset.kind}</div>
-      <div class="inventory-meta">${dataset.rows.length} rows · ${dataset.freshness}</div>
-    `;
-    item.addEventListener("click", () => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "inventory-button";
+
+    const title = document.createElement("div");
+    title.className = "inventory-title";
+    title.textContent = String(dataset.name ?? "");
+
+    const metaLine = document.createElement("div");
+    metaLine.className = "inventory-meta";
+    metaLine.textContent = `${String(dataset.domain ?? "")} · ${String(dataset.kind ?? "")}`;
+
+    const countLine = document.createElement("div");
+    countLine.className = "inventory-meta";
+    countLine.textContent = `${dataset.rows.length} rows · ${String(dataset.freshness ?? "")}`;
+
+    const selectDataset = () => {
       state.selectedDatasetId = dataset.id;
       state.selectedRowIndex = null;
       renderWorkspace();
-    });
+    };
+
+    button.addEventListener("click", selectDataset);
+    button.append(title, metaLine, countLine);
+    item.appendChild(button);
     list.appendChild(item);
   }
 
@@ -167,29 +195,52 @@ function renderTable() {
   const tableBody = document.getElementById("table-body");
   const count = document.getElementById("result-count");
 
-  tableHead.innerHTML = `<tr>${columns.map((column) => `<th>${column}</th>`).join("")}</tr>`;
-  tableBody.innerHTML = "";
+  tableHead.textContent = "";
+  const headerRow = document.createElement("tr");
+  for (const column of columns) {
+    const th = document.createElement("th");
+    th.textContent = column;
+    headerRow.appendChild(th);
+  }
+  tableHead.appendChild(headerRow);
+  tableBody.textContent = "";
   count.textContent = `${rows.length} rows`;
 
   if (!rows.length) {
     const empty = document.createElement("tr");
-    empty.innerHTML = `<td colspan="${columns.length}">No records match current filters.</td>`;
+    const cell = document.createElement("td");
+    cell.colSpan = columns.length;
+    cell.textContent = "No records match current filters.";
+    empty.appendChild(cell);
     tableBody.appendChild(empty);
     return;
   }
 
+  const activateRow = (index) => {
+    state.selectedRowIndex = index;
+    renderTable();
+    renderDetail();
+  };
+
   rows.forEach((row, index) => {
     const tr = document.createElement("tr");
+    tr.tabIndex = 0;
+    tr.setAttribute("role", "button");
+    tr.setAttribute("aria-selected", state.selectedRowIndex === index ? "true" : "false");
     if (state.selectedRowIndex === index) {
       tr.classList.add("active-row");
     }
-    tr.innerHTML = columns
-      .map((column) => `<td>${row[column] !== undefined ? String(row[column]) : ""}</td>`)
-      .join("");
-    tr.addEventListener("click", () => {
-      state.selectedRowIndex = index;
-      renderTable();
-      renderDetail();
+    for (const column of columns) {
+      const td = document.createElement("td");
+      td.textContent = row[column] !== undefined ? String(row[column]) : "";
+      tr.appendChild(td);
+    }
+    tr.addEventListener("click", () => activateRow(index));
+    tr.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+        event.preventDefault();
+        activateRow(index);
+      }
     });
     tableBody.appendChild(tr);
   });
@@ -206,47 +257,52 @@ function renderDetail() {
   const provenance = row.provenance || {};
   const sourceDocument = normalizeText(provenance.source_document);
   const evidenceRefs = Array.isArray(provenance.evidence_refs) ? provenance.evidence_refs : [];
+  detail.textContent = "";
+  const list = document.createElement("ul");
+  list.className = "detail-list";
 
-  const evidenceLinks = evidenceRefs
-    .map((ref) => {
-      const token = normalizeText(ref);
-      if (!token) {
-        return "";
+  const addDetailItem = (label, valueContent) => {
+    const item = document.createElement("li");
+    const key = document.createElement("div");
+    key.className = "detail-key";
+    key.textContent = label;
+    const value = document.createElement("div");
+    value.className = "detail-value";
+    if (typeof valueContent === "string") {
+      value.textContent = valueContent;
+    } else if (valueContent instanceof Node) {
+      value.appendChild(valueContent);
+    }
+    item.append(key, value);
+    list.appendChild(item);
+  };
+
+  addDetailItem("Entity", String(row.entity ?? ""));
+  addDetailItem("Plan Period", String(row.plan_period ?? ""));
+  addDetailItem("Metric Family / Metric", `${String(row.metric_family ?? "")} / ${String(row.metric ?? "")}`);
+  addDetailItem("Value / Confidence", `${String(row.value ?? "")} / ${String(row.confidence ?? "")}`);
+  addDetailItem("Source Document", sourceDocument || "n/a");
+
+  const evidenceTokens = evidenceRefs.map((ref) => normalizeText(ref)).filter(Boolean);
+  if (!evidenceTokens.length || !sourceDocument) {
+    addDetailItem("Evidence References", evidenceTokens.join(" · ") || "n/a");
+  } else {
+    const fragment = document.createDocumentFragment();
+    evidenceTokens.forEach((token, index) => {
+      const link = document.createElement("a");
+      link.href = `${state.config.artifactBaseUrl}/${encodeURIComponent(sourceDocument)}#${encodeURIComponent(token)}`;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = token;
+      fragment.appendChild(link);
+      if (index < evidenceTokens.length - 1) {
+        fragment.appendChild(document.createTextNode(" · "));
       }
-      const href = `${state.config.artifactBaseUrl}/${encodeURIComponent(sourceDocument)}#${encodeURIComponent(token)}`;
-      return `<a href="${href}" target="_blank" rel="noreferrer">${token}</a>`;
-    })
-    .filter(Boolean)
-    .join(" · ");
+    });
+    addDetailItem("Evidence References", fragment);
+  }
 
-  detail.innerHTML = `
-    <ul class="detail-list">
-      <li>
-        <div class="detail-key">Entity</div>
-        <div class="detail-value">${row.entity ?? ""}</div>
-      </li>
-      <li>
-        <div class="detail-key">Plan Period</div>
-        <div class="detail-value">${row.plan_period ?? ""}</div>
-      </li>
-      <li>
-        <div class="detail-key">Metric Family / Metric</div>
-        <div class="detail-value">${row.metric_family ?? ""} / ${row.metric ?? ""}</div>
-      </li>
-      <li>
-        <div class="detail-key">Value / Confidence</div>
-        <div class="detail-value">${row.value ?? ""} / ${row.confidence ?? ""}</div>
-      </li>
-      <li>
-        <div class="detail-key">Source Document</div>
-        <div class="detail-value">${sourceDocument || "n/a"}</div>
-      </li>
-      <li>
-        <div class="detail-key">Evidence References</div>
-        <div class="detail-value">${evidenceLinks || "n/a"}</div>
-      </li>
-    </ul>
-  `;
+  detail.appendChild(list);
 }
 
 function applyFilterInputs() {
@@ -441,7 +497,7 @@ async function init() {
 init().catch((error) => {
   const badge = document.querySelector("[data-testid='environment-badge']");
   if (badge) {
-    badge.textContent = `Configuration error: ${error.message}`;
+    badge.textContent = `Initialization error: ${error.message}`;
   }
   throw error;
 });

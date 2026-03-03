@@ -134,9 +134,22 @@ h2 {
 .inventory-item {
   border: 1px solid var(--card-border);
   border-radius: 10px;
-  padding: 10px;
   background: rgba(255, 255, 255, 0.66);
-  cursor: pointer;
+  overflow: hidden;
+}
+
+.inventory-button {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  padding: 10px;
+}
+
+.inventory-button:focus-visible {
+  outline: 2px solid var(--highlight);
+  outline-offset: -2px;
 }
 
 .inventory-item:hover {
