@@ -1,12 +1,86 @@
-name: Claude Code Review
+name: Claude Code Review (Opt-in)
 
-on:
+'on':
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Pull request number to review'
+        required: true
+        type: string
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [labeled, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
 
 jobs:
+  resolve-target:
+    name: Resolve review target
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      should_run: ${{ steps.resolve.outputs.should_run }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      reason: ${{ steps.resolve.outputs.reason }}
+    steps:
+      - id: resolve
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const eventName = context.eventName;
+            let shouldRun = "false";
+            let prNumber = "";
+            let reason = "not_opted_in";
+
+            if (eventName === "workflow_dispatch") {
+              const raw = `${core.getInput("pr_number") || ""}`.trim();
+              if (!/^\d+$/.test(raw)) {
+                reason = "invalid_pr_number";
+              } else {
+                const pull_number = Number(raw);
+                const { owner, repo } = context.repo;
+                try {
+                  const { data: pr } = await github.rest.pulls.get({
+                    owner,
+                    repo,
+                    pull_number,
+                  });
+                  prNumber = String(pull_number);
+                  if (pr.state !== "open") {
+                    reason = "pr_not_open";
+                  } else if (pr.draft) {
+                    reason = "pr_is_draft";
+                  } else {
+                    shouldRun = "true";
+                    reason = "manual_dispatch";
+                  }
+                } catch (error) {
+                  reason = "pr_not_found";
+                  core.warning(`Unable to load PR #${pull_number}: ${error.message}`);
+                }
+              }
+            } else if (eventName === "pull_request") {
+              const pr = context.payload.pull_request;
+              prNumber = String(pr.number);
+              const labels = (pr.labels || []).map((label) => label.name);
+              if (labels.includes("claude-review")) {
+                shouldRun = "true";
+                reason = "label_opt_in";
+              }
+            } else {
+              reason = "unsupported_event";
+            }
+
+            core.setOutput("should_run", shouldRun);
+            core.setOutput("pr_number", prNumber);
+            core.setOutput("reason", reason);
+
   detect-secret:
     name: Detect Claude token
+    needs: resolve-target
+    if: ${{ needs.resolve-target.outputs.should_run == 'true' }}
     runs-on: ubuntu-latest
     outputs:
       has_token: ${{ steps.check.outputs.has_token }}
@@ -66,9 +140,11 @@ jobs:
           fi
 
   claude-review:
-    needs: detect-secret
+    name: Run Claude Code Review
+    needs: [resolve-target, detect-secret]
     if: >-
       ${{
+        needs.resolve-target.outputs.should_run == 'true' &&
         needs.detect-secret.outputs.has_token == 'true' &&
         needs.detect-secret.outputs.workflow_unchanged == 'true'
       }}
@@ -87,15 +163,17 @@ jobs:
       - name: Run Claude Code Review
         id: claude
         continue-on-error: true
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@220272d38887a1caed373da96a9ffdb0919c26cc
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: '*'
+          claude_args: |
+            --max-turns 8
           plugin_marketplaces: https://github.com/anthropics/claude-code.git
           plugins: code-review@claude-code-plugins
           prompt: >-
             /code-review:code-review
-            ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+            ${{ github.repository }}/pull/${{ needs.resolve-target.outputs.pr_number }}
 
       - name: Record review failure (non-blocking)
         if: steps.claude.outcome == 'failure'
@@ -106,14 +184,33 @@ jobs:
           Fix the token/config if automated reviews are required.
           EOF
 
-  claude-review-missing-secret:
-    needs: detect-secret
-    if: ${{ needs.detect-secret.outputs.token_reason == 'missing' }}
+  skipped-not-opted-in:
+    name: Skip review (not opted in)
+    needs: resolve-target
+    if: ${{ needs.resolve-target.outputs.should_run != 'true' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - name: Skip review (secret missing)
+      - name: Explain opt-in behavior
+        run: |
+          cat <<'EOF' >>"$GITHUB_STEP_SUMMARY"
+          ### Claude Code Review skipped
+          This workflow is opt-in.
+
+          To run automatically for a PR, add the `claude-review` label.
+          To run on demand, use workflow dispatch and provide `pr_number`.
+          EOF
+
+  skipped-missing-secret:
+    name: Skip review (secret missing)
+    needs: [resolve-target, detect-secret]
+    if: >-
+      ${{
+        needs.resolve-target.outputs.should_run == 'true' &&
+        needs.detect-secret.outputs.token_reason == 'missing'
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain missing secret
         run: |
           cat <<'EOF' >>"$GITHUB_STEP_SUMMARY"
           ### Claude Code Review skipped
@@ -121,14 +218,17 @@ jobs:
           Add it to enable automated reviews.
           EOF
 
-  claude-review-workflow-changed:
-    needs: detect-secret
-    if: ${{ needs.detect-secret.outputs.workflow_unchanged != 'true' }}
+  skipped-workflow-modified:
+    name: Skip review (workflow modified)
+    needs: [resolve-target, detect-secret]
+    if: >-
+      ${{
+        needs.resolve-target.outputs.should_run == 'true' &&
+        needs.detect-secret.outputs.workflow_unchanged != 'true'
+      }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - name: Skip review (workflow modified)
+      - name: Explain workflow integrity guard
         run: |
           cat <<'EOF' >>"$GITHUB_STEP_SUMMARY"
           ### Claude Code Review skipped

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pension_data.db.models.artifacts import RawArtifactRecord
 from pension_data.ingest.artifacts import (
     RawArtifactIngestionInput,
@@ -102,6 +104,50 @@ def test_failed_inputs_are_counted_and_skipped() -> None:
     assert metrics.new_count == 1
     assert metrics.failed_count == 2
     assert len(records) == 1
+
+
+def test_invalid_iso8601_timestamp_inputs_are_counted_and_skipped() -> None:
+    records, metrics = ingest_raw_artifacts(
+        existing_records=[],
+        inputs=[
+            _input(fetched_at="2026-03-02T00:00:00Z", content=b"ok"),
+            _input(fetched_at="2026-03-02T00:00:00", content=b"naive"),
+            _input(fetched_at="not-a-timestamp", content=b"invalid"),
+        ],
+    )
+    assert metrics.new_count == 1
+    assert metrics.failed_count == 2
+    assert len(records) == 1
+
+
+def test_existing_records_with_multiple_active_rows_for_same_key_raise() -> None:
+    first_records, _ = ingest_raw_artifacts(
+        existing_records=[],
+        inputs=[_input(fetched_at="2026-03-02T00:00:00Z", content=b"v1")],
+    )
+    duplicate_active = RawArtifactRecord(
+        artifact_id="artifact:duplicate",
+        plan_id="CA-PERS",
+        plan_period="FY2024",
+        source_url="https://example.org/ca-2024.pdf",
+        fetched_at="2026-03-03T00:00:00Z",
+        mime_type="application/pdf",
+        byte_size=2,
+        checksum_sha256="f" * 64,
+        is_active=True,
+        supersedes_artifact_id=None,
+        superseded_by_artifact_id=None,
+        first_seen_at="2026-03-03T00:00:00Z",
+        last_seen_at="2026-03-03T00:00:00Z",
+    )
+    with pytest.raises(
+        ValueError,
+        match="multiple active artifacts for key CA-PERS\\|FY2024\\|https://example.org/ca-2024.pdf",
+    ):
+        ingest_raw_artifacts(
+            existing_records=[first_records[0], duplicate_active],
+            inputs=[_input(fetched_at="2026-03-04T00:00:00Z", content=b"v2")],
+        )
 
 
 def test_lineage_query_returns_supersession_chain_for_audit() -> None:

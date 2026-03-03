@@ -2,7 +2,7 @@
   "view_name": "allocation_peer_compare",
   "version": "v1",
   "description": "Subject-plan allocation by asset class compared with peer-group distribution for the same period.",
-  "sql": "SELECT plan_id, plan_period, peer_group, asset_class, allocation_pct FROM plan_allocation_metrics WHERE plan_period = :plan_period ORDER BY asset_class, plan_id;",
+  "sql": "WITH base AS (SELECT rowid AS base_rowid, plan_id, plan_period, peer_group, asset_class, allocation_pct FROM plan_allocation_metrics WHERE plan_period = :plan_period), peer_rows AS (SELECT base.base_rowid, peer.allocation_pct AS peer_allocation_pct, ROW_NUMBER() OVER (PARTITION BY base.base_rowid ORDER BY peer.allocation_pct) AS rn, COUNT(*) OVER (PARTITION BY base.base_rowid) AS cnt FROM base JOIN plan_allocation_metrics AS peer ON peer.plan_period = base.plan_period AND peer.peer_group = base.peer_group AND peer.asset_class = base.asset_class AND peer.plan_id <> base.plan_id), peer_stats AS (SELECT base_rowid, AVG(peer_allocation_pct) AS peer_mean_pct, AVG(CASE WHEN rn IN ((cnt + 1) / 2, (cnt + 2) / 2) THEN peer_allocation_pct END) AS peer_median_pct FROM peer_rows GROUP BY base_rowid) SELECT base.plan_id, base.plan_period, base.asset_class, base.allocation_pct AS plan_allocation_pct, peer_stats.peer_mean_pct, peer_stats.peer_median_pct, CASE WHEN peer_stats.peer_mean_pct IS NULL THEN NULL ELSE base.allocation_pct - peer_stats.peer_mean_pct END AS delta_vs_peer_mean_pct FROM base LEFT JOIN peer_stats ON peer_stats.base_rowid = base.base_rowid WHERE base.plan_id = :subject_plan_id ORDER BY base.asset_class, base.plan_id;",
   "assumptions": [
     "allocation_pct is represented as a ratio in [0,1]",
     "peer comparison excludes the subject plan from peer aggregates"
