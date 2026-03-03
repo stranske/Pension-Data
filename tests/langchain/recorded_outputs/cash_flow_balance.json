@@ -1,0 +1,4 @@
+{
+  "sql": "SELECT plan_id, fiscal_year, employer_contributions, employee_contributions, benefit_payments FROM financial_flows ORDER BY fiscal_year",
+  "citations": ["doc:flows#p.40"]
+}

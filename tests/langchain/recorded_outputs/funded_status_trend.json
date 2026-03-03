@@ -1,0 +1,4 @@
+{
+  "sql": "SELECT plan_id, fiscal_year, funded_ratio, actuarial_value_assets FROM core_facts WHERE fiscal_year IN (2023, 2024) ORDER BY fiscal_year",
+  "citations": ["doc:funded#p.52"]
+}

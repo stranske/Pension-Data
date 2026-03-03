@@ -1,0 +1,4 @@
+{
+  "sql": "SELECT manager_name, fiscal_year, fee_rate_bps FROM investment_allocations_fees WHERE fee_rate_bps IS NOT NULL ORDER BY manager_name, fiscal_year",
+  "citations": ["doc:fees#p.67"]
+}
