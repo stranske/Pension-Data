@@ -76,7 +76,7 @@ def _smoke_url(base_url: str, *, expect_runtime: bool) -> None:
     html = _fetch_text(root)
     if "Cloudflare Web Workspace Foundation" not in html:
         raise ValueError("deployed page missing expected heading marker")
-    if "data-testid=\"environment-badge\"" not in html:
+    if 'data-testid="environment-badge"' not in html:
         raise ValueError("deployed page missing environment badge marker")
 
     default_payload = json.loads(_fetch_text(urljoin(root, "config/default.json")))
