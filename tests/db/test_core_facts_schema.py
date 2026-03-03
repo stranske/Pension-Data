@@ -125,6 +125,40 @@ def test_query_bitemporal_as_of_raises_for_invalid_temporal_strings() -> None:
         )
 
 
+def test_query_bitemporal_as_of_accepts_mixed_naive_and_aware_temporal_values() -> None:
+    facts = [
+        FundedStatusFact(
+            context=_context(
+                effective_date="2024-06-30",
+                ingestion_date="2025-01-01T00:00:00Z",
+            ),
+            metric_name="funded_ratio",
+            metric_value=_value(as_reported=0.77, normalized=0.77, unit="ratio"),
+            confidence=0.9,
+            evidence_refs=("p.1",),
+        ),
+        FundedStatusFact(
+            context=_context(
+                effective_date="2025-06-30T00:00:00+00:00",
+                ingestion_date="2025-08-01",
+            ),
+            metric_name="funded_ratio",
+            metric_value=_value(as_reported=0.79, normalized=0.79, unit="ratio"),
+            confidence=0.9,
+            evidence_refs=("p.2",),
+        ),
+    ]
+
+    as_of = query_bitemporal_as_of(
+        facts,
+        effective_date="2024-12-31T00:00:00+00:00",
+        ingestion_date="2025-03-01",
+    )
+
+    assert len(as_of) == 1
+    assert as_of[0].metric_value.normalized_value == 0.77
+
+
 def test_curated_view_builders_enforce_known_plan_and_normalized_values() -> None:
     known_plan_ids = {"CA-PERS"}
     funded = [

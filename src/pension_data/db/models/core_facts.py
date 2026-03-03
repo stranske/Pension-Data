@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal, Protocol, TypeVar
 
 RelationshipCompleteness = Literal["complete", "partial", "not_disclosed"]
@@ -69,11 +69,14 @@ def _parse_iso_temporal(value: str, *, field_name: str) -> datetime:
         raise ValueError(f"{field_name} must be a non-empty ISO-8601 date or datetime string")
     normalized = f"{candidate[:-1]}+00:00" if candidate.endswith("Z") else candidate
     try:
-        return datetime.fromisoformat(normalized)
+        parsed = datetime.fromisoformat(normalized)
     except ValueError as exc:  # pragma: no cover - defensive parse guard
         raise ValueError(
             f"{field_name} must be an ISO-8601 date or datetime string: {value!r}"
         ) from exc
+    if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 @dataclass(frozen=True, slots=True)
