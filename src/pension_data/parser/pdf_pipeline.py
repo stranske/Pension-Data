@@ -137,7 +137,9 @@ def _looks_like_metric_label(label: str) -> bool:
 def _extract_table_rows(*, page_number: int, lines: Sequence[str]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for line in lines:
-        columns = [segment.strip() for segment in _TABLE_SPLIT_PATTERN.split(line) if segment.strip()]
+        columns = [
+            segment.strip() for segment in _TABLE_SPLIT_PATTERN.split(line) if segment.strip()
+        ]
         label = ""
         value = ""
         if len(columns) >= 2 and _looks_like_metric_label(columns[0]):
@@ -182,7 +184,9 @@ def _extract_text_and_tables(
     )
 
 
-def _evaluate_stage(input_payload: PDFParserInput, *, stage_name: str, output: ParserStageOutput) -> _StageCandidate:
+def _evaluate_stage(
+    input_payload: PDFParserInput, *, stage_name: str, output: ParserStageOutput
+) -> _StageCandidate:
     raw = RawFundedActuarialInput(
         source_document_id=input_payload.source_document_id,
         source_url=input_payload.source_url,
@@ -301,7 +305,9 @@ def parse_pdf_to_funded_input(input_payload: PDFParserInput) -> PDFParserResult:
     """Parse pension PDF bytes into funded/actuarial extraction-ready structures."""
     stage_candidates: dict[str, _StageCandidate] = {}
 
-    def _stage(name: str, parser_name: str, builder: Callable[[PDFParserInput], ParserStageOutput]) -> ParserStage[_StageCandidate]:
+    def _stage(
+        name: str, parser_name: str, builder: Callable[[PDFParserInput], ParserStageOutput]
+    ) -> ParserStage[_StageCandidate]:
         def _parse() -> _StageCandidate:
             candidate = _evaluate_stage(
                 input_payload,
@@ -333,7 +339,9 @@ def parse_pdf_to_funded_input(input_payload: PDFParserInput) -> PDFParserResult:
         attempts=outcome.attempts,
         escalation=escalation,
         escalation_required=escalation is not None,
-        missing_metrics=selected.missing_metrics if selected is not None else FUNDED_ACTUARIAL_REQUIRED_METRICS,
+        missing_metrics=(
+            selected.missing_metrics if selected is not None else FUNDED_ACTUARIAL_REQUIRED_METRICS
+        ),
         actionable_flags=_build_actionable_flags(
             attempts=outcome.attempts,
             escalation=escalation,
