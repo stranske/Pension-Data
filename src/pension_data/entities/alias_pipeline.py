@@ -67,7 +67,9 @@ def capture_alias_observations(
     """Capture deterministic alias observations from raw source names."""
     seen: set[str] = set()
     normalized_refs = tuple(
-        value for value in dict.fromkeys(ref.strip() for ref in evidence_refs if ref.strip()) if value
+        value
+        for value in dict.fromkeys(ref.strip() for ref in evidence_refs if ref.strip())
+        if value
     )
     observations: list[CapturedAliasObservation] = []
     for raw_name in names:
@@ -149,7 +151,9 @@ def route_alias_observations(
             continue
 
         priority: ReviewPriority = "medium" if top.confidence >= review_threshold else "high"
-        reason = "ambiguous top candidates" if is_ambiguous else "confidence below auto-link threshold"
+        reason = (
+            "ambiguous top candidates" if is_ambiguous else "confidence below auto-link threshold"
+        )
         decisions.append(
             AliasRoutingDecision(
                 source_name=observation.source_name,
