@@ -240,6 +240,12 @@ def build_sql_citation_export(
         raise ValueError("columns must not include empty names")
     if len(set(normalized_columns)) != len(normalized_columns):
         raise ValueError("columns must be unique")
+    reserved_columns = set(SQL_BASE_COLUMNS) | set(CITATION_COLUMNS)
+    collisions = sorted(column for column in normalized_columns if column in reserved_columns)
+    if collisions:
+        raise ValueError(
+            "columns must not use reserved export field names: " + ", ".join(collisions)
+        )
 
     provenance_map = provenance_by_row_id or {}
     exported_rows: list[dict[str, Any]] = []
@@ -295,6 +301,8 @@ def build_metric_history_citation_export(
             row.ingestion_date,
             row.source_document_id,
             row.benchmark_version,
+            row.plan_period,
+            row.report_id,
         ),
     )
     for index, row in enumerate(ordered_rows, start=1):

@@ -69,6 +69,14 @@ def test_sql_export_schema_is_stable_and_missing_provenance_is_explicit() -> Non
     assert export_payload.citation_bundle.missing_row_ids == ("sql:2",)
 
 
+def test_sql_export_rejects_reserved_column_name_collisions() -> None:
+    with pytest.raises(ValueError, match="reserved export field names"):
+        build_sql_citation_export(
+            columns=("row_id", "metric_name"),
+            rows=(("custom-id", "funded_ratio"),),
+        )
+
+
 def test_metric_history_export_is_deterministic_and_surfaces_missing_provenance() -> None:
     export_payload = build_metric_history_citation_export(
         (
@@ -130,6 +138,51 @@ def test_metric_history_export_is_deterministic_and_surfaces_missing_provenance(
     assert export_payload.citation_bundle.missing_row_ids == ("metric-history:2",)
 
 
+def test_metric_history_export_order_is_stable_for_tie_cases() -> None:
+    rows = (
+        MetricHistoryExportInput(
+            entity_id="CA-PERS",
+            plan_period="FY2025",
+            metric_family="funded",
+            metric_name="funded_ratio",
+            as_reported_value=80.1,
+            normalized_value=0.801,
+            as_reported_unit="percent",
+            normalized_unit="ratio",
+            confidence=0.97,
+            effective_date="2025-06-30",
+            ingestion_date="2026-01-15",
+            benchmark_version="v1",
+            report_id="doc:ca:2025:b",
+            source_document_id="doc:ca:2025",
+            provenance_refs=(),
+        ),
+        MetricHistoryExportInput(
+            entity_id="CA-PERS",
+            plan_period="FY2024",
+            metric_family="funded",
+            metric_name="funded_ratio",
+            as_reported_value=79.5,
+            normalized_value=0.795,
+            as_reported_unit="percent",
+            normalized_unit="ratio",
+            confidence=0.95,
+            effective_date="2025-06-30",
+            ingestion_date="2026-01-15",
+            benchmark_version="v1",
+            report_id="doc:ca:2025:a",
+            source_document_id="doc:ca:2025",
+            provenance_refs=(),
+        ),
+    )
+    export_payload = build_metric_history_citation_export(rows)
+    assert [item["plan_period"] for item in export_payload.rows] == ["FY2024", "FY2025"]
+    assert [item["report_id"] for item in export_payload.rows] == [
+        "doc:ca:2025:a",
+        "doc:ca:2025:b",
+    ]
+
+
 def test_export_route_requires_export_scope() -> None:
     key_store = APIKeyStore()
     unauthorized_secret, _ = key_store.create_key(scopes=(SCOPE_QUERY,))
@@ -166,7 +219,7 @@ def test_export_route_emits_audit_context_for_metric_history_exports() -> None:
         api_key_header=secret,
         key_store=key_store,
         rows=(row,),
-        event={"request_id": "exp-001"},
+        event={"request_id": "exp-001", "operation": "caller-overwrite"},
     )
 
     assert result.export.schema_name == "metric_history_citation_export"

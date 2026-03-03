@@ -12,6 +12,7 @@ from pension_data.api.auth import (
     authenticate_request,
     build_audit_event,
 )
+from pension_data.api.auth.audit import RESERVED_AUDIT_KEYS
 from pension_data.export import (
     CitationExport,
     CitationReference,
@@ -27,6 +28,13 @@ class ExportRouteResult:
 
     export: CitationExport
     audit_event: dict[str, Any]
+
+
+def _sanitize_event(event: Mapping[str, Any] | None) -> dict[str, Any]:
+    payload = dict(event or {})
+    for reserved_key in RESERVED_AUDIT_KEYS:
+        payload.pop(reserved_key, None)
+    return payload
 
 
 def run_sql_export_endpoint(
@@ -49,7 +57,7 @@ def run_sql_export_endpoint(
         rows=rows,
         provenance_by_row_id=provenance_by_row_id,
     )
-    event_payload = dict(event or {})
+    event_payload = _sanitize_event(event)
     event_payload.update(
         {
             "schema_name": export_payload.schema_name,
@@ -83,7 +91,7 @@ def run_metric_history_export_endpoint(
         key_store=key_store,
     )
     export_payload = build_metric_history_citation_export(rows)
-    event_payload = dict(event or {})
+    event_payload = _sanitize_event(event)
     event_payload.update(
         {
             "schema_name": export_payload.schema_name,
