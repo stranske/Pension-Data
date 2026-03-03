@@ -12,7 +12,10 @@ from typing import cast
 
 from pension_data.db.models.artifacts import RawArtifactRecord
 from pension_data.extract.actuarial.metrics import RawFundedActuarialInput
-from pension_data.extract.persistence import write_extraction_persistence_artifacts
+from pension_data.extract.persistence import (
+    build_schema_component_datasets,
+    write_extraction_persistence_artifacts,
+)
 from pension_data.normalize.financial_units import UnitScale
 from pension_data.ops.document_orchestration import (
     DocumentOrchestrationState,
@@ -174,6 +177,18 @@ def run_one_pdf_pilot(
         output_root=run_root,
     )
 
+    schema_component_datasets = build_schema_component_datasets(
+        persisted_core_metrics=cast(
+            list[dict[str, object]],
+            orchestration_artifacts["staging_core_metrics_rows"],
+        ),
+        relationship_rows=cast(
+            list[dict[str, object]],
+            orchestration_artifacts["staging_manager_fund_vehicle_relationship_rows"],
+        ),
+        warning_rows=cast(list[dict[str, object]], orchestration_artifacts["extraction_warning_rows"]),
+    )
+
     persistence_paths = write_extraction_persistence_artifacts(
         {
             "persistence_contract": orchestration_artifacts["persistence_contract"],
@@ -182,6 +197,7 @@ def run_one_pdf_pilot(
                 "staging_manager_fund_vehicle_relationship_rows"
             ],
             "extraction_warning_rows": orchestration_artifacts["extraction_warning_rows"],
+            "schema_component_datasets": schema_component_datasets,
         },
         output_root=run_root,
     )
