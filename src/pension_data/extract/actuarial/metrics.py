@@ -44,6 +44,7 @@ class RawFundedActuarialInput:
     default_money_unit_scale: UnitScale
     text_blocks: tuple[str, ...]
     table_rows: tuple[dict[str, str], ...]
+    text_block_evidence_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,12 +267,17 @@ def extract_funded_and_actuarial_metrics(
 
     for metric_name, (metric_kind, aliases) in _METRIC_DEFINITIONS.items():
         for index, block in enumerate(raw.text_blocks):
+            provided_ref = (
+                raw.text_block_evidence_refs[index]
+                if index < len(raw.text_block_evidence_refs)
+                else ""
+            )
             candidate = _find_candidate_in_text(
                 metric_name=metric_name,
                 metric_kind=metric_kind,
                 aliases=aliases,
                 text=block,
-                evidence_ref=text_block_evidence_ref(index),
+                evidence_ref=provided_ref or text_block_evidence_ref(index),
                 fallback_money_scale=raw.default_money_unit_scale,
             )
             if candidate is not None:
