@@ -211,3 +211,53 @@ def test_entity_metadata_and_evidence_refs_are_deterministic_for_grouped_mention
     entity = extracted["consultant_entities"][0]
     assert entity.evidence_refs == ("p1", "p2", "p3")
     assert entity.source_metadata["source_url"] == "https://example.org/a-source.pdf"
+
+
+def test_ambiguous_consultant_names_propagate_ambiguous_linkage_status() -> None:
+    extracted = extract_consultant_records(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        consultant_mentions=[
+            ConsultantMention(
+                consultant_name="Mercer",
+                role_description="advisor",
+                confidence=0.9,
+                evidence_refs=("p1",),
+                source_url="https://example.org/ca-pers-2025.pdf",
+            ),
+            ConsultantMention(
+                consultant_name="MERCER",
+                role_description="advisor",
+                confidence=0.8,
+                evidence_refs=("p2",),
+                source_url="https://example.org/ca-pers-2025.pdf",
+            ),
+        ],
+        recommendation_mentions=[
+            RecommendationMention(
+                consultant_name="Mercer",
+                topic="allocation pacing",
+                recommendation_text="keep pacing flat",
+                board_decision_status="adopted",
+                confidence=0.7,
+                evidence_refs=("p3",),
+                source_url="https://example.org/ca-pers-2025.pdf",
+            )
+        ],
+        attribution_mentions=[
+            AttributionMention(
+                consultant_name="MERCER",
+                topic="allocation pacing",
+                observed_outcome="no change",
+                strength="implied",
+                confidence=0.7,
+                evidence_refs=("p4",),
+                source_url="https://example.org/ca-pers-2025.pdf",
+            )
+        ],
+    )
+
+    assert extracted["consultant_entities"][0].linkage_status == "ambiguous"
+    assert extracted["plan_consultant_engagements"][0].linkage_status == "ambiguous"
+    assert extracted["consultant_recommendations"][0].linkage_status == "ambiguous"
+    assert extracted["consultant_attribution_observations"][0].linkage_status == "ambiguous"

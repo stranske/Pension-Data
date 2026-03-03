@@ -1,4 +1,4 @@
-## Entity Linkage Contract (One-PDF Components)
+# Entity Linkage Contract (One-PDF Components)
 
 This contract defines canonical entity-link fields emitted in extraction component datasets.
 

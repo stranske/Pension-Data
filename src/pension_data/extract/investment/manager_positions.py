@@ -10,7 +10,7 @@ from pension_data.db.models.investment_positions import (
     PositionCompleteness,
     PositionWarningCode,
 )
-from pension_data.normalize.entity_tokens import normalize_entity_token
+from pension_data.extract.common.entity_ids import canonical_fund_id, canonical_manager_id
 
 _WARNING_MESSAGES: dict[PositionWarningCode, str] = {
     "non_disclosure": "Investment exposure is not disclosed for this plan-period.",
@@ -57,23 +57,6 @@ def _normalize_token(value: str | None) -> str:
 
 def _dedupe_refs(evidence_refs: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(ref.strip() for ref in evidence_refs if ref.strip()))
-
-
-def _canonical_manager_id(manager_name: str | None) -> str | None:
-    token = normalize_entity_token(manager_name)
-    if not token:
-        return None
-    return f"manager:{token}"
-
-
-def _canonical_fund_id(*, manager_name: str | None, fund_name: str | None) -> str | None:
-    fund_token = normalize_entity_token(fund_name)
-    if not fund_token:
-        return None
-    manager_token = normalize_entity_token(manager_name)
-    if manager_token:
-        return f"fund:{manager_token}:{fund_token}"
-    return f"fund:{fund_token}"
 
 
 def _linkage_status(
@@ -156,8 +139,8 @@ def build_manager_fund_positions(
             unfunded=row.unfunded,
             market_value=row.market_value,
             completeness=completeness,
-            manager_canonical_id=_canonical_manager_id(row.manager_name),
-            fund_canonical_id=_canonical_fund_id(
+            manager_canonical_id=canonical_manager_id(row.manager_name),
+            fund_canonical_id=canonical_fund_id(
                 manager_name=row.manager_name,
                 fund_name=row.fund_name,
             ),

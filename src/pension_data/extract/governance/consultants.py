@@ -167,10 +167,17 @@ def _canonical_consultant_id(
     return f"consultant:not_disclosed:{scoped_plan}:{scoped_period}"
 
 
-def _linkage_status(consultant_name: str | None) -> Literal["resolved", "not_disclosed"]:
-    if _is_disclosed_name(consultant_name):
-        return "resolved"
-    return "not_disclosed"
+def _linkage_status(
+    *,
+    consultant_name: str | None,
+    ambiguous_names: set[str] | None = None,
+) -> Literal["resolved", "ambiguous", "not_disclosed"]:
+    normalized = _normalize_name(consultant_name)
+    if not _is_disclosed_name(consultant_name):
+        return "not_disclosed"
+    if ambiguous_names and normalized in ambiguous_names:
+        return "ambiguous"
+    return "resolved"
 
 
 def normalize_board_decision_status(value: str | None) -> BoardDecisionStatus:
@@ -199,6 +206,7 @@ def extract_consultant_records(
 ) -> dict[str, object]:
     """Extract consultant entities, engagements, recommendations, and attribution observations."""
     warnings: list[ConsultantExtractionWarning] = []
+    ambiguous_names: set[str] = set()
 
     entities: list[ConsultantEntity] = []
     name_groups: dict[str, list[ConsultantMention]] = {}
@@ -214,7 +222,11 @@ def extract_consultant_records(
             for consultant_mention in consultant_group
         }
         merged_refs = _stable_refs_from_mentions(consultant_group)
-        if len(display_names) > 1:
+        if len(display_names) > 1 and any(
+            _is_disclosed_name(consultant_mention.consultant_name)
+            for consultant_mention in consultant_group
+        ):
+            ambiguous_names.add(normalized_name)
             warnings.append(
                 ConsultantExtractionWarning(
                     code="ambiguous_naming",
@@ -233,7 +245,10 @@ def extract_consultant_records(
                 plan_period=plan_period,
                 consultant_name=normalized_name,
             ),
-            linkage_status="ambiguous" if len(display_names) > 1 else "resolved",
+            linkage_status=_linkage_status(
+                consultant_name=sorted(display_names)[0],
+                ambiguous_names=ambiguous_names,
+            ),
             confidence=max(
                 _bounded_confidence(consultant_mention.confidence)
                 for consultant_mention in consultant_group
@@ -259,7 +274,10 @@ def extract_consultant_records(
                 plan_period=plan_period,
                 consultant_name=consultant_mention.consultant_name,
             ),
-            linkage_status=_linkage_status(consultant_mention.consultant_name),
+            linkage_status=_linkage_status(
+                consultant_name=consultant_mention.consultant_name,
+                ambiguous_names=ambiguous_names,
+            ),
             role_description=_clean_text(
                 consultant_mention.role_description, fallback="not_disclosed"
             ),
@@ -338,7 +356,10 @@ def extract_consultant_records(
                     plan_period=plan_period,
                     consultant_name=recommendation_mention.consultant_name,
                 ),
-                linkage_status=_linkage_status(recommendation_mention.consultant_name),
+                linkage_status=_linkage_status(
+                    consultant_name=recommendation_mention.consultant_name,
+                    ambiguous_names=ambiguous_names,
+                ),
                 topic=topic,
                 recommendation_text=_clean_text(
                     recommendation_mention.recommendation_text,
@@ -384,7 +405,10 @@ def extract_consultant_records(
                 plan_period=plan_period,
                 consultant_name=attr_mention.consultant_name,
             ),
-            linkage_status=_linkage_status(attr_mention.consultant_name),
+            linkage_status=_linkage_status(
+                consultant_name=attr_mention.consultant_name,
+                ambiguous_names=ambiguous_names,
+            ),
             recommendation_topic=_clean_text(attr_mention.topic, fallback="not_disclosed"),
             observed_outcome=_clean_text(attr_mention.observed_outcome, fallback="not_disclosed"),
             strength=normalize_attribution_strength(attr_mention.strength),
