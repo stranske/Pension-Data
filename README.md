@@ -27,6 +27,15 @@ mypy src
 pytest -q
 ```
 
+## Database Strategy
+
+- Local development/tests default to SQLite (no DB server required).
+- Production/shared workloads target PostgreSQL.
+- The strategy/config helpers live in `src/pension_data/db/strategy.py`.
+
+See [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md) and
+[docs/adr/ADR-0001-database-strategy.md](docs/adr/ADR-0001-database-strategy.md).
+
 ## Repository Layout
 
 ```text
@@ -61,6 +70,8 @@ See [docs/UI_LANGCHAIN_OPTIONS.md](docs/UI_LANGCHAIN_OPTIONS.md) for deployment 
 - [docs/KEEPALIVE_TROUBLESHOOTING.md](docs/KEEPALIVE_TROUBLESHOOTING.md)
 - [docs/ops/QUALITY_LAYER_OPERATIONS.md](docs/ops/QUALITY_LAYER_OPERATIONS.md)
 - [docs/contracts/DOCUMENT_ORCHESTRATION_JOB_CONTRACT.md](docs/contracts/DOCUMENT_ORCHESTRATION_JOB_CONTRACT.md)
+- [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md)
+- [docs/adr/ADR-0001-database-strategy.md](docs/adr/ADR-0001-database-strategy.md)
 
 ## License
 
