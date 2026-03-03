@@ -256,7 +256,7 @@ def extract_consultant_records(
                 consultant_name=normalized_name,
             ),
             linkage_status=_linkage_status(
-                consultant_name=sorted(display_names)[0],
+                consultant_name=normalized_name,
                 ambiguous_names=ambiguous_names,
             ),
             confidence=max(
