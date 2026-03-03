@@ -55,6 +55,12 @@ _NON_DISCLOSED_NAMES = frozenset(
         "unknown",
     }
 )
+_NON_DISCLOSED_TOKENS = frozenset(
+    token
+    for raw_name in _NON_DISCLOSED_NAMES
+    for token in (normalize_entity_token(raw_name),)
+    if token
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,7 +156,11 @@ _NOT_DISCLOSED_SOURCE_METADATA = _source_metadata("not_disclosed")
 
 def _is_disclosed_name(value: str | None) -> bool:
     normalized_name = _normalize_name(value)
-    return bool(normalized_name) and normalized_name not in _NON_DISCLOSED_NAMES
+    normalized_token = normalize_entity_token(value)
+    return bool(normalized_name) and (
+        normalized_name not in _NON_DISCLOSED_NAMES
+        and normalized_token not in _NON_DISCLOSED_TOKENS
+    )
 
 
 def _canonical_consultant_id(
@@ -160,7 +170,7 @@ def _canonical_consultant_id(
     consultant_name: str | None,
 ) -> str:
     token = normalize_entity_token(consultant_name)
-    if token and token not in _NON_DISCLOSED_NAMES:
+    if _is_disclosed_name(consultant_name) and token:
         return f"consultant:{token}"
     scoped_plan = normalize_entity_token(plan_id) or "unknown-plan"
     scoped_period = normalize_entity_token(plan_period) or "unknown-period"
@@ -246,7 +256,7 @@ def extract_consultant_records(
                 consultant_name=normalized_name,
             ),
             linkage_status=_linkage_status(
-                consultant_name=sorted(display_names)[0],
+                consultant_name=normalized_name,
                 ambiguous_names=ambiguous_names,
             ),
             confidence=max(

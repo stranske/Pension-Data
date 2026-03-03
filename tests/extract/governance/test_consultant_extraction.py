@@ -184,6 +184,28 @@ def test_non_disclosure_sentinels_do_not_mark_engagement_as_disclosed() -> None:
     assert not extracted["plan_consultant_engagements"][0].is_disclosed
 
 
+def test_non_disclosed_entity_uses_not_disclosed_linkage_status() -> None:
+    extracted = extract_consultant_records(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        consultant_mentions=[
+            ConsultantMention(
+                consultant_name="N/A",
+                role_description="consultant information unavailable",
+                confidence=0.6,
+                evidence_refs=("p7",),
+                source_url="https://example.org/ca-pers-2025.pdf",
+            )
+        ],
+        recommendation_mentions=[],
+        attribution_mentions=[],
+    )
+
+    entity = extracted["consultant_entities"][0]
+    assert entity.consultant_canonical_id == "consultant:not_disclosed:ca pers:fy2025"
+    assert entity.linkage_status == "not_disclosed"
+
+
 def test_entity_metadata_and_evidence_refs_are_deterministic_for_grouped_mentions() -> None:
     extracted = extract_consultant_records(
         plan_id="CA-PERS",
