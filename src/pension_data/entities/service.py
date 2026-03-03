@@ -150,16 +150,16 @@ def link_source_record(
         existing_links = list(row.source_links)
         evidence_refs = tuple(
             value
-            for value in dict.fromkeys(ref.strip() for ref in provenance.evidence_refs if ref.strip())
+            for value in dict.fromkeys(
+                ref.strip() for ref in provenance.evidence_refs if ref.strip()
+            )
         )
         merged = False
         for index, item in enumerate(existing_links):
             if (item.source_table, item.source_record_id) != link_key:
                 continue
             merged_refs = tuple(
-                value
-                for value in dict.fromkeys([*item.evidence_refs, *evidence_refs])
-                if value
+                value for value in dict.fromkeys([*item.evidence_refs, *evidence_refs]) if value
             )
             existing_links[index] = replace(item, evidence_refs=merged_refs)
             merged = True
@@ -217,9 +217,11 @@ def merge_canonical_entities(
         raise ValueError(f"target canonical entity '{target_stable_id}' is merged and unavailable")
 
     updated = [
-        replace(source, merged_into=target_stable_id, updated_at=timestamp)
-        if row.stable_id == source_stable_id
-        else row
+        (
+            replace(source, merged_into=target_stable_id, updated_at=timestamp)
+            if row.stable_id == source_stable_id
+            else row
+        )
         for row in rows
     ]
     return _sorted_entities(updated)
