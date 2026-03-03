@@ -288,6 +288,30 @@ def curated_cash_flow_rows(
     rows: list[CuratedCashFlowRow] = []
     for row in cash_flow_facts:
         _ensure_plan_is_known(row.context.plan_id, known_plan_ids=known_plan_ids)
+        _require_normalized_unit(
+            row.beginning_aum.normalized_unit,
+            metric_name="beginning_aum",
+        )
+        _require_normalized_unit(
+            row.ending_aum.normalized_unit,
+            metric_name="ending_aum",
+        )
+        _require_normalized_unit(
+            row.employer_contributions.normalized_unit,
+            metric_name="employer_contributions",
+        )
+        _require_normalized_unit(
+            row.employee_contributions.normalized_unit,
+            metric_name="employee_contributions",
+        )
+        _require_normalized_unit(
+            row.benefit_payments.normalized_unit,
+            metric_name="benefit_payments",
+        )
+        _require_normalized_unit(
+            row.refunds.normalized_unit,
+            metric_name="refunds",
+        )
         rows.append(
             CuratedCashFlowRow(
                 plan_id=row.context.plan_id,

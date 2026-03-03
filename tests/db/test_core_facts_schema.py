@@ -104,6 +104,61 @@ def test_query_bitemporal_as_of_filters_by_effective_and_ingestion_dates() -> No
     assert as_of[0].metric_value.normalized_value == 0.77
 
 
+def test_query_bitemporal_as_of_raises_for_invalid_temporal_strings() -> None:
+    facts = [
+        FundedStatusFact(
+            context=_context(
+                effective_date="2024-06-30",
+                ingestion_date="2025-01-01",
+            ),
+            metric_name="funded_ratio",
+            metric_value=_value(as_reported=0.77, normalized=0.77, unit="ratio"),
+            confidence=0.9,
+            evidence_refs=("p.1",),
+        )
+    ]
+    with pytest.raises(ValueError, match="effective_date must be an ISO-8601"):
+        query_bitemporal_as_of(
+            facts,
+            effective_date="not-a-date",
+            ingestion_date="2025-03-01",
+        )
+
+
+def test_query_bitemporal_as_of_accepts_mixed_naive_and_aware_temporal_values() -> None:
+    facts = [
+        FundedStatusFact(
+            context=_context(
+                effective_date="2024-06-30",
+                ingestion_date="2025-01-01T00:00:00Z",
+            ),
+            metric_name="funded_ratio",
+            metric_value=_value(as_reported=0.77, normalized=0.77, unit="ratio"),
+            confidence=0.9,
+            evidence_refs=("p.1",),
+        ),
+        FundedStatusFact(
+            context=_context(
+                effective_date="2025-06-30T00:00:00+00:00",
+                ingestion_date="2025-08-01",
+            ),
+            metric_name="funded_ratio",
+            metric_value=_value(as_reported=0.79, normalized=0.79, unit="ratio"),
+            confidence=0.9,
+            evidence_refs=("p.2",),
+        ),
+    ]
+
+    as_of = query_bitemporal_as_of(
+        facts,
+        effective_date="2024-12-31T00:00:00+00:00",
+        ingestion_date="2025-03-01",
+    )
+
+    assert len(as_of) == 1
+    assert as_of[0].metric_value.normalized_value == 0.77
+
+
 def test_curated_view_builders_enforce_known_plan_and_normalized_values() -> None:
     known_plan_ids = {"CA-PERS"}
     funded = [
@@ -142,6 +197,35 @@ def test_curated_view_builders_enforce_known_plan_and_normalized_values() -> Non
         curated_funded_and_actuarial_rows(
             funded_facts=funded_missing_normalized,
             actuarial_facts=[],
+            known_plan_ids=known_plan_ids,
+        )
+
+
+def test_curated_cash_flow_rows_require_normalized_units() -> None:
+    known_plan_ids = {"CA-PERS"}
+    with pytest.raises(CuratedIntegrityError, match="missing normalized unit"):
+        curated_cash_flow_rows(
+            cash_flow_facts=[
+                CashFlowFact(
+                    context=_context(
+                        effective_date="2024-06-30",
+                        ingestion_date="2025-01-01",
+                    ),
+                    beginning_aum=DualReportedValue(
+                        as_reported_value=1_000,
+                        normalized_value=1_000,
+                        as_reported_unit="usd",
+                        normalized_unit=None,
+                    ),
+                    ending_aum=_value(as_reported=1_100, normalized=1_100, unit="usd"),
+                    employer_contributions=_value(as_reported=80, normalized=80, unit="usd"),
+                    employee_contributions=_value(as_reported=30, normalized=30, unit="usd"),
+                    benefit_payments=_value(as_reported=60, normalized=60, unit="usd"),
+                    refunds=_value(as_reported=5, normalized=5, unit="usd"),
+                    confidence=0.9,
+                    evidence_refs=("p.15",),
+                )
+            ],
             known_plan_ids=known_plan_ids,
         )
 
@@ -344,3 +428,12 @@ def test_migration_files_include_required_bitemporal_columns_and_cash_flow_field
         "refunds",
     ):
         assert column in sql
+    for clause in (
+        "TRIM(beginning_aum_normalized_unit) <> ''",
+        "TRIM(ending_aum_normalized_unit) <> ''",
+        "TRIM(employer_contributions_normalized_unit) <> ''",
+        "TRIM(employee_contributions_normalized_unit) <> ''",
+        "TRIM(benefit_payments_normalized_unit) <> ''",
+        "TRIM(refunds_normalized_unit) <> ''",
+    ):
+        assert clause in sql
