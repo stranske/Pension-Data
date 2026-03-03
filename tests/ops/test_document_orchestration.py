@@ -65,9 +65,21 @@ def _parser(item: SourceDocumentJobItem, _artifact: object) -> RawFundedActuaria
         {"label": "allocation:Public Equity", "value": "45%", "evidence_ref": "p.61"},
         {"label": "allocation:Private Equity", "value": "25%", "evidence_ref": "p.61"},
         {"label": "fee:Mercer:management_fee:rate", "value": "0.55%", "evidence_ref": "p.62"},
-        {"label": "fee:Mercer:management_fee:amount", "value": "$2.4 million", "evidence_ref": "p.62"},
-        {"label": "risk:derivatives:swaps:policy_limit", "value": "$45 million", "evidence_ref": "p.70"},
-        {"label": "risk:derivatives:swaps:realized_exposure", "value": "$21 million", "evidence_ref": "p.70"},
+        {
+            "label": "fee:Mercer:management_fee:amount",
+            "value": "$2.4 million",
+            "evidence_ref": "p.62",
+        },
+        {
+            "label": "risk:derivatives:swaps:policy_limit",
+            "value": "$45 million",
+            "evidence_ref": "p.70",
+        },
+        {
+            "label": "risk:derivatives:swaps:realized_exposure",
+            "value": "$21 million",
+            "evidence_ref": "p.70",
+        },
         {
             "label": "risk:securities_lending:core:policy_limit",
             "value": "$30 million",
@@ -78,9 +90,21 @@ def _parser(item: SourceDocumentJobItem, _artifact: object) -> RawFundedActuaria
             "value": "$12 million",
             "evidence_ref": "p.71",
         },
-        {"label": "position:Alpha Capital:Fund I:market_value", "value": "$33 million", "evidence_ref": "p.88"},
-        {"label": "position:Alpha Capital:Fund I:commitment", "value": "$40 million", "evidence_ref": "p.88"},
-        {"label": "position:Alpha Capital:Fund I:unfunded", "value": "$7 million", "evidence_ref": "p.88"},
+        {
+            "label": "position:Alpha Capital:Fund I:market_value",
+            "value": "$33 million",
+            "evidence_ref": "p.88",
+        },
+        {
+            "label": "position:Alpha Capital:Fund I:commitment",
+            "value": "$40 million",
+            "evidence_ref": "p.88",
+        },
+        {
+            "label": "position:Alpha Capital:Fund I:unfunded",
+            "value": "$7 million",
+            "evidence_ref": "p.88",
+        },
     )
     return RawFundedActuarialInput(
         source_document_id=item.source_document_id,
@@ -167,7 +191,7 @@ def test_domain_failure_is_isolated_and_other_domains_still_publish(
         _raise_risk,
     )
 
-    ledger, _state, artifacts = run_document_orchestration(
+    ledger, state, artifacts = run_document_orchestration(
         documents=[document],
         parser=_parser,
         state=DocumentOrchestrationState(),
@@ -180,6 +204,7 @@ def test_domain_failure_is_isolated_and_other_domains_still_publish(
     assert len(_artifact_rows(artifacts, "financial_flow_rows")) == 1
     assert len(_artifact_rows(artifacts, "consultant_engagement_rows")) == 1
     assert any("domain=risk_exposure" in failure.message for failure in ledger.failures)
+    assert state.processed_artifact_ids == ()
 
 
 def test_revised_document_reprocesses_with_lineage_preserved() -> None:

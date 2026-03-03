@@ -494,7 +494,9 @@ def _build_manager_disclosure_inputs(
     return disclosures
 
 
-def _risk_kind_from_tokens(tokens: Sequence[str]) -> Literal["derivatives", "securities_lending"] | None:
+def _risk_kind_from_tokens(
+    tokens: Sequence[str],
+) -> Literal["derivatives", "securities_lending"] | None:
     if len(tokens) < 2:
         return None
     normalized = _canonical_label(tokens[1]).replace(" ", "_")
@@ -558,7 +560,9 @@ def _build_risk_inputs(
             evidence_refs=tuple(dict.fromkeys(cast(list[str], payload["evidence_refs"]))),
             source_url=raw.source_url,
         )
-        for topic, payload in sorted(derivatives.items(), key=lambda item: _canonical_label(item[0]))
+        for topic, payload in sorted(
+            derivatives.items(), key=lambda item: _canonical_label(item[0])
+        )
     ]
     securities_rows = [
         SecuritiesLendingDisclosureInput(
@@ -690,17 +694,17 @@ def _append_domain_metrics(
         if stage == "parse_extract":
             record_count = counters.parse_records
             error_count = counters.parse_errors
-            attempt_count = max(counters.parse_attempts, 1)
+            attempt_count = counters.parse_attempts
             notes = "domain extractor execution"
         elif stage == "validation":
             record_count = counters.validation_records
             error_count = counters.validation_errors
-            attempt_count = max(counters.validation_attempts, 1)
+            attempt_count = counters.validation_attempts
             notes = "domain warning routing + quality checks"
         else:
             record_count = counters.publish_records
             error_count = counters.publish_errors
-            attempt_count = max(counters.publish_attempts, 1)
+            attempt_count = counters.publish_attempts
             notes = "domain publish row aggregation"
         stage_metrics.append(
             OrchestrationStageMetric(
@@ -1150,7 +1154,8 @@ def run_document_orchestration(
                     list[ConsultantEntity], consultant_payload["consultant_entities"]
                 )
                 consultant_engagements = cast(
-                    list[PlanConsultantEngagement], consultant_payload["plan_consultant_engagements"]
+                    list[PlanConsultantEngagement],
+                    consultant_payload["plan_consultant_engagements"],
                 )
                 consultant_recommendations = cast(
                     list[ConsultantRecommendation], consultant_payload["consultant_recommendations"]
@@ -1220,7 +1225,9 @@ def run_document_orchestration(
             )
             manager_acc.parse_records += len(manager_position_rows) + len(lifecycle_rows)
             manager_acc.validation_attempts += 1
-            manager_acc.validation_records += len(manager_position_warnings) + len(lifecycle_warnings)
+            manager_acc.validation_records += len(manager_position_warnings) + len(
+                lifecycle_warnings
+            )
             manager_acc.publish_attempts += 1
             manager_acc.publish_records += len(manager_position_rows) + len(lifecycle_rows)
         except Exception as exc:  # noqa: BLE001
@@ -1339,7 +1346,9 @@ def run_document_orchestration(
             outcome_note = "no publishable domain output"
         elif domain_failures:
             document_status = "processed"
-            outcome_note = f"processed with domain failures: {', '.join(sorted(set(domain_failures)))}"
+            outcome_note = (
+                f"processed with domain failures: {', '.join(sorted(set(domain_failures)))}"
+            )
         else:
             document_status = "processed"
             outcome_note = (
@@ -1348,7 +1357,7 @@ def run_document_orchestration(
                 else "processed active artifact"
             )
 
-        if document_status == "processed":
+        if document_status == "processed" and not domain_failures:
             processed_ids.add(artifact.artifact_id)
 
         document_outcomes.append(
@@ -1372,7 +1381,7 @@ def run_document_orchestration(
             record_count=parse_successes,
             error_count=parse_failures,
             attempt_count=max(total_attempts, 1),
-            notes="parser pass before domain extraction",
+            notes="combined parse and domain extraction stage (see domain metrics for per-domain errors)",
         )
     )
     _append_domain_metrics(
