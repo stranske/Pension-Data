@@ -165,7 +165,9 @@ def _with_citation_columns(
     row: dict[str, Any] = dict(data)
     row["citation_status"] = citation_status
     row["citation_report_id"] = citation.report_id if citation is not None else None
-    row["citation_source_document_id"] = citation.source_document_id if citation is not None else None
+    row["citation_source_document_id"] = (
+        citation.source_document_id if citation is not None else None
+    )
     row["citation_source_url"] = citation.source_url if citation is not None else None
     row["citation_page_number"] = citation.page_number if citation is not None else None
     row["citation_evidence_ref"] = citation.evidence_ref if citation is not None else None
