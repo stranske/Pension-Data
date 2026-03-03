@@ -13,6 +13,7 @@ EXPECTED_REFERENCES: tuple[str, ...] = (
     "src/pension_data/quality/sla_metrics.py",
     "src/pension_data/monitoring/telemetry.py",
     "src/pension_data/quality/anomaly_rules.py",
+    "src/pension_data/quality/parser_output_validation.py",
     "src/pension_data/review_queue/anomalies.py",
     "tools/replay/harness.py",
     "tools/replay/runner.py",
@@ -23,6 +24,8 @@ EXPECTED_REFERENCES: tuple[str, ...] = (
     "docs/runbooks/source-map-breakage.md",
     "docs/runbooks/revised-file-mismatch.md",
     "docs/runbooks/parser-fallback-exhaustion.md",
+    "docs/runbooks/parser-output-validation-failure.md",
+    "docs/runbooks/parser-low-confidence-output.md",
     "docs/runbooks/anomaly-flood.md",
 )
 

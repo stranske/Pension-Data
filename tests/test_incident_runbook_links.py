@@ -46,6 +46,16 @@ def _run_node(script: str) -> str:
             "docs/runbooks/parser-fallback-exhaustion.md#parser-fallback-exhaustion",
         ),
         (
+            "parser_output_validation_failure: schema_invalid and provenance_invalid blocked promotion",
+            "parser_output_validation_failure",
+            "docs/runbooks/parser-output-validation-failure.md#parser-output-validation-failure",
+        ),
+        (
+            "parser_low_confidence_output routed to high-priority review queue",
+            "parser_low_confidence_output",
+            "docs/runbooks/parser-low-confidence-output.md#parser-low-confidence-output",
+        ),
+        (
             "anomaly_flood detected with anomaly spike and queue depth growth",
             "anomaly_flood",
             "docs/runbooks/anomaly-flood.md#anomaly-flood",

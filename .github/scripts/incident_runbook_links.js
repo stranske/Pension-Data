@@ -31,6 +31,24 @@ const INCIDENT_RUNBOOKS = [
     ],
   },
   {
+    id: 'parser_output_validation_failure',
+    path: 'docs/runbooks/parser-output-validation-failure.md#parser-output-validation-failure',
+    patterns: [
+      /\bparser[_\s-]?output[_\s-]?validation[_\s-]?failure\b/i,
+      /\b(schema_invalid|numeric_out_of_range|provenance_(?:missing|invalid))\b/i,
+      /\bvalidation\b.*\bblocked\b.*\bpromotion\b/i,
+    ],
+  },
+  {
+    id: 'parser_low_confidence_output',
+    path: 'docs/runbooks/parser-low-confidence-output.md#parser-low-confidence-output',
+    patterns: [
+      /\bparser[_\s-]?low[_\s-]?confidence[_\s-]?output\b/i,
+      /\blow[_\s-]?confidence\b.*\bhigh[_\s-]?priority[_\s-]?review\b/i,
+      /\bparser\b.*\bconfidence\b.*\bqueue\b/i,
+    ],
+  },
+  {
     id: 'anomaly_flood',
     path: 'docs/runbooks/anomaly-flood.md#anomaly-flood',
     patterns: [
