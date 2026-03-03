@@ -143,4 +143,7 @@ def test_one_pdf_pilot_default_source_document_id_is_content_stable(
     first_manifest = json.loads(Path(first["run_manifest_json"]).read_text(encoding="utf-8"))
     second_manifest = json.loads(Path(second["run_manifest_json"]).read_text(encoding="utf-8"))
 
-    assert first_manifest["input"]["source_document_id"] == second_manifest["input"]["source_document_id"]
+    assert (
+        first_manifest["input"]["source_document_id"]
+        == second_manifest["input"]["source_document_id"]
+    )

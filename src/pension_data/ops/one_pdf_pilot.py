@@ -53,9 +53,7 @@ def _default_source_document_id(
     plan_period: str,
     pdf_bytes: bytes,
 ) -> str:
-    fingerprint = hashlib.sha256(
-        pdf_bytes
-    ).hexdigest()[:16]
+    fingerprint = hashlib.sha256(pdf_bytes).hexdigest()[:16]
     return f"pilot:{plan_id}:{plan_period}:{fingerprint}"
 
 
