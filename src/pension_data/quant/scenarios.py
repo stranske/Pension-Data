@@ -6,6 +6,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
+from numbers import Real
 from random import Random
 from statistics import fmean
 from typing import Literal
@@ -76,15 +77,30 @@ def _validate_input(scenario: ScenarioInput, config: ScenarioRunConfig) -> None:
     for metric_name, shock in scenario.macro_shocks.items():
         if not metric_name.strip():
             raise ValueError("macro_shocks keys must be non-empty")
-        if not isinstance(shock, float):
-            raise ValueError("macro_shocks values must be floats")
+        if isinstance(shock, bool) or not isinstance(shock, Real):
+            raise ValueError("macro_shocks values must be numeric")
+
+
+def _normalized_macro_shocks(values: Mapping[str, float]) -> dict[str, float]:
+    normalized: dict[str, float] = {}
+    for metric_name, shock in sorted(values.items(), key=lambda item: item[0]):
+        normalized[metric_name.strip()] = float(shock)
+    return normalized
 
 
 def _config_hash(scenario: ScenarioInput, config: ScenarioRunConfig, mode: ScenarioMode) -> str:
+    scenario_payload = {
+        "name": scenario.name,
+        "macro_shocks": _normalized_macro_shocks(scenario.macro_shocks),
+        "contribution_delta": scenario.contribution_delta,
+        "fee_delta_bps": scenario.fee_delta_bps,
+        "return_override": scenario.return_override,
+    }
+    config_payload = asdict(config)
     payload = {
         "mode": mode,
-        "scenario": asdict(scenario),
-        "config": asdict(config),
+        "scenario": scenario_payload,
+        "config": config_payload,
     }
     encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -92,13 +108,25 @@ def _config_hash(scenario: ScenarioInput, config: ScenarioRunConfig, mode: Scena
 
 def _metadata(
     *,
+    plan_id: str,
+    plan_period: str,
     scenario: ScenarioInput,
     config: ScenarioRunConfig,
     mode: ScenarioMode,
     source_snapshot_id: str,
 ) -> ReproducibilityMetadata:
+    run_token = "|".join(
+        (
+            plan_id.strip(),
+            plan_period.strip(),
+            mode,
+            scenario.name.strip(),
+            source_snapshot_id.strip(),
+        )
+    )
+    run_fingerprint = hashlib.sha256(run_token.encode("utf-8")).hexdigest()[:12]
     return ReproducibilityMetadata(
-        run_id=f"scenario:{mode}:{scenario.name}",
+        run_id=f"scenario:{mode}:{plan_id.strip()}:{plan_period.strip()}:{run_fingerprint}",
         config_hash=_config_hash(scenario, config, mode),
         module_version=config.module_version,
         random_seed=config.random_seed,
@@ -158,12 +186,24 @@ def run_deterministic_scenario(
         plan_period=plan_period,
         rows=tuple(rows),
         reproducibility=_metadata(
+            plan_id=plan_id,
+            plan_period=plan_period,
             scenario=scenario,
             config=config,
             mode="deterministic",
             source_snapshot_id=source_snapshot_id,
         ),
     )
+
+
+def _percentile(values: list[float], *, q: float) -> float:
+    if not values:
+        raise ValueError("values must be non-empty")
+    if q < 0 or q > 1:
+        raise ValueError("q must be between 0 and 1")
+    ordered = sorted(values)
+    index = int(round((len(ordered) - 1) * q))
+    return ordered[index]
 
 
 def run_monte_carlo_scenario(
@@ -193,12 +233,28 @@ def run_monte_carlo_scenario(
             for _ in range(config.simulation_draws)
         ]
         simulated_mean = fmean(draws)
-        rows.append(
-            ScenarioResultRow(
-                metric_name=f"{metric_name}.mean",
-                baseline_value=baseline_value,
-                scenario_value=simulated_mean,
-                delta_value=simulated_mean - baseline_value,
+        simulated_p05 = _percentile(draws, q=0.05)
+        simulated_p95 = _percentile(draws, q=0.95)
+        rows.extend(
+            (
+                ScenarioResultRow(
+                    metric_name=f"{metric_name}.mean",
+                    baseline_value=baseline_value,
+                    scenario_value=simulated_mean,
+                    delta_value=simulated_mean - baseline_value,
+                ),
+                ScenarioResultRow(
+                    metric_name=f"{metric_name}.p05",
+                    baseline_value=baseline_value,
+                    scenario_value=simulated_p05,
+                    delta_value=simulated_p05 - baseline_value,
+                ),
+                ScenarioResultRow(
+                    metric_name=f"{metric_name}.p95",
+                    baseline_value=baseline_value,
+                    scenario_value=simulated_p95,
+                    delta_value=simulated_p95 - baseline_value,
+                ),
             )
         )
     return ScenarioResult(
@@ -208,6 +264,8 @@ def run_monte_carlo_scenario(
         plan_period=plan_period,
         rows=tuple(rows),
         reproducibility=_metadata(
+            plan_id=plan_id,
+            plan_period=plan_period,
             scenario=scenario,
             config=config,
             mode="simulation",

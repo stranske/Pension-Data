@@ -29,7 +29,7 @@ def test_deterministic_scenario_applies_shocks_and_adjustments() -> None:
         baseline_metrics=_baseline_metrics(),
         scenario=ScenarioInput(
             name="stress-up",
-            macro_shocks={"funded_ratio": -0.05},
+            macro_shocks={"funded_ratio": -0.05, "employee_contributions": 1},
             contribution_delta=1.0,
             fee_delta_bps=25.0,
             return_override=0.02,
@@ -42,10 +42,12 @@ def test_deterministic_scenario_applies_shocks_and_adjustments() -> None:
     assert result.mode == "deterministic"
     assert row_map["funded_ratio"].scenario_value == pytest.approx(0.734)
     assert row_map["employer_contributions"].scenario_value == pytest.approx(19.0)
+    assert row_map["employee_contributions"].scenario_value == pytest.approx(11.0)
     assert row_map["fee_rate"].scenario_value == pytest.approx(0.008)
     assert row_map["net_return"].scenario_value == pytest.approx(0.02)
     assert result.reproducibility.config_hash
     assert result.reproducibility.source_snapshot_id == "snapshot:2026-03-03"
+    assert result.reproducibility.run_id.startswith("scenario:deterministic:CA-PERS:FY2024:")
 
 
 def test_simulation_requires_seed_for_reproducibility() -> None:
@@ -72,5 +74,6 @@ def test_simulation_output_shape_is_chart_ready() -> None:
 
     assert result.mode == "simulation"
     assert result.reproducibility.random_seed == 42
-    assert len(result.rows) == len(_baseline_metrics())
-    assert all(row.metric_name.endswith(".mean") for row in result.rows)
+    assert len(result.rows) == (3 * len(_baseline_metrics()))
+    suffixes = {row.metric_name.split(".")[-1] for row in result.rows}
+    assert suffixes == {"mean", "p05", "p95"}
