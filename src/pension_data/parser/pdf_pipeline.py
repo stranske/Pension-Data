@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from io import BytesIO
+
+from pypdf import PdfReader
 
 from pension_data.db.models.funded_actuarial import (
     FUNDED_ACTUARIAL_REQUIRED_METRICS,
@@ -26,6 +29,11 @@ _TEXT_TOKEN_PATTERN = re.compile(r"\((?P<token>(?:\\.|[^\\)])+)\)\s*Tj")
 _PAGE_MARKER_PATTERN = re.compile(r"(?m)^\s*%%Page:\s*\d+\s+\d+\s*$")
 _TABLE_SPLIT_PATTERN = re.compile(r"\s{2,}|\|")
 _NON_PRINTABLE_PATTERN = re.compile(r"[^\x20-\x7E]")
+_VALUE_TOKEN_PATTERN = re.compile(r"[-+]?\$?\d[\d,]*(?:\.\d+)?%?")
+_PDF_INTERNAL_TOKEN_PATTERN = re.compile(
+    r"(?:\bobj\b|endobj|stream|endstream|xref|trailer|startxref|/type|/length|/filter|flatedecode)",
+    re.IGNORECASE,
+)
 _METRIC_HINTS: tuple[str, ...] = (
     "funded ratio",
     "funding ratio",
@@ -104,6 +112,35 @@ def _coerce_printable(text: str) -> str:
     return " ".join(collapsed.split())
 
 
+def _looks_like_noise_line(line: str) -> bool:
+    lowered = line.lower().strip()
+    if not lowered:
+        return True
+    if lowered.startswith("%pdf"):
+        return True
+    if lowered in {"xref", "trailer", "startxref", "stream", "endstream", "endobj", "%%eof"}:
+        return True
+    if _PDF_INTERNAL_TOKEN_PATTERN.search(lowered) and len(lowered.split()) <= 10:
+        return True
+
+    letters = sum(char.isalpha() for char in line)
+    digits = sum(char.isdigit() for char in line)
+    if letters == 0 and digits < 2:
+        return True
+
+    return bool(len(line) > 180 and line.count(" ") < 3)
+
+
+def _normalize_candidate_lines(lines: Sequence[str]) -> list[str]:
+    normalized_lines: list[str] = []
+    for line in lines:
+        normalized = _coerce_printable(line)
+        if not normalized or _looks_like_noise_line(normalized):
+            continue
+        normalized_lines.append(normalized)
+    return normalized_lines
+
+
 def _split_pages(decoded: str) -> tuple[str, ...]:
     normalized = decoded.replace("\r\n", "\n").replace("\r", "\n")
     if "\f" in normalized:
@@ -124,19 +161,37 @@ def _extract_page_lines(page_text: str) -> list[str]:
         for match in _TEXT_TOKEN_PATTERN.finditer(page_text)
     ]
     if token_lines:
-        return [line for line in token_lines if line]
+        return _normalize_candidate_lines(token_lines)
 
-    normalized_lines: list[str] = []
-    for line in page_text.splitlines():
-        normalized = _coerce_printable(line)
-        if normalized:
-            normalized_lines.append(normalized)
-    return normalized_lines
+    return _normalize_candidate_lines(page_text.splitlines())
 
 
 def _looks_like_metric_label(label: str) -> bool:
     lowered = label.lower()
     return any(hint in lowered for hint in _METRIC_HINTS)
+
+
+def _metric_like_row_from_line(line: str) -> tuple[str, str] | None:
+    lowered = line.lower()
+    if any(token in lowered for token in (" was ", " were ", " is ", " are ", " remained ")):
+        return None
+    if len(line.split()) > 16:
+        return None
+
+    for hint in sorted(_METRIC_HINTS, key=len, reverse=True):
+        hint_index = lowered.find(hint)
+        if hint_index == -1:
+            continue
+        tail = line[hint_index + len(hint) :]
+        value_match = _VALUE_TOKEN_PATTERN.search(tail)
+        if value_match is None:
+            continue
+        label = line[hint_index : hint_index + len(hint)]
+        value = value_match.group(0)
+        if "%" in tail[value_match.start() : value_match.end() + 4] and not value.endswith("%"):
+            value += "%"
+        return (label, value)
+    return None
 
 
 def _extract_table_rows(*, page_number: int, lines: Sequence[str]) -> list[dict[str, str]]:
@@ -153,6 +208,10 @@ def _extract_table_rows(*, page_number: int, lines: Sequence[str]) -> list[dict[
             left, right = line.split(":", 1)
             if _looks_like_metric_label(left):
                 label, value = left.strip(), right.strip()
+        else:
+            metric_like_row = _metric_like_row_from_line(line)
+            if metric_like_row is not None:
+                label, value = metric_like_row
         if not label or not value:
             continue
         rows.append(
@@ -236,9 +295,32 @@ def _best_partial(stage_candidates: dict[str, _StageCandidate]) -> _StageCandida
 
 
 def _build_text_stage(input_payload: PDFParserInput) -> ParserStageOutput:
-    decoded = input_payload.pdf_bytes.decode("latin-1", errors="ignore")
-    pages = _split_pages(decoded)
-    return _extract_text_and_tables(page_texts=pages, stage_confidence=0.84)
+    page_texts: tuple[str, ...] = ()
+    try:
+        reader = PdfReader(BytesIO(input_payload.pdf_bytes), strict=False)
+        page_texts = tuple(page.extract_text() or "" for page in reader.pages)
+    except Exception:  # noqa: BLE001 - decoding/parsing errors should fall through to fallback path
+        page_texts = ()
+
+    if not any(text.strip() for text in page_texts):
+        decoded = input_payload.pdf_bytes.decode("latin-1", errors="ignore")
+        page_texts = _split_pages(decoded)
+
+    output = _extract_text_and_tables(page_texts=page_texts, stage_confidence=0.84)
+    if input_payload.ocr_extract is None:
+        return output
+
+    # Force OCR fallback for obviously low-quality or empty extraction from native text parsing.
+    has_no_signal = not output.table_rows and not output.text_blocks
+    likely_noisy_decode = not output.table_rows and len(output.text_blocks) > 4_000
+    if has_no_signal or likely_noisy_decode:
+        return ParserStageOutput(
+            text_blocks=(),
+            text_block_evidence_refs=(),
+            table_rows=(),
+            stage_confidence=0.35,
+        )
+    return output
 
 
 def _build_table_only_stage(input_payload: PDFParserInput) -> ParserStageOutput:

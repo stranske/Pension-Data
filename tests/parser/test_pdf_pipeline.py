@@ -42,6 +42,8 @@ def test_real_pension_pdf_fixture_parses_end_to_end_into_extraction_ready_input(
     )
     assert diagnostics == []
     assert len(facts) == 7
+    assert all("%pdf" not in block.lower() for block in parser_result.raw.text_blocks)
+    assert all("startxref" not in block.lower() for block in parser_result.raw.text_blocks)
 
 
 def test_text_fallback_carries_page_level_text_evidence_refs() -> None:
@@ -118,3 +120,29 @@ def test_escalation_payload_is_actionable_when_all_stages_fail() -> None:
     assert len(parser_result.missing_metrics) == 7
     assert "parser_fallback_exhaustion" in parser_result.actionable_flags
     assert "configure_ocr_fallback" in parser_result.actionable_flags
+
+
+def test_parser_filters_pdf_internal_noise_lines_from_fallback_text() -> None:
+    noisy_pdf = (
+        b"%PDF-1.4\n"
+        b"1 0 obj\n"
+        b"<< /Type /Catalog /Pages 2 0 R >>\n"
+        b"endobj\n"
+        b"%%Page: 1 1\n"
+        b"Funded ratio 80.0%\n"
+        b"AAL 600 million\n"
+        b"stream\n"
+        b"xref\n"
+        b"trailer\n"
+        b"startxref\n"
+        b"%%EOF\n"
+    )
+
+    parser_result = parse_pdf_to_funded_input(_base_input(pdf_bytes=noisy_pdf))
+    assert parser_result.raw is not None
+    lowered_blocks = [block.lower() for block in parser_result.raw.text_blocks]
+    lowered_table_labels = [row.get("label", "").lower() for row in parser_result.raw.table_rows]
+    assert any("funded ratio" in block for block in lowered_blocks + lowered_table_labels)
+    assert all(" obj" not in block for block in lowered_blocks + lowered_table_labels)
+    assert all("startxref" not in block for block in lowered_blocks + lowered_table_labels)
+    assert all("%%eof" not in block for block in lowered_blocks + lowered_table_labels)
