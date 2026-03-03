@@ -7,7 +7,15 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
+from pension_data.db.models.consultant_attribution import ConsultantAttributionObservation
+from pension_data.db.models.consultants import (
+    ConsultantEntity,
+    ConsultantRecommendation,
+    PlanConsultantEngagement,
+)
+from pension_data.db.models.financial_flows import PlanFinancialFlow
 from pension_data.db.models.funded_actuarial import (
     ExtractionDiagnostic,
     FundedActuarialStagingFact,
@@ -18,6 +26,8 @@ from pension_data.db.models.investment_allocations_fees import (
     ManagerFeeObservation,
 )
 from pension_data.db.models.investment_positions import PlanManagerFundPosition
+from pension_data.db.models.manager_lifecycle import ManagerLifecycleEvent
+from pension_data.db.models.risk_exposures import RiskExposureObservation
 from pension_data.extract.investment.manager_positions import (
     ExtractionWarning as PositionExtractionWarning,
 )
@@ -80,6 +90,44 @@ EXTRACTION_WARNING_COLUMNS: tuple[str, ...] = (
     "source_url",
 )
 
+ComponentDatasetStatus = Literal["present", "partial", "not_disclosed"]
+SCHEMA_COMPONENT_TABLES: tuple[str, ...] = (
+    "pension_plan",
+    "source_document",
+    "document_version",
+    "plan_period",
+    "metric_observation",
+    "evidence_reference",
+    "investment_exposure",
+    "manager_entity",
+    "fund_vehicle_entity",
+    "plan_manager_fund_position",
+    "manager_lifecycle_event",
+    "benchmark_definition",
+    "benchmark_version",
+    "performance_observation",
+    "fee_observation",
+    "risk_exposure_observation",
+    "consultant_entity",
+    "plan_consultant_engagement",
+    "consultant_recommendation",
+    "consultant_attribution_observation",
+    "plan_financial_flow",
+)
+SCHEMA_COMPONENT_DATASET_COLUMNS: tuple[str, ...] = (
+    "component_name",
+    "status",
+    "row_count",
+    "plan_id",
+    "plan_period",
+    "effective_date",
+    "ingestion_date",
+    "source_document_id",
+    "confidence",
+    "evidence_refs",
+    "notes",
+)
+
 _FUNDED_METRIC_NAMES: frozenset[str] = frozenset({"funded_ratio", "aal_usd", "ava_usd"})
 
 
@@ -112,6 +160,7 @@ def extraction_persistence_contract() -> dict[str, tuple[str, ...]]:
         "staging_core_metrics": STAGING_CORE_METRICS_COLUMNS,
         "staging_manager_fund_vehicle_relationships": STAGING_MANAGER_RELATIONSHIP_COLUMNS,
         "extraction_warnings": EXTRACTION_WARNING_COLUMNS,
+        "schema_component_datasets": SCHEMA_COMPONENT_DATASET_COLUMNS,
     }
 
 
@@ -689,6 +738,197 @@ def persist_extraction_warnings(
     )
 
 
+def _collect_refs_from_row_dicts(rows: Sequence[dict[str, object]]) -> tuple[str, ...]:
+    refs: list[str] = []
+    for row in rows:
+        values = row.get("evidence_refs")
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            normalized = value.strip()
+            if not normalized or normalized in refs:
+                continue
+            refs.append(normalized)
+    return tuple(sorted(refs))
+
+
+def _component_dataset_row(
+    *,
+    component_name: str,
+    status: ComponentDatasetStatus,
+    row_count: int,
+    plan_id: str | None,
+    plan_period: str | None,
+    effective_date: str | None,
+    ingestion_date: str | None,
+    source_document_id: str | None,
+    evidence_refs: tuple[str, ...],
+    notes: str,
+) -> dict[str, object]:
+    confidence: float | None
+    if status == "present":
+        confidence = 1.0
+    elif status == "partial":
+        confidence = 0.5
+    else:
+        confidence = None
+    return {
+        "component_name": component_name,
+        "status": status,
+        "row_count": row_count,
+        "plan_id": plan_id,
+        "plan_period": plan_period,
+        "effective_date": effective_date,
+        "ingestion_date": ingestion_date,
+        "source_document_id": source_document_id,
+        "confidence": confidence,
+        "evidence_refs": list(evidence_refs),
+        "notes": notes,
+    }
+
+
+def build_schema_component_datasets(
+    *,
+    persisted_core_metrics: Sequence[dict[str, object]],
+    relationship_rows: Sequence[dict[str, object]],
+    warning_rows: Sequence[dict[str, object]],
+    funded_warning_context: WarningPersistenceContext | None = None,
+    manager_position_rows: Sequence[PlanManagerFundPosition] = (),
+    plan_financial_flow_rows: Sequence[PlanFinancialFlow] = (),
+    risk_exposure_rows: Sequence[RiskExposureObservation] = (),
+    consultant_entities: Sequence[ConsultantEntity] = (),
+    consultant_engagements: Sequence[PlanConsultantEngagement] = (),
+    consultant_recommendations: Sequence[ConsultantRecommendation] = (),
+    consultant_attributions: Sequence[ConsultantAttributionObservation] = (),
+    manager_lifecycle_events: Sequence[ManagerLifecycleEvent] = (),
+) -> dict[str, list[dict[str, object]]]:
+    """Build one deterministic dataset row per schema component with present/partial/not_disclosed."""
+    plan_id = funded_warning_context.plan_id if funded_warning_context is not None else None
+    if plan_id is None:
+        plan_ids = sorted(
+            {
+                str(row.get("plan_id"))
+                for row in persisted_core_metrics
+                if isinstance(row.get("plan_id"), str) and str(row.get("plan_id")).strip()
+            }
+        )
+        plan_id = plan_ids[0] if plan_ids else None
+
+    plan_period = funded_warning_context.plan_period if funded_warning_context is not None else None
+    if plan_period is None:
+        periods = sorted(
+            {
+                str(row.get("plan_period"))
+                for row in persisted_core_metrics
+                if isinstance(row.get("plan_period"), str) and str(row.get("plan_period")).strip()
+            }
+        )
+        plan_period = periods[0] if periods else None
+
+    effective_date = funded_warning_context.effective_date if funded_warning_context else None
+    ingestion_date = funded_warning_context.ingestion_date if funded_warning_context else None
+    source_document_id = (
+        funded_warning_context.source_document_id if funded_warning_context else None
+    )
+    if source_document_id is None:
+        source_ids = sorted(
+            {
+                str(row.get("source_document_id"))
+                for row in persisted_core_metrics
+                if isinstance(row.get("source_document_id"), str)
+                and str(row.get("source_document_id")).strip()
+            }
+        )
+        source_document_id = source_ids[0] if source_ids else None
+
+    manager_names = {
+        row.manager_name.strip()
+        for row in manager_position_rows
+        if row.manager_name is not None and row.manager_name.strip()
+    }
+    fund_names = {
+        row.fund_name.strip()
+        for row in manager_position_rows
+        if row.fund_name is not None and row.fund_name.strip()
+    }
+    benchmark_versions = {
+        str(row.get("benchmark_version"))
+        for row in persisted_core_metrics
+        if isinstance(row.get("benchmark_version"), str) and str(row.get("benchmark_version")).strip()
+    }
+    benchmark_versions.update(
+        {
+            str(row.get("benchmark_version"))
+            for row in relationship_rows
+            if isinstance(row.get("benchmark_version"), str)
+            and str(row.get("benchmark_version")).strip()
+        }
+    )
+
+    evidence_refs = _collect_refs_from_row_dicts(
+        [*persisted_core_metrics, *relationship_rows, *warning_rows]
+    )
+    component_counts: dict[str, int] = {
+        "pension_plan": 1 if plan_id is not None else 0,
+        "source_document": 1 if source_document_id is not None else 0,
+        "document_version": 1 if source_document_id is not None else 0,
+        "plan_period": 1 if plan_period is not None else 0,
+        "metric_observation": len(persisted_core_metrics),
+        "evidence_reference": len(evidence_refs),
+        "investment_exposure": len(
+            [row for row in persisted_core_metrics if row.get("metric_family") == "allocation"]
+        ),
+        "manager_entity": len(manager_names),
+        "fund_vehicle_entity": len(fund_names),
+        "plan_manager_fund_position": len(manager_position_rows),
+        "manager_lifecycle_event": len(manager_lifecycle_events),
+        "benchmark_definition": 0,
+        "benchmark_version": len(benchmark_versions),
+        "performance_observation": 0,
+        "fee_observation": len([row for row in persisted_core_metrics if row.get("metric_family") == "fee"]),
+        "risk_exposure_observation": len(risk_exposure_rows),
+        "consultant_entity": len(consultant_entities),
+        "plan_consultant_engagement": len(consultant_engagements),
+        "consultant_recommendation": len(consultant_recommendations),
+        "consultant_attribution_observation": len(consultant_attributions),
+        "plan_financial_flow": len(plan_financial_flow_rows),
+    }
+
+    datasets: dict[str, list[dict[str, object]]] = {}
+    has_metric_payload = bool(persisted_core_metrics)
+    for component in SCHEMA_COMPONENT_TABLES:
+        count = component_counts.get(component, 0)
+        status: ComponentDatasetStatus
+        notes = "explicit non-disclosure marker"
+        if count > 0:
+            status = "present"
+            notes = "component rows emitted"
+        elif component in ("benchmark_definition", "performance_observation") and has_metric_payload:
+            status = "partial"
+            notes = "context available but dedicated component extraction is pending"
+        else:
+            status = "not_disclosed"
+
+        datasets[component] = [
+            _component_dataset_row(
+                component_name=component,
+                status=status,
+                row_count=count,
+                plan_id=plan_id,
+                plan_period=plan_period,
+                effective_date=effective_date,
+                ingestion_date=ingestion_date,
+                source_document_id=source_document_id,
+                evidence_refs=evidence_refs if status != "not_disclosed" else (),
+                notes=notes,
+            )
+        ]
+
+    return datasets
+
+
 def build_extraction_persistence_artifacts(
     *,
     funded_actuarial_rows: Sequence[FundedActuarialStagingFact] = (),
@@ -700,6 +940,13 @@ def build_extraction_persistence_artifacts(
     manager_position_rows: Sequence[PlanManagerFundPosition] = (),
     manager_position_warnings: Sequence[PositionExtractionWarning] = (),
     manager_position_context: PositionPersistenceContext | None = None,
+    plan_financial_flow_rows: Sequence[PlanFinancialFlow] = (),
+    risk_exposure_rows: Sequence[RiskExposureObservation] = (),
+    consultant_entities: Sequence[ConsultantEntity] = (),
+    consultant_engagements: Sequence[PlanConsultantEngagement] = (),
+    consultant_recommendations: Sequence[ConsultantRecommendation] = (),
+    consultant_attributions: Sequence[ConsultantAttributionObservation] = (),
+    manager_lifecycle_events: Sequence[ManagerLifecycleEvent] = (),
     benchmark_version: str = "v1",
 ) -> dict[str, object]:
     """Build deterministic staging artifacts for funded and investment extraction output."""
@@ -747,12 +994,27 @@ def build_extraction_persistence_artifacts(
         manager_position_warnings=manager_position_warnings,
         manager_position_context=manager_position_context,
     )
+    component_datasets = build_schema_component_datasets(
+        persisted_core_metrics=persisted_core_metrics,
+        relationship_rows=relationship_rows,
+        warning_rows=warning_rows,
+        funded_warning_context=funded_warning_context,
+        manager_position_rows=manager_position_rows,
+        plan_financial_flow_rows=plan_financial_flow_rows,
+        risk_exposure_rows=risk_exposure_rows,
+        consultant_entities=consultant_entities,
+        consultant_engagements=consultant_engagements,
+        consultant_recommendations=consultant_recommendations,
+        consultant_attributions=consultant_attributions,
+        manager_lifecycle_events=manager_lifecycle_events,
+    )
 
     return {
         "persistence_contract": extraction_persistence_contract(),
         "staging_core_metrics_rows": persisted_core_metrics,
         "staging_manager_fund_vehicle_relationship_rows": relationship_rows,
         "extraction_warning_rows": warning_rows,
+        "schema_component_datasets": component_datasets,
     }
 
 
@@ -766,6 +1028,7 @@ def write_extraction_persistence_artifacts(
     core_rows = artifacts.get("staging_core_metrics_rows")
     relationship_rows = artifacts.get("staging_manager_fund_vehicle_relationship_rows")
     warning_rows = artifacts.get("extraction_warning_rows")
+    component_datasets = artifacts.get("schema_component_datasets")
 
     if not isinstance(contract, Mapping):
         raise ValueError("artifacts['persistence_contract'] must be a mapping")
@@ -777,6 +1040,8 @@ def write_extraction_persistence_artifacts(
         )
     if not isinstance(warning_rows, list):
         raise ValueError("artifacts['extraction_warning_rows'] must be a list")
+    if not isinstance(component_datasets, Mapping):
+        raise ValueError("artifacts['schema_component_datasets'] must be a mapping")
 
     output_dir = output_root / "extraction_persistence"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -785,15 +1050,30 @@ def write_extraction_persistence_artifacts(
     core_metrics_json = output_dir / "staging_core_metrics.json"
     relationships_json = output_dir / "staging_manager_fund_vehicle_relationships.json"
     warnings_json = output_dir / "extraction_warnings.json"
+    component_dir = output_dir / "component_datasets"
+    component_dir.mkdir(parents=True, exist_ok=True)
+    component_manifest_json = output_dir / "component_datasets_manifest.json"
 
     _write_json(contract_json, contract)
     _write_json(core_metrics_json, core_rows)
     _write_json(relationships_json, relationship_rows)
     _write_json(warnings_json, warning_rows)
+    component_manifest: dict[str, str] = {}
+    for component_name in sorted(component_datasets):
+        payload = component_datasets[component_name]
+        if not isinstance(component_name, str):
+            raise ValueError("component dataset keys must be strings")
+        if not isinstance(payload, list):
+            raise ValueError("component dataset values must be lists")
+        component_json = component_dir / f"{component_name}.json"
+        _write_json(component_json, payload)
+        component_manifest[component_name] = str(component_json)
+    _write_json(component_manifest_json, component_manifest)
 
     return {
         "persistence_contract_json": str(contract_json),
         "staging_core_metrics_json": str(core_metrics_json),
         "staging_manager_fund_vehicle_relationships_json": str(relationships_json),
         "extraction_warnings_json": str(warnings_json),
+        "schema_component_datasets_manifest_json": str(component_manifest_json),
     }

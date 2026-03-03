@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -25,6 +25,7 @@ from pension_data.extract.investment.manager_positions import (
 )
 from pension_data.extract.persistence import (
     NON_DISCLOSED_MANAGER_NAME,
+    SCHEMA_COMPONENT_TABLES,
     PositionPersistenceContext,
     WarningPersistenceContext,
     build_extraction_persistence_artifacts,
@@ -42,7 +43,7 @@ INVESTMENT_FIXTURE_PATH = (
 
 def _load_json(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as handle:
-        return json.load(handle)
+        return cast(dict[str, Any], json.load(handle))
 
 
 def _raw_funded(payload: dict[str, Any]) -> RawFundedActuarialInput:
@@ -64,6 +65,7 @@ def test_persistence_contract_defines_target_tables_and_columns() -> None:
         "staging_core_metrics",
         "staging_manager_fund_vehicle_relationships",
         "extraction_warnings",
+        "schema_component_datasets",
     }
     assert "effective_date" in contract["staging_core_metrics"]
     assert "ingestion_date" in contract["staging_core_metrics"]
@@ -73,6 +75,8 @@ def test_persistence_contract_defines_target_tables_and_columns() -> None:
     assert "known_not_invested" in contract["staging_manager_fund_vehicle_relationships"]
     assert "code" in contract["extraction_warnings"]
     assert "message" in contract["extraction_warnings"]
+    assert "component_name" in contract["schema_component_datasets"]
+    assert "status" in contract["schema_component_datasets"]
 
 
 def test_extraction_to_persistence_pipeline_writes_core_rows_relationships_and_warnings(
@@ -225,15 +229,33 @@ def test_extraction_to_persistence_pipeline_writes_core_rows_relationships_and_w
     assert "missing_metric" in warning_codes
     assert "non_disclosure" in warning_codes
 
+    component_datasets = artifacts["schema_component_datasets"]
+    assert isinstance(component_datasets, dict)
+    assert set(component_datasets) == set(SCHEMA_COMPONENT_TABLES)
+    assert component_datasets["metric_observation"][0]["status"] == "present"
+    assert component_datasets["plan_financial_flow"][0]["status"] == "not_disclosed"
+    assert component_datasets["benchmark_definition"][0]["status"] in {
+        "partial",
+        "not_disclosed",
+    }
+
     output_paths = write_extraction_persistence_artifacts(artifacts, output_root=tmp_path)
     saved_core_rows = json.loads(Path(output_paths["staging_core_metrics_json"]).read_text())
     saved_relationship_rows = json.loads(
         Path(output_paths["staging_manager_fund_vehicle_relationships_json"]).read_text()
     )
     saved_warning_rows = json.loads(Path(output_paths["extraction_warnings_json"]).read_text())
+    component_manifest = json.loads(
+        Path(output_paths["schema_component_datasets_manifest_json"]).read_text()
+    )
     assert saved_core_rows == core_rows
     assert saved_relationship_rows == relationship_rows
     assert saved_warning_rows == warning_rows
+    assert set(component_manifest) == set(SCHEMA_COMPONENT_TABLES)
+    for component_name, component_path in component_manifest.items():
+        component_rows = json.loads(Path(component_path).read_text())
+        assert isinstance(component_rows, list)
+        assert component_rows[0]["component_name"] == component_name
 
 
 def test_persistence_artifacts_are_deterministic_for_input_order() -> None:
