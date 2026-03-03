@@ -351,7 +351,9 @@ def _diagnostic_findings(
 def _dedupe_findings(
     findings: Sequence[ParserOutputValidationFinding],
 ) -> tuple[ParserOutputValidationFinding, ...]:
-    unique: dict[tuple[str, str, str, str, str, tuple[str, ...]], ParserOutputValidationFinding] = {}
+    unique: dict[tuple[str, str, str, str, str, tuple[str, ...]], ParserOutputValidationFinding] = (
+        {}
+    )
     for finding in findings:
         key = (
             finding.code,
