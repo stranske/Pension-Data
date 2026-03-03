@@ -11,6 +11,7 @@ const state = {
   selectedRowIndex: null,
   storageWarningShown: false,
   currentChartSpec: null,
+  chartRefreshTimer: null,
   filters: {
     entity: "",
     period: "",
@@ -321,7 +322,7 @@ function applyFilterInputs() {
   state.selectedRowIndex = null;
   renderTable();
   renderDetail();
-  buildChartFromTemplate();
+  scheduleChartRefresh();
 }
 
 function bindFilterHandlers() {
@@ -558,13 +559,24 @@ function chartTemplateSpec(template, rows) {
   if (template === "heatmap") {
     const entities = [...new Set(rows.map((row) => row.entity))];
     const families = [...new Set(rows.map((row) => row.metric_family))];
+    const aggregates = new Map();
+    rows.forEach((row) => {
+      const key = `${row.entity}||${row.metric_family}`;
+      const prior = aggregates.get(key);
+      if (prior) {
+        prior.sum += numeric(row.value);
+        prior.count += 1;
+        return;
+      }
+      aggregates.set(key, { sum: numeric(row.value), count: 1 });
+    });
     const z = entities.map((entity) =>
       families.map((family) => {
-        const scoped = rows.filter((row) => row.entity === entity && row.metric_family === family);
-        if (!scoped.length) {
+        const aggregate = aggregates.get(`${entity}||${family}`);
+        if (!aggregate) {
           return 0;
         }
-        return scoped.reduce((sum, row) => sum + numeric(row.value), 0) / scoped.length;
+        return aggregate.sum / aggregate.count;
       })
     );
     return {
@@ -637,6 +649,11 @@ function renderChartSpec(spec) {
   const normalized = normalizeChartSpec(spec);
   state.currentChartSpec = normalized;
   document.getElementById("chart-spec").value = `${JSON.stringify(normalized, null, 2)}\n`;
+  if (!window.Plotly || typeof window.Plotly.react !== "function") {
+    document.getElementById("chart-preview").textContent =
+      "Chart rendering unavailable because Plotly failed to load.";
+    return;
+  }
   window.Plotly.react("chart-preview", normalized.data, normalized.layout, {
     responsive: true,
     displaylogo: false,
@@ -648,12 +665,28 @@ function buildChartFromTemplate() {
   renderChartSpec(chartTemplateSpec(template, filteredRows()));
 }
 
+function scheduleChartRefresh() {
+  if (state.chartRefreshTimer !== null) {
+    window.clearTimeout(state.chartRefreshTimer);
+  }
+  state.chartRefreshTimer = window.setTimeout(() => {
+    state.chartRefreshTimer = null;
+    buildChartFromTemplate();
+  }, 180);
+}
+
 function bindChartStudio() {
   document.getElementById("chart-build").addEventListener("click", buildChartFromTemplate);
   document.getElementById("chart-template").addEventListener("change", buildChartFromTemplate);
   document.getElementById("chart-apply-spec").addEventListener("click", () => {
     const raw = document.getElementById("chart-spec").value;
-    const spec = JSON.parse(raw);
+    let spec;
+    try {
+      spec = JSON.parse(raw);
+    } catch {
+      window.alert("Could not parse chart spec JSON. Please fix the JSON and try again.");
+      return;
+    }
     renderChartSpec(spec);
   });
   document.getElementById("chart-export-json").addEventListener("click", () => {
@@ -661,6 +694,10 @@ function bindChartStudio() {
     downloadFile("pension-data-chart-spec.json", `${JSON.stringify(spec, null, 2)}\n`, "application/json");
   });
   document.getElementById("chart-export-png").addEventListener("click", async () => {
+    if (!window.Plotly || typeof window.Plotly.toImage !== "function") {
+      window.alert("Chart export unavailable because Plotly failed to load.");
+      return;
+    }
     const dataUrl = await window.Plotly.toImage("chart-preview", {
       format: "png",
       width: 1400,
@@ -670,6 +707,10 @@ function bindChartStudio() {
     downloadFile("pension-data-chart.png", dataUrl, "image/png");
   });
   document.getElementById("chart-export-svg").addEventListener("click", async () => {
+    if (!window.Plotly || typeof window.Plotly.toImage !== "function") {
+      window.alert("Chart export unavailable because Plotly failed to load.");
+      return;
+    }
     const dataUrl = await window.Plotly.toImage("chart-preview", {
       format: "svg",
       width: 1400,
@@ -679,6 +720,7 @@ function bindChartStudio() {
   });
   document.getElementById("chart-export-html").addEventListener("click", () => {
     const spec = state.currentChartSpec || { data: [], layout: {} };
+    const embeddedSpec = JSON.stringify(spec).replace(/</g, "\\u003c");
     const html = `<!doctype html>
 <html lang=\"en\">
   <head>
@@ -690,7 +732,7 @@ function bindChartStudio() {
   <body>
     <div id=\"chart\" style=\"width:100%;height:100vh;\"></div>
     <script>
-      const spec = ${JSON.stringify(spec)};
+      const spec = ${embeddedSpec};
       Plotly.newPlot(\"chart\", spec.data, spec.layout, { responsive: true });
     </script>
   </body>
@@ -705,7 +747,6 @@ function renderWorkspace() {
   renderInventory();
   applyFilterInputs();
   renderSavedViews();
-  buildChartFromTemplate();
 }
 
 async function init() {
