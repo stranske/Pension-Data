@@ -21,6 +21,8 @@ This document compares practical options for adding a higher-quality UI and a La
 - Works on locked-down work PCs (browser only).
 - No separate hosting bill.
 - Easy audit trail (GitHub history + workflow logs).
+- Can still be a high-quality, modern interface (advanced design system, rich charts,
+  responsive layouts, keyboard-first interactions, and polished motion in a static SPA).
 
 ### Cons
 - No always-on conversational backend; interactions are asynchronous.
@@ -76,6 +78,10 @@ This document compares practical options for adding a higher-quality UI and a La
 1. Start with **Option 1** to satisfy work constraints quickly.
 2. Add **Option 3** over time by introducing a Mac desktop power-client when UX depth is needed.
 3. Keep LangChain execution in CI first; only move to local embedded inference if latency becomes a hard blocker.
+
+## Project Inclusion Status
+
+- Mac desktop packaging track is now included in this repo at `apps/mac-desktop/` as an implementation scaffold.
 
 ## Minimum Technical Contract for Any Option
 

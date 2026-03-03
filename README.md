@@ -31,6 +31,7 @@ pytest -q
 
 ```text
 .github/workflows/        CI and agent automation workflows
+apps/mac-desktop/         Packaged macOS desktop app scaffold
 src/pension_data/         Application modules
 tests/                    Unit/integration/contract tests
 docs/                     Runbooks, guides, issue formatting, ops notes
@@ -49,6 +50,7 @@ Two intentionally incomplete components are tracked:
 
 - A higher-quality analyst-facing UI/GUI.
 - A LangChain interaction layer for findings exploration from repo outputs.
+- A packaged Mac desktop app path (scaffold now present under `apps/mac-desktop/`).
 
 See [docs/UI_LANGCHAIN_OPTIONS.md](docs/UI_LANGCHAIN_OPTIONS.md) for deployment options and tradeoffs under your environment constraints.
 
