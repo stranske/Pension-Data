@@ -116,3 +116,79 @@ def test_invalid_transition_raises_value_error() -> None:
             actor="reviewer-b",
             reason="invalid revert",
         )
+
+
+def test_deferred_state_allows_return_to_in_review_then_resolved() -> None:
+    queued = build_extraction_review_queue(
+        _decisions(),
+        queued_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    target = [row for row in queued if row.row_id == "row:review"][0]
+
+    deferred = transition_extraction_review_state(
+        queued,
+        queue_id=target.queue_id,
+        next_state="deferred",
+        actor="reviewer-b",
+        reason="awaiting additional context",
+        changed_at=datetime(2026, 1, 3, tzinfo=UTC),
+    )
+    resumed = transition_extraction_review_state(
+        deferred,
+        queue_id=target.queue_id,
+        next_state="in_review",
+        actor="reviewer-b",
+        reason="context received",
+        changed_at=datetime(2026, 1, 4, tzinfo=UTC),
+    )
+    resolved = transition_extraction_review_state(
+        resumed,
+        queue_id=target.queue_id,
+        next_state="resolved",
+        actor="reviewer-b",
+        reason="resolved after follow-up",
+        changed_at=datetime(2026, 1, 5, tzinfo=UTC),
+    )
+    updated_target = [row for row in resolved if row.queue_id == target.queue_id][0]
+
+    assert updated_target.state == "resolved"
+    assert [entry.next_state for entry in updated_target.audit_trail] == [
+        "new",
+        "deferred",
+        "in_review",
+        "resolved",
+    ]
+
+
+def test_queue_ingestion_deduplicates_queue_id_preferring_high_priority() -> None:
+    queued_at = datetime(2026, 1, 2, tzinfo=UTC)
+    duplicate_decisions = [
+        ConfidenceRoutingDecision(
+            row_id="row:dup",
+            plan_id="ca-pers",
+            plan_period="FY2025",
+            metric_name="discount_rate",
+            confidence=0.8,
+            routing_outcome="publish_with_warning",
+            review_priority="medium",
+            publish_blocked=False,
+            evidence_refs=("p.10",),
+        ),
+        ConfidenceRoutingDecision(
+            row_id="row:dup",
+            plan_id="ca-pers",
+            plan_period="FY2025",
+            metric_name="discount_rate",
+            confidence=0.6,
+            routing_outcome="high_priority_review",
+            review_priority="high",
+            publish_blocked=False,
+            evidence_refs=("p.11",),
+        ),
+    ]
+
+    rows = build_extraction_review_queue(duplicate_decisions, queued_at=queued_at)
+    assert len(rows) == 1
+    assert rows[0].queue_id == "extraction-review:row:dup"
+    assert rows[0].priority == "high"
+    assert rows[0].routing_outcome == "high_priority_review"

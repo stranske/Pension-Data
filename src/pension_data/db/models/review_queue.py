@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-RoutingOutcome = Literal["publish_with_warning", "high_priority_review"]
-ReviewPriority = Literal["medium", "high"]
+from pension_data.quality.confidence import ReviewPriority, RoutingOutcome
+
 ReviewState = Literal["new", "in_review", "resolved", "deferred"]
 
 

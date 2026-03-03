@@ -8,12 +8,14 @@ from datetime import UTC, datetime
 
 from pension_data.db.models.review_queue import (
     ExtractionReviewQueueRecord,
-    ReviewPriority,
     ReviewQueueAuditEntry,
     ReviewState,
+)
+from pension_data.quality.confidence import (
+    ConfidenceRoutingDecision,
+    ReviewPriority,
     RoutingOutcome,
 )
-from pension_data.quality.confidence import ConfidenceRoutingDecision
 
 _ALLOWED_TRANSITIONS: dict[ReviewState, set[ReviewState]] = {
     "new": {"in_review", "resolved", "deferred"},
@@ -40,24 +42,28 @@ def build_extraction_review_queue(
 ) -> list[ExtractionReviewQueueRecord]:
     """Persist queue rows for unresolved confidence-routing outcomes."""
     created_at = _normalize_utc(queued_at)
-    queue_rows: list[ExtractionReviewQueueRecord] = []
+    queue_rows_by_id: dict[str, ExtractionReviewQueueRecord] = {}
     for decision in decisions:
-        if decision.review_priority == "none":
+        if decision.routing_outcome == "auto_accept" or decision.review_priority == "none":
             continue
-        routing_outcome: RoutingOutcome
-        if decision.routing_outcome == "publish_with_warning":
-            routing_outcome = "publish_with_warning"
-        elif decision.routing_outcome == "high_priority_review":
-            routing_outcome = "high_priority_review"
-        else:
+        if decision.routing_outcome not in ("publish_with_warning", "high_priority_review"):
             continue
-        priority: ReviewPriority
-        if decision.review_priority == "high":
-            priority = "high"
-        elif decision.review_priority == "medium":
-            priority = "medium"
-        else:
+        if decision.review_priority not in ("medium", "high"):
             continue
+        if (
+            decision.routing_outcome == "publish_with_warning"
+            and decision.review_priority != "medium"
+        ) or (
+            decision.routing_outcome == "high_priority_review"
+            and decision.review_priority != "high"
+        ):
+            raise ValueError(
+                "inconsistent confidence routing decision: "
+                f"{decision.routing_outcome}/{decision.review_priority}"
+            )
+
+        routing_outcome: RoutingOutcome = decision.routing_outcome
+        priority: ReviewPriority = decision.review_priority
         queue_id = f"extraction-review:{decision.row_id}"
         audit_entry = ReviewQueueAuditEntry(
             queue_id=queue_id,
@@ -67,26 +73,27 @@ def build_extraction_review_queue(
             reason=f"routed:{decision.routing_outcome}",
             changed_at=created_at,
         )
-        queue_rows.append(
-            ExtractionReviewQueueRecord(
-                queue_id=queue_id,
-                row_id=decision.row_id,
-                plan_id=decision.plan_id,
-                plan_period=decision.plan_period,
-                metric_name=decision.metric_name,
-                confidence=decision.confidence,
-                routing_outcome=routing_outcome,
-                priority=priority,
-                state="new",
-                created_at=created_at,
-                updated_at=created_at,
-                evidence_refs=decision.evidence_refs,
-                audit_trail=(audit_entry,),
-            )
+        queue_row = ExtractionReviewQueueRecord(
+            queue_id=queue_id,
+            row_id=decision.row_id,
+            plan_id=decision.plan_id,
+            plan_period=decision.plan_period,
+            metric_name=decision.metric_name,
+            confidence=decision.confidence,
+            routing_outcome=routing_outcome,
+            priority=priority,
+            state="new",
+            created_at=created_at,
+            updated_at=created_at,
+            evidence_refs=decision.evidence_refs,
+            audit_trail=(audit_entry,),
         )
+        existing = queue_rows_by_id.get(queue_id)
+        if existing is None or _PRIORITY_ORDER[priority] < _PRIORITY_ORDER[existing.priority]:
+            queue_rows_by_id[queue_id] = queue_row
 
     return sorted(
-        queue_rows,
+        queue_rows_by_id.values(),
         key=lambda row: (
             _PRIORITY_ORDER[row.priority],
             row.plan_id,
