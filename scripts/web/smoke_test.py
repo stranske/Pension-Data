@@ -19,6 +19,8 @@ REQUIRED_LOCAL_FILES = (
     "sw.js",
     "manifest.webmanifest",
     "icons/pension-data-mark.svg",
+    "icons/pension-data-mark-192.png",
+    "icons/pension-data-mark-512.png",
     "config/default.json",
     "data/workspace.json",
 )
@@ -100,6 +102,8 @@ def _smoke_url(base_url: str, *, expect_runtime: bool, headers: dict[str, str] |
         raise ValueError("manifest missing required start_url field")
 
     _fetch_text(urljoin(root, "sw.js"), headers=headers)
+    _fetch_text(urljoin(root, "icons/pension-data-mark-192.png"), headers=headers)
+    _fetch_text(urljoin(root, "icons/pension-data-mark-512.png"), headers=headers)
 
     workspace_payload = json.loads(_fetch_text(urljoin(root, "data/workspace.json"), headers=headers))
     if not isinstance(workspace_payload, dict):
