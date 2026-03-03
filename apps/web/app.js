@@ -74,7 +74,6 @@ function loadSavedViews() {
     return {};
   }
 }
-
 function persistSavedViews() {
   try {
     localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(state.savedViews));
