@@ -1,10 +1,18 @@
-# Web App Foundation
+# Web App Workspace
 
-Static browser-first scaffold for Cloudflare Pages deployment.
+Static browser-first data interaction workspace for Cloudflare Pages.
+
+## Included in This Stage
+
+- Dataset inventory panel (domain, kind, freshness, row count)
+- Global filters (entity, plan period, metric family, confidence, source document)
+- Record drilldowns with provenance/evidence references
+- Saved views (localStorage)
+- Filtered export to JSON or CSV
 
 ## Local Preview
 
-Open `apps/web/index.html` directly in a browser, or run any static file server.
+Open `apps/web/index.html` in a browser or run a static file server.
 
 ## Runtime Config
 
