@@ -215,19 +215,60 @@ def merge_canonical_entities(
         raise ValueError(f"source canonical entity not found for '{source_stable_id}'")
     if target is None:
         raise ValueError(f"target canonical entity not found for '{target_stable_id}'")
+    if source.entity_type != target.entity_type:
+        raise ValueError("source and target entity_type must match for merge")
     if source.merged_into is not None:
         raise ValueError(f"source canonical entity '{source_stable_id}' is already merged")
     if target.merged_into is not None:
         raise ValueError(f"target canonical entity '{target_stable_id}' is merged and unavailable")
 
-    updated = [
-        (
-            replace(source, merged_into=target_stable_id, updated_at=timestamp)
-            if row.stable_id == source_stable_id
-            else row
+    merged_links: dict[tuple[str, str], EntitySourceRecordLink] = {
+        (item.source_table, item.source_record_id): item for item in target.source_links
+    }
+    for item in source.source_links:
+        key = (item.source_table, item.source_record_id)
+        existing = merged_links.get(key)
+        merged_refs = _normalize_evidence_refs(
+            [
+                *(existing.evidence_refs if existing is not None else ()),
+                *item.evidence_refs,
+            ]
         )
-        for row in rows
-    ]
+        merged_links[key] = EntitySourceRecordLink(
+            stable_entity_id=target_stable_id,
+            source_record_id=item.source_record_id,
+            source_table=item.source_table,
+            evidence_refs=merged_refs,
+        )
+
+    target_source_links = tuple(
+        sorted(
+            merged_links.values(),
+            key=lambda item: (item.source_table, item.source_record_id),
+        )
+    )
+    updated: list[CanonicalEntityRecord] = []
+    for row in rows:
+        if row.stable_id == source_stable_id:
+            updated.append(
+                replace(
+                    row,
+                    merged_into=target_stable_id,
+                    source_links=(),
+                    updated_at=timestamp,
+                )
+            )
+            continue
+        if row.stable_id == target_stable_id:
+            updated.append(
+                replace(
+                    row,
+                    source_links=target_source_links,
+                    updated_at=timestamp,
+                )
+            )
+            continue
+        updated.append(row)
     return _sorted_entities(updated)
 
 

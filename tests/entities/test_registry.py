@@ -133,6 +133,68 @@ def test_explicit_merge_path_marks_source_and_filters_active_entities() -> None:
         )
 
 
+def test_merge_rejects_cross_type_entities() -> None:
+    rows = create_canonical_entity(
+        [],
+        draft=CanonicalEntityDraft(entity_type="manager", display_name="Alpha Capital"),
+    )
+    rows = create_canonical_entity(
+        rows,
+        draft=CanonicalEntityDraft(entity_type="vehicle", display_name="Alpha Capital Fund I"),
+    )
+
+    with pytest.raises(ValueError, match="entity_type must match"):
+        merge_canonical_entities(
+            rows,
+            source_stable_id="vehicle:alpha capital fund i",
+            target_stable_id="manager:alpha capital",
+        )
+
+
+def test_merge_transfers_source_links_to_target_with_deduped_evidence() -> None:
+    rows = create_canonical_entity(
+        [],
+        draft=CanonicalEntityDraft(entity_type="manager", display_name="Alpha Capital"),
+    )
+    rows = create_canonical_entity(
+        rows,
+        draft=CanonicalEntityDraft(entity_type="manager", display_name="Alpha Capital LP"),
+    )
+    rows = link_source_record(
+        rows,
+        stable_id="manager:alpha capital",
+        provenance=SourceRecordProvenance(
+            source_record_id="fact:1",
+            source_table="holdings",
+            evidence_refs=("p.10",),
+        ),
+    )
+    rows = link_source_record(
+        rows,
+        stable_id="manager:alpha capital lp",
+        provenance=SourceRecordProvenance(
+            source_record_id="fact:1",
+            source_table="holdings",
+            evidence_refs=("p.11", "page 10"),
+        ),
+    )
+
+    merged = merge_canonical_entities(
+        rows,
+        source_stable_id="manager:alpha capital lp",
+        target_stable_id="manager:alpha capital",
+    )
+    by_id = {row.stable_id: row for row in merged}
+    target = by_id["manager:alpha capital"]
+    source = by_id["manager:alpha capital lp"]
+
+    assert source.merged_into == "manager:alpha capital"
+    assert source.source_links == ()
+    assert len(target.source_links) == 1
+    assert target.source_links[0].stable_entity_id == "manager:alpha capital"
+    assert target.source_links[0].evidence_refs == ("p.10", "p.11")
+
+
 def test_create_rejects_reuse_of_stable_id_after_merge() -> None:
     rows = create_canonical_entity(
         [],
