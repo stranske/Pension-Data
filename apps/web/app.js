@@ -12,6 +12,12 @@ async function loadJsonConfig(path) {
 }
 
 function applyQueryOverrides(config) {
+  const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  const isLocalContext = window.location.protocol === "file:" || isLocalHost;
+  const allowOverrides = config.enableQueryOverrides === true || isLocalContext;
+  if (!allowOverrides) {
+    return { ...config };
+  }
   const params = new URLSearchParams(window.location.search);
   const next = { ...config };
   for (const key of REQUIRED_CONFIG_KEYS) {

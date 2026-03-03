@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -54,9 +54,11 @@ jobs:
       PENSION_DATA_API_BASE_URL: ${{ vars.PENSION_DATA_API_BASE_URL }}
       PENSION_DATA_ARTIFACT_BASE_URL: ${{ vars.PENSION_DATA_ARTIFACT_BASE_URL }}
       PENSION_DATA_ENVIRONMENT_LABEL: ${{ vars.PENSION_DATA_ENVIRONMENT_LABEL }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -89,6 +91,7 @@ jobs:
                       "environment": required["PENSION_DATA_ENVIRONMENT_LABEL"],
                       "apiBaseUrl": required["PENSION_DATA_API_BASE_URL"],
                       "artifactBaseUrl": required["PENSION_DATA_ARTIFACT_BASE_URL"],
+                      "enableQueryOverrides": False,
                   },
                   indent=2,
               )
@@ -111,9 +114,16 @@ jobs:
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Smoke check deployed URL
-        if: ${{ steps.deploy.outputs.url != '' }}
+        if: ${{ steps.deploy.outputs.url != '' && env.CF_ACCESS_CLIENT_ID != '' && env.CF_ACCESS_CLIENT_SECRET != '' }}
         run: |
           python scripts/web/smoke_test.py \
             --base-dir apps/web \
             --url "${{ steps.deploy.outputs.url }}" \
+            --cf-access-client-id "${{ env.CF_ACCESS_CLIENT_ID }}" \
+            --cf-access-client-secret "${{ env.CF_ACCESS_CLIENT_SECRET }}" \
             --expect-runtime
+
+      - name: Skip remote smoke without Access service tokens
+        if: ${{ steps.deploy.outputs.url != '' && (env.CF_ACCESS_CLIENT_ID == '' || env.CF_ACCESS_CLIENT_SECRET == '') }}
+        run: |
+          echo "Skipping remote smoke check: CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET not configured."

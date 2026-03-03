@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 REQUIRED_CONFIG_KEYS = ("environment", "apiBaseUrl", "artifactBaseUrl")
 REQUIRED_LOCAL_FILES = (
@@ -58,9 +59,10 @@ def _smoke_local(base_dir: Path, *, require_runtime: bool) -> None:
         _assert_config(_load_json(runtime_path), path_label="config/runtime.json")
 
 
-def _fetch_text(url: str) -> str:
+def _fetch_text(url: str, *, headers: dict[str, str] | None = None) -> str:
+    request = Request(url, headers=headers or {})
     try:
-        with urlopen(url, timeout=20) as response:  # noqa: S310
+        with urlopen(request, timeout=20) as response:  # noqa: S310
             body = response.read().decode("utf-8", errors="replace")
             if response.status < 200 or response.status >= 300:
                 raise ValueError(f"request failed ({response.status}): {url}")
@@ -71,21 +73,23 @@ def _fetch_text(url: str) -> str:
         raise ValueError(f"URL error for {url}: {exc.reason}") from exc
 
 
-def _smoke_url(base_url: str, *, expect_runtime: bool) -> None:
+def _smoke_url(base_url: str, *, expect_runtime: bool, headers: dict[str, str] | None) -> None:
     root = base_url.rstrip("/") + "/"
-    html = _fetch_text(root)
+    html = _fetch_text(root, headers=headers)
     if "Cloudflare Web Workspace Foundation" not in html:
         raise ValueError("deployed page missing expected heading marker")
     if 'data-testid="environment-badge"' not in html:
         raise ValueError("deployed page missing environment badge marker")
 
-    default_payload = json.loads(_fetch_text(urljoin(root, "config/default.json")))
+    default_payload = json.loads(_fetch_text(urljoin(root, "config/default.json"), headers=headers))
     if not isinstance(default_payload, dict):
         raise ValueError("default config endpoint did not return object JSON")
     _assert_config(default_payload, path_label="config/default.json")
 
     if expect_runtime:
-        runtime_payload = json.loads(_fetch_text(urljoin(root, "config/runtime.json")))
+        runtime_payload = json.loads(
+            _fetch_text(urljoin(root, "config/runtime.json"), headers=headers)
+        )
         if not isinstance(runtime_payload, dict):
             raise ValueError("runtime config endpoint did not return object JSON")
         _assert_config(runtime_payload, path_label="config/runtime.json")
@@ -113,6 +117,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Require runtime config endpoint for remote checks.",
     )
+    parser.add_argument(
+        "--cf-access-client-id",
+        default=os.getenv("CF_ACCESS_CLIENT_ID", ""),
+        help="Optional Cloudflare Access client ID for protected deployments.",
+    )
+    parser.add_argument(
+        "--cf-access-client-secret",
+        default=os.getenv("CF_ACCESS_CLIENT_SECRET", ""),
+        help="Optional Cloudflare Access client secret for protected deployments.",
+    )
     return parser.parse_args()
 
 
@@ -120,7 +134,11 @@ def main() -> int:
     args = parse_args()
     _smoke_local(args.base_dir, require_runtime=args.require_runtime)
     if args.url:
-        _smoke_url(args.url, expect_runtime=args.expect_runtime)
+        headers: dict[str, str] = {}
+        if args.cf_access_client_id and args.cf_access_client_secret:
+            headers["CF-Access-Client-Id"] = args.cf_access_client_id
+            headers["CF-Access-Client-Secret"] = args.cf_access_client_secret
+        _smoke_url(args.url, expect_runtime=args.expect_runtime, headers=headers or None)
     print("Web smoke checks passed.")
     return 0
 
