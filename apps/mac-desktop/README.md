@@ -1,32 +1,44 @@
-# Pension-Data Mac Desktop App (Scaffold)
+# Pension-Data Mac Desktop Shell
 
-This directory tracks the packaged macOS desktop app track requested for Pension-Data.
+Tauri-first desktop packaging track with Electron compatibility path.
 
-## Why this exists
+## Goals
 
-- Provides a high-quality native-feeling interface option for power users on Mac.
-- Pairs with the browser-first GitHub Pages UI for work-PC accessibility.
-- Keeps a shared findings schema so desktop and web experiences stay aligned.
+- Keep desktop and web on the same runtime data contract.
+- Enable a macOS `.app` packaging path for power-user workflows.
+- Preserve Electron as compatibility fallback, not default.
 
-## Planned stack
+## Stack
 
-- Shell/runtime: Tauri (Rust + WebView) for low-memory footprint packaging.
-- UI: React + Vite (same design system as Pages UI where possible).
-- Local service: Python FastAPI sidecar for LangChain orchestration and retrieval.
-- Data contract: versioned JSON findings schema emitted by repo workflows.
+- Default shell: Tauri (`apps/mac-desktop/src-tauri/`)
+- Compatibility shell: Electron (`apps/mac-desktop/electron/`)
+- Shared UI assets: synced from `apps/web` into `apps/mac-desktop/src-ui/`
+- Shared runtime contract: `apps/contracts/runtime-contract.json`
 
-## Initial scope
+## Commands
 
-1. Load findings bundles exported by CI/workflows.
-2. Filter/search findings by entity, period, metric family, severity, confidence.
-3. Open provenance anchors (report, page/section, evidence refs).
-4. Run local LangChain-assisted "explain this finding" flows against local artifacts.
+```bash
+cd apps/mac-desktop
+npm install
+npm run sync:web-ui
+npm run validate:contract
+npm run tauri:build
+```
 
-## Packaging targets
+Optional compatibility run:
 
-- macOS `.app` bundle for local installs.
-- Signed/notarized distribution can be added after MVP validation.
+```bash
+npm run electron:dev
+```
 
-## Status
+Benchmark report:
 
-Scaffold only in this PR. Implementation will be staged in follow-up PRs under `apps/mac-desktop/`.
+```bash
+npm run bench:shells
+```
+
+## References
+
+- Tauri packaging setup: `docs/deploy/MAC_DESKTOP_TAURI_SETUP.md`
+- Electron compatibility criteria: `docs/ux/ELECTRON_COMPATIBILITY_TRACK.md`
+- Shell benchmark output: `apps/mac-desktop/benchmarks/latest_report.md`

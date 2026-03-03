@@ -1,4 +1,5 @@
 {
+  "contractVersion": "1.0.0",
   "datasets": [
     {
       "id": "core_facts",
@@ -17,7 +18,10 @@
           "confidence": 0.96,
           "provenance": {
             "source_document": "doc:funded-2024",
-            "evidence_refs": ["page=52", "table=3"]
+            "evidence_refs": [
+              "page=52",
+              "table=3"
+            ]
           }
         },
         {
@@ -29,7 +33,9 @@
           "confidence": 0.94,
           "provenance": {
             "source_document": "doc:funded-2023",
-            "evidence_refs": ["page=49"]
+            "evidence_refs": [
+              "page=49"
+            ]
           }
         },
         {
@@ -41,7 +47,9 @@
           "confidence": 0.88,
           "provenance": {
             "source_document": "doc:nystrs-2024",
-            "evidence_refs": ["page=31"]
+            "evidence_refs": [
+              "page=31"
+            ]
           }
         }
       ]
@@ -63,7 +71,10 @@
           "confidence": 0.91,
           "provenance": {
             "source_document": "doc:flows-2024",
-            "evidence_refs": ["page=40", "row=12"]
+            "evidence_refs": [
+              "page=40",
+              "row=12"
+            ]
           }
         },
         {
@@ -75,7 +86,10 @@
           "confidence": 0.89,
           "provenance": {
             "source_document": "doc:nystrs-2024",
-            "evidence_refs": ["page=44", "row=8"]
+            "evidence_refs": [
+              "page=44",
+              "row=8"
+            ]
           }
         },
         {
@@ -87,7 +101,9 @@
           "confidence": 0.86,
           "provenance": {
             "source_document": "doc:txers-2024",
-            "evidence_refs": ["page=73"]
+            "evidence_refs": [
+              "page=73"
+            ]
           }
         }
       ]
@@ -109,7 +125,10 @@
           "confidence": 0.52,
           "provenance": {
             "source_document": "doc:funded-2024",
-            "evidence_refs": ["page=67", "note=anomaly-1"]
+            "evidence_refs": [
+              "page=67",
+              "note=anomaly-1"
+            ]
           }
         },
         {
@@ -121,7 +140,9 @@
           "confidence": 0.48,
           "provenance": {
             "source_document": "doc:nystrs-2024",
-            "evidence_refs": ["page=88"]
+            "evidence_refs": [
+              "page=88"
+            ]
           }
         }
       ]

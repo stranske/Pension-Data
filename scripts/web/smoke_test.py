@@ -58,6 +58,13 @@ def _smoke_local(base_dir: Path, *, require_runtime: bool) -> None:
             raise ValueError(f"index.html missing marker: {marker}")
 
     _assert_config(_load_json(base_dir / "config/default.json"), path_label="config/default.json")
+    workspace_payload = _load_json(base_dir / "data/workspace.json")
+    contract_version = workspace_payload.get("contractVersion")
+    if not isinstance(contract_version, str) or not contract_version.strip():
+        raise ValueError("workspace bundle missing contractVersion")
+    datasets = workspace_payload.get("datasets")
+    if not isinstance(datasets, list) or not datasets:
+        raise ValueError("workspace dataset inventory is empty")
 
     runtime_path = base_dir / "config/runtime.json"
     if require_runtime:
@@ -108,6 +115,9 @@ def _smoke_url(base_url: str, *, expect_runtime: bool, headers: dict[str, str] |
     workspace_payload = json.loads(_fetch_text(urljoin(root, "data/workspace.json"), headers=headers))
     if not isinstance(workspace_payload, dict):
         raise ValueError("workspace endpoint did not return object JSON")
+    contract_version = workspace_payload.get("contractVersion")
+    if not isinstance(contract_version, str) or not contract_version.strip():
+        raise ValueError("workspace bundle missing contractVersion")
     datasets = workspace_payload.get("datasets")
     if not isinstance(datasets, list) or not datasets:
         raise ValueError("workspace dataset inventory is empty")

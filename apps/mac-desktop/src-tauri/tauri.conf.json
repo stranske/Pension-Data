@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Pension-Data Desktop",
+  "version": "0.1.0",
+  "identifier": "com.pensiondata.desktop",
+  "build": {
+    "beforeDevCommand": "python3 -m http.server 1420 --directory ../src-ui",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../src-ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Pension-Data Desktop",
+        "width": 1400,
+        "height": 900,
+        "resizable": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    }
+  }
+}
