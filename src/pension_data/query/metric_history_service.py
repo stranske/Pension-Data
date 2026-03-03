@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 
 from pension_data.db.models.core_facts import (
     ActuarialFact,
@@ -13,7 +13,13 @@ from pension_data.db.models.core_facts import (
     FundedStatusFact,
     HoldingFact,
 )
-from pension_data.extract.common.evidence import build_evidence_reference, canonicalize_evidence_ref
+from pension_data.db.models.core_facts import (
+    _parse_iso_temporal as _parse_core_temporal,
+)
+from pension_data.extract.common.evidence import (
+    build_evidence_reference,
+    canonicalize_evidence_ref,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,19 +77,7 @@ class MetricHistoryResponse:
 
 
 def _parse_iso_temporal(value: str, *, field_name: str) -> datetime:
-    candidate = value.strip()
-    if not candidate:
-        raise ValueError(f"{field_name} must be a non-empty ISO-8601 date or datetime string")
-    normalized = f"{candidate[:-1]}+00:00" if candidate.endswith("Z") else candidate
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError as exc:  # pragma: no cover - defensive parse guard
-        raise ValueError(
-            f"{field_name} must be an ISO-8601 date or datetime string: {value!r}"
-        ) from exc
-    if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
+    return _parse_core_temporal(value, field_name=field_name)
 
 
 def _normalize_metric_token(value: str | None) -> str | None:
@@ -307,7 +301,7 @@ def query_metric_history(
         else None
     )
 
-    filtered: list[MetricHistoryRow] = []
+    filtered: list[tuple[datetime, datetime, MetricHistoryRow]] = []
     for row in rows:
         if row.entity_id != entity_id:
             continue
@@ -327,19 +321,20 @@ def query_metric_history(
             continue
         if ingestion_end is not None and row_ingestion > ingestion_end:
             continue
-        filtered.append(row)
+        filtered.append((row_effective, row_ingestion, row))
 
     ordered = sorted(
         filtered,
-        key=lambda row: (
-            _parse_iso_temporal(row.effective_date, field_name="row.effective_date"),
-            _parse_iso_temporal(row.ingestion_date, field_name="row.ingestion_date"),
-            row.metric_family,
-            row.metric_name,
-            row.source_document_id,
-            row.benchmark_version,
+        key=lambda item: (
+            item[0],
+            item[1],
+            item[2].metric_family,
+            item[2].metric_name,
+            item[2].source_document_id,
+            item[2].benchmark_version,
         ),
     )
 
-    limited = tuple(ordered[: request.limit])
-    return MetricHistoryResponse(rows=limited, total_rows=len(ordered))
+    ordered_rows = tuple(item[2] for item in ordered)
+    limited = tuple(ordered_rows[: request.limit])
+    return MetricHistoryResponse(rows=limited, total_rows=len(ordered_rows))
