@@ -40,6 +40,7 @@ See [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md) and
 
 ```text
 .github/workflows/        CI and agent automation workflows
+apps/web/                 Cloudflare Pages web app scaffold
 apps/mac-desktop/         Packaged macOS desktop app scaffold
 src/pension_data/         Application modules
 tests/                    Unit/integration/contract tests
@@ -68,6 +69,7 @@ See [docs/UI_LANGCHAIN_OPTIONS.md](docs/UI_LANGCHAIN_OPTIONS.md) for deployment 
 - [docs/AGENT_ISSUE_FORMAT.md](docs/AGENT_ISSUE_FORMAT.md)
 - [docs/CI_SYSTEM_GUIDE.md](docs/CI_SYSTEM_GUIDE.md)
 - [docs/KEEPALIVE_TROUBLESHOOTING.md](docs/KEEPALIVE_TROUBLESHOOTING.md)
+- [docs/deploy/CLOUDFLARE_PAGES_SETUP.md](docs/deploy/CLOUDFLARE_PAGES_SETUP.md)
 - [docs/ops/QUALITY_LAYER_OPERATIONS.md](docs/ops/QUALITY_LAYER_OPERATIONS.md)
 - [docs/contracts/DOCUMENT_ORCHESTRATION_JOB_CONTRACT.md](docs/contracts/DOCUMENT_ORCHESTRATION_JOB_CONTRACT.md)
 - [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md)

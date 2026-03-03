@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pension-Data Workspace</title>
+    <meta
+      name="description"
+      content="Browser-first Pension-Data workspace foundation for Cloudflare Pages deployments."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="app" class="layout" data-testid="web-foundation-root">
+      <section class="hero">
+        <p class="eyebrow">Pension-Data</p>
+        <h1>Cloudflare Web Workspace Foundation</h1>
+        <p class="lede">
+          Browser-first interface scaffold for analysts on managed PCs. This foundation is designed
+          for Cloudflare Pages + Cloudflare Access with private-by-policy deployments.
+        </p>
+        <div class="environment-chip" data-testid="environment-badge">Environment: loading...</div>
+      </section>
+
+      <section class="panel-grid">
+        <article class="panel">
+          <h2>API Endpoint</h2>
+          <p class="value" id="api-endpoint">Loading...</p>
+          <p class="hint">Config key: <code>apiBaseUrl</code></p>
+        </article>
+        <article class="panel">
+          <h2>Artifact Source</h2>
+          <p class="value" id="artifact-endpoint">Loading...</p>
+          <p class="hint">Config key: <code>artifactBaseUrl</code></p>
+        </article>
+      </section>
+
+      <section class="panel">
+        <h2>Deployment Notes</h2>
+        <ul>
+          <li>Default config is committed at <code>apps/web/config/default.json</code>.</li>
+          <li>
+            Cloudflare deploy workflow writes <code>apps/web/config/runtime.json</code> from repo
+            variables.
+          </li>
+          <li>
+            URL query params <code>?apiBaseUrl=...</code> and <code>?artifactBaseUrl=...</code>
+            override config for local validation.
+          </li>
+        </ul>
+      </section>
+    </main>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
