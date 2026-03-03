@@ -12,6 +12,7 @@ from pension_data.db.models.entities import (
     EntityType,
 )
 from pension_data.entities.models import CanonicalEntityDraft, SourceRecordProvenance
+from pension_data.extract.common.evidence import canonicalize_evidence_ref
 from pension_data.normalize.entity_tokens import normalize_entity_token
 
 
@@ -38,6 +39,16 @@ def _normalize_metadata(values: Sequence[tuple[str, str]]) -> tuple[tuple[str, s
             continue
         normalized[normalized_key] = value.strip()
     return tuple(sorted(normalized.items(), key=lambda item: item[0]))
+
+
+def _normalize_evidence_refs(values: Sequence[str]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for raw_ref in values:
+        token = canonicalize_evidence_ref(raw_ref)
+        if not token:
+            continue
+        normalized.append(token)
+    return tuple(dict.fromkeys(normalized))
 
 
 def build_canonical_stable_id(
@@ -72,7 +83,7 @@ def create_canonical_entity(
         display_name=draft.display_name,
         key_fields=draft.key_fields,
     )
-    if any(row.stable_id == stable_id and row.merged_into is None for row in rows):
+    if any(row.stable_id == stable_id for row in rows):
         raise ValueError(f"duplicate canonical entity for stable_id '{stable_id}'")
 
     timestamp = _normalize_utc(created_at)
@@ -148,19 +159,12 @@ def link_source_record(
             raise ValueError("source_table and source_record_id are required")
 
         existing_links = list(row.source_links)
-        evidence_refs = tuple(
-            value
-            for value in dict.fromkeys(
-                ref.strip() for ref in provenance.evidence_refs if ref.strip()
-            )
-        )
+        evidence_refs = _normalize_evidence_refs(provenance.evidence_refs)
         merged = False
         for index, item in enumerate(existing_links):
             if (item.source_table, item.source_record_id) != link_key:
                 continue
-            merged_refs = tuple(
-                value for value in dict.fromkeys([*item.evidence_refs, *evidence_refs]) if value
-            )
+            merged_refs = _normalize_evidence_refs([*item.evidence_refs, *evidence_refs])
             existing_links[index] = replace(item, evidence_refs=merged_refs)
             merged = True
             break

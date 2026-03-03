@@ -79,7 +79,7 @@ def test_source_record_links_attach_via_stable_foreign_key_and_dedupe() -> None:
         provenance=SourceRecordProvenance(
             source_record_id="extraction:row:1",
             source_table="investment_positions",
-            evidence_refs=("p.12",),
+            evidence_refs=("Page 12",),
         ),
     )
     linked_again = link_source_record(
@@ -130,6 +130,28 @@ def test_explicit_merge_path_marks_source_and_filters_active_entities() -> None:
             merged,
             source_stable_id=target_stable_id,
             target_stable_id=target_stable_id,
+        )
+
+
+def test_create_rejects_reuse_of_stable_id_after_merge() -> None:
+    rows = create_canonical_entity(
+        [],
+        draft=CanonicalEntityDraft(entity_type="manager", display_name="Delta Capital"),
+    )
+    rows = create_canonical_entity(
+        rows,
+        draft=CanonicalEntityDraft(entity_type="manager", display_name="Delta Capital II"),
+    )
+    merged = merge_canonical_entities(
+        rows,
+        source_stable_id="manager:delta capital ii",
+        target_stable_id="manager:delta capital",
+    )
+
+    with pytest.raises(ValueError, match="duplicate canonical entity"):
+        create_canonical_entity(
+            merged,
+            draft=CanonicalEntityDraft(entity_type="manager", display_name="Delta Capital II"),
         )
 
 
