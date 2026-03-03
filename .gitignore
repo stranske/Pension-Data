@@ -23,3 +23,7 @@ coverage.xml
 build/
 dist/
 pip-wheel-metadata/
+
+# JavaScript/Rust desktop build artifacts
+node_modules/
+apps/mac-desktop/src-tauri/target/

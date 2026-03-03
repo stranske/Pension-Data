@@ -1,0 +1,18 @@
+{
+  "name": "pension-data-mac-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tauri-first desktop shell for Pension-Data workspace",
+  "scripts": {
+    "sync:web-ui": "bash scripts/sync_web_ui.sh",
+    "validate:contract": "node scripts/validate_runtime_contract.mjs",
+    "tauri:dev": "npm run sync:web-ui && npm run validate:contract && tauri dev",
+    "tauri:build": "npm run sync:web-ui && npm run validate:contract && tauri build --bundles app",
+    "electron:dev": "npm run sync:web-ui && npm run validate:contract && electron electron/main.mjs",
+    "bench:shells": "python benchmarks/benchmark_shells.py --tauri metrics/tauri-sample.json --electron metrics/electron-sample.json --out benchmarks/latest_report.md"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "electron": "^35.0.0"
+  }
+}
