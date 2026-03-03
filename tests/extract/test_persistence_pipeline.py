@@ -29,6 +29,7 @@ from pension_data.extract.persistence import (
     PositionPersistenceContext,
     WarningPersistenceContext,
     build_extraction_persistence_artifacts,
+    build_schema_component_datasets,
     extraction_persistence_contract,
     persist_extraction_warnings,
     persist_funded_actuarial_metrics,
@@ -252,10 +253,38 @@ def test_extraction_to_persistence_pipeline_writes_core_rows_relationships_and_w
     assert saved_relationship_rows == relationship_rows
     assert saved_warning_rows == warning_rows
     assert set(component_manifest) == set(SCHEMA_COMPONENT_TABLES)
+    manifest_root = Path(output_paths["schema_component_datasets_manifest_json"]).parent
     for component_name, component_path in component_manifest.items():
-        component_rows = json.loads(Path(component_path).read_text())
+        component_rows = json.loads((manifest_root / component_path).read_text())
         assert isinstance(component_rows, list)
         assert component_rows[0]["component_name"] == component_name
+
+
+def test_schema_component_datasets_fallback_to_metric_dates_without_warning_context() -> None:
+    datasets = build_schema_component_datasets(
+        persisted_core_metrics=[
+            {
+                "plan_id": "CA-PERS",
+                "plan_period": "FY2025",
+                "effective_date": "2025-06-30",
+                "ingestion_date": "2026-01-15",
+                "source_document_id": "doc:ca:2025",
+                "metric_family": "funded",
+                "benchmark_version": "v1",
+                "evidence_refs": ["p40"],
+            }
+        ],
+        relationship_rows=[],
+        warning_rows=[],
+        funded_warning_context=None,
+    )
+
+    metric_row = datasets["metric_observation"][0]
+    assert metric_row["plan_id"] == "CA-PERS"
+    assert metric_row["plan_period"] == "FY2025"
+    assert metric_row["effective_date"] == "2025-06-30"
+    assert metric_row["ingestion_date"] == "2026-01-15"
+    assert metric_row["source_document_id"] == "doc:ca:2025"
 
 
 def test_persistence_artifacts_are_deterministic_for_input_order() -> None:

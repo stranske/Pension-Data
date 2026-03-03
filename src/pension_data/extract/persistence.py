@@ -91,6 +91,7 @@ EXTRACTION_WARNING_COLUMNS: tuple[str, ...] = (
 )
 
 ComponentDatasetStatus = Literal["present", "partial", "not_disclosed"]
+# Includes the 19 core components plus extended datasets emitted by current extractors.
 SCHEMA_COMPONENT_TABLES: tuple[str, ...] = (
     "pension_plan",
     "source_document",
@@ -186,6 +187,20 @@ def _stable_id(prefix: str, *parts: object) -> str:
 
 def _metric_family_for_funded(metric_name: str) -> str:
     return "funded" if metric_name in _FUNDED_METRIC_NAMES else "actuarial"
+
+
+def _first_non_empty_metric_field(
+    rows: Sequence[Mapping[str, object]],
+    field_name: str,
+) -> str | None:
+    candidates = sorted(
+        {
+            str(row.get(field_name))
+            for row in rows
+            if isinstance(row.get(field_name), str) and str(row.get(field_name)).strip()
+        }
+    )
+    return candidates[0] if candidates else None
 
 
 def _manager_name_for_relationship(row: PlanManagerFundPosition) -> str:
@@ -807,41 +822,28 @@ def build_schema_component_datasets(
     """Build one deterministic dataset row per schema component with present/partial/not_disclosed."""
     plan_id = funded_warning_context.plan_id if funded_warning_context is not None else None
     if plan_id is None:
-        plan_ids = sorted(
-            {
-                str(row.get("plan_id"))
-                for row in persisted_core_metrics
-                if isinstance(row.get("plan_id"), str) and str(row.get("plan_id")).strip()
-            }
-        )
-        plan_id = plan_ids[0] if plan_ids else None
+        plan_id = _first_non_empty_metric_field(persisted_core_metrics, "plan_id")
 
     plan_period = funded_warning_context.plan_period if funded_warning_context is not None else None
     if plan_period is None:
-        periods = sorted(
-            {
-                str(row.get("plan_period"))
-                for row in persisted_core_metrics
-                if isinstance(row.get("plan_period"), str) and str(row.get("plan_period")).strip()
-            }
-        )
-        plan_period = periods[0] if periods else None
+        plan_period = _first_non_empty_metric_field(persisted_core_metrics, "plan_period")
 
     effective_date = funded_warning_context.effective_date if funded_warning_context else None
+    if effective_date is None:
+        effective_date = _first_non_empty_metric_field(persisted_core_metrics, "effective_date")
+
     ingestion_date = funded_warning_context.ingestion_date if funded_warning_context else None
+    if ingestion_date is None:
+        ingestion_date = _first_non_empty_metric_field(persisted_core_metrics, "ingestion_date")
+
     source_document_id = (
         funded_warning_context.source_document_id if funded_warning_context else None
     )
     if source_document_id is None:
-        source_ids = sorted(
-            {
-                str(row.get("source_document_id"))
-                for row in persisted_core_metrics
-                if isinstance(row.get("source_document_id"), str)
-                and str(row.get("source_document_id")).strip()
-            }
+        source_document_id = _first_non_empty_metric_field(
+            persisted_core_metrics,
+            "source_document_id",
         )
-        source_document_id = source_ids[0] if source_ids else None
 
     manager_names = {
         row.manager_name.strip()
@@ -856,7 +858,8 @@ def build_schema_component_datasets(
     benchmark_versions = {
         str(row.get("benchmark_version"))
         for row in persisted_core_metrics
-        if isinstance(row.get("benchmark_version"), str) and str(row.get("benchmark_version")).strip()
+        if isinstance(row.get("benchmark_version"), str)
+        and str(row.get("benchmark_version")).strip()
     }
     benchmark_versions.update(
         {
@@ -887,7 +890,9 @@ def build_schema_component_datasets(
         "benchmark_definition": 0,
         "benchmark_version": len(benchmark_versions),
         "performance_observation": 0,
-        "fee_observation": len([row for row in persisted_core_metrics if row.get("metric_family") == "fee"]),
+        "fee_observation": len(
+            [row for row in persisted_core_metrics if row.get("metric_family") == "fee"]
+        ),
         "risk_exposure_observation": len(risk_exposure_rows),
         "consultant_entity": len(consultant_entities),
         "plan_consultant_engagement": len(consultant_engagements),
@@ -905,7 +910,9 @@ def build_schema_component_datasets(
         if count > 0:
             status = "present"
             notes = "component rows emitted"
-        elif component in ("benchmark_definition", "performance_observation") and has_metric_payload:
+        elif (
+            component in ("benchmark_definition", "performance_observation") and has_metric_payload
+        ):
             status = "partial"
             notes = "context available but dedicated component extraction is pending"
         else:
@@ -1060,14 +1067,14 @@ def write_extraction_persistence_artifacts(
     _write_json(warnings_json, warning_rows)
     component_manifest: dict[str, str] = {}
     for component_name in sorted(component_datasets):
-        payload = component_datasets[component_name]
         if not isinstance(component_name, str):
             raise ValueError("component dataset keys must be strings")
+        payload = component_datasets[component_name]
         if not isinstance(payload, list):
             raise ValueError("component dataset values must be lists")
         component_json = component_dir / f"{component_name}.json"
         _write_json(component_json, payload)
-        component_manifest[component_name] = str(component_json)
+        component_manifest[component_name] = str(component_json.relative_to(output_dir))
     _write_json(component_manifest_json, component_manifest)
 
     return {
