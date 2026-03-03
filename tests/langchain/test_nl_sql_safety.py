@@ -55,6 +55,10 @@ def test_sql_safety_validator_allows_read_only_and_rejects_destructive_queries()
         validate_read_only_sql("SELECT id, value FROM sample_metrics ORDER BY id;")
         == "SELECT id, value FROM sample_metrics ORDER BY id"
     )
+    assert (
+        validate_read_only_sql("SELECT id FROM sample_metrics; -- trailing comment")
+        == "SELECT id FROM sample_metrics"
+    )
     with pytest.raises(SQLSafetyValidationError, match="SELECT/WITH"):
         validate_read_only_sql("DELETE FROM sample_metrics")
     with pytest.raises(SQLSafetyValidationError, match="multiple SQL statements"):
@@ -116,6 +120,62 @@ def test_nl_sql_chain_rejects_unsafe_generated_sql_and_emits_error_trace() -> No
     assert remaining_rows == 3
     assert traces.events[-1].stage == "nl.sql.error"
     assert traces.events[-1].payload["error_code"] == "UNSAFE_SQL"
+
+
+def test_nl_sql_chain_returns_specific_error_for_max_rows_overflow() -> None:
+    connection = _seed_connection()
+    traces = InMemoryLangSmithTraceSink(events=[])
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(
+                question="Show all metric values by id",
+                max_rows=2,
+            ),
+            chain=StaticChain("SELECT id, value FROM sample_metrics ORDER BY id"),
+            trace_sink=traces,
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "MAX_ROWS_EXCEEDED"
+    assert "max_rows limit" in response.error.message
+    assert traces.events[-1].stage == "nl.sql.error"
+    assert traces.events[-1].payload["error_code"] == "MAX_ROWS_EXCEEDED"
+
+
+def test_nl_sql_chain_timeout_path_emits_timeout_error_code() -> None:
+    connection = _seed_connection()
+    traces = InMemoryLangSmithTraceSink(events=[])
+    recursive_sql = """
+        WITH RECURSIVE seq(x) AS (
+            SELECT 1
+            UNION ALL
+            SELECT x + 1 FROM seq WHERE x < 50000000
+        )
+        SELECT sum(x) FROM seq
+    """
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(
+                question="List recursive sequence rows for diagnostics",
+                timeout_ms=1,
+                max_rows=100,
+            ),
+            chain=StaticChain(recursive_sql),
+            trace_sink=traces,
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "TIMEOUT"
+    assert traces.events[-1].stage == "nl.sql.error"
+    assert traces.events[-1].payload["error_code"] == "TIMEOUT"
 
 
 def test_nl_route_requires_nl_scope_and_emits_audit_event() -> None:

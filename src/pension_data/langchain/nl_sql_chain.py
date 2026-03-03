@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 from pension_data.query.sql_safety import (
@@ -17,6 +17,7 @@ from pension_data.query.sql_safety import (
 )
 
 SqlParams = Mapping[str, Any] | tuple[Any, ...] | list[Any]
+NLToSQLStatus = Literal["ok", "error"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +52,7 @@ class NLToSQLMetadata:
 class NLToSQLResponse:
     """Deterministic NL-to-SQL execution response envelope."""
 
-    status: str
+    status: NLToSQLStatus
     sql: str | None
     columns: tuple[str, ...]
     rows: tuple[tuple[Any, ...], ...]
@@ -89,6 +90,10 @@ class InMemoryLangSmithTraceSink:
 
     def emit(self, event: LangSmithTraceEvent) -> None:
         self.events.append(event)
+
+
+class MaxRowsExceededError(ValueError):
+    """Raised when generated SQL returns more rows than allowed by request.max_rows."""
 
 
 def _normalize_params(params: SqlParams | None) -> SqlParams | tuple[()]:
@@ -143,6 +148,8 @@ def _error_code(exc: Exception) -> str:
         return "AMBIGUOUS_PROMPT"
     if isinstance(exc, SQLSafetyValidationError):
         return "UNSAFE_SQL"
+    if isinstance(exc, MaxRowsExceededError):
+        return "MAX_ROWS_EXCEEDED"
     if isinstance(exc, TimeoutError):
         return "TIMEOUT"
     if isinstance(exc, sqlite3.OperationalError):
@@ -167,7 +174,7 @@ def run_nl_sql_chain(
 
     def _finalize(
         *,
-        status: str,
+        status: NLToSQLStatus,
         sql: str | None,
         columns: tuple[str, ...],
         rows: tuple[tuple[Any, ...], ...],
@@ -218,7 +225,9 @@ def run_nl_sql_chain(
         columns = tuple(column[0] for column in (cursor.description or ()))
         fetched = tuple(tuple(row) for row in cursor.fetchmany(request.max_rows + 1))
         if len(fetched) > request.max_rows:
-            raise ValueError(f"generated SQL exceeded max_rows limit ({request.max_rows})")
+            raise MaxRowsExceededError(
+                f"generated SQL exceeded max_rows limit ({request.max_rows})"
+            )
         _emit_trace(
             trace_sink,
             emitted_events,

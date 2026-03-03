@@ -121,16 +121,27 @@ def _strip_sql_comments_and_strings(sql: str) -> str:
 
 def validate_read_only_sql(sql: str) -> str:
     """Validate generated SQL and return normalized read-only statement text."""
-    normalized = sql.strip().rstrip(";").strip()
+    normalized = sql.strip()
     if not normalized:
         raise SQLSafetyValidationError("generated SQL is empty")
 
     sanitized = _strip_sql_comments_and_strings(normalized)
+    semicolon_indices = [index for index, char in enumerate(sanitized) if char == ";"]
+    if len(semicolon_indices) > 1:
+        raise SQLSafetyValidationError("multiple SQL statements are not allowed")
+    if len(semicolon_indices) == 1:
+        semicolon_index = semicolon_indices[0]
+        if any(not char.isspace() for char in sanitized[semicolon_index + 1 :]):
+            raise SQLSafetyValidationError("multiple SQL statements are not allowed")
+        normalized = normalized[:semicolon_index].strip()
+        sanitized = sanitized[:semicolon_index].strip()
+
+    if not normalized:
+        raise SQLSafetyValidationError("generated SQL is empty")
+
     lowered = sanitized.lower().lstrip()
     if not lowered.startswith(("select", "with")):
         raise SQLSafetyValidationError("only read-only SELECT/WITH queries are allowed")
-    if ";" in sanitized:
-        raise SQLSafetyValidationError("multiple SQL statements are not allowed")
 
     tokens = {match.group(0).lower() for match in _SQL_WORD_PATTERN.finditer(sanitized)}
     forbidden = sorted(token for token in _FORBIDDEN_SQL_TOKENS if token in tokens)
