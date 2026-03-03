@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 _FORBIDDEN_SQL_TOKENS: tuple[str, ...] = (
     "insert",
@@ -21,6 +22,63 @@ _FORBIDDEN_SQL_TOKENS: tuple[str, ...] = (
 )
 _SQL_WORD_PATTERN = re.compile(r"\b[a-z_][a-z0-9_]*\b", re.IGNORECASE)
 _TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9_]+")
+_RELATION_PATTERN = re.compile(r"\b(?:from|join)\s+([a-z_][a-z0-9_\.]*)", re.IGNORECASE)
+_CTE_ALIAS_PATTERN = re.compile(
+    r"\b([a-z_][a-z0-9_]*)\s*(?:\([^)]*\))?\s+as\s*\(",
+    re.IGNORECASE,
+)
+_LIMIT_PATTERN = re.compile(r"\blimit\s+(\d+)\b", re.IGNORECASE)
+
+
+@dataclass(frozen=True, slots=True)
+class SQLSafetyPolicy:
+    """Policy envelope for strict NL SQL execution."""
+
+    allowed_relations: tuple[str, ...]
+    allowed_columns: tuple[str, ...]
+    banned_clauses: tuple[str, ...]
+    max_rows: int
+    max_timeout_ms: int
+
+
+def default_nl_query_policy() -> SQLSafetyPolicy:
+    """Return strict default policy for Pension-Data NL query execution."""
+    return SQLSafetyPolicy(
+        allowed_relations=(
+            "curated_metric_facts",
+            "curated_cash_flow_facts",
+        ),
+        allowed_columns=(
+            "plan_id",
+            "plan_period",
+            "metric_family",
+            "metric_name",
+            "normalized_value",
+            "normalized_unit",
+            "manager_name",
+            "fund_name",
+            "vehicle_name",
+            "beginning_aum_normalized",
+            "ending_aum_normalized",
+            "employer_contributions_normalized",
+            "employee_contributions_normalized",
+            "benefit_payments_normalized",
+            "refunds_normalized",
+            "effective_date",
+            "ingestion_date",
+            "benchmark_version",
+            "source_document_id",
+        ),
+        banned_clauses=(
+            "pragma",
+            "into outfile",
+            "copy ",
+            "pg_catalog",
+            "information_schema",
+        ),
+        max_rows=500,
+        max_timeout_ms=2_000,
+    )
 
 
 class SQLSafetyValidationError(ValueError):
@@ -151,3 +209,72 @@ def validate_read_only_sql(sql: str) -> str:
         )
 
     return normalized
+
+
+def _sanitize_sql(sql: str) -> str:
+    return _strip_sql_comments_and_strings(sql).lower()
+
+
+def _extract_cte_aliases(sanitized_sql: str) -> set[str]:
+    return {match.group(1).lower() for match in _CTE_ALIAS_PATTERN.finditer(sanitized_sql)}
+
+
+def extract_relations(sql: str) -> tuple[str, ...]:
+    """Extract relation identifiers referenced in FROM/JOIN clauses."""
+    sanitized_sql = _sanitize_sql(sql)
+    cte_aliases = _extract_cte_aliases(sanitized_sql)
+    relations: set[str] = set()
+    for match in _RELATION_PATTERN.finditer(sanitized_sql):
+        token = match.group(1).split(".")[-1].strip().lower()
+        if not token or token in cte_aliases:
+            continue
+        relations.add(token)
+    return tuple(sorted(relations))
+
+
+def validate_sql_policy(sql: str, *, policy: SQLSafetyPolicy) -> str:
+    """Validate SQL text under statement/relation/banned-clause policy."""
+    normalized = validate_read_only_sql(sql)
+    sanitized_sql = _sanitize_sql(normalized)
+
+    banned_hits = sorted(clause for clause in policy.banned_clauses if clause in sanitized_sql)
+    if banned_hits:
+        raise SQLSafetyValidationError(
+            "generated SQL contains banned clause(s): " + ", ".join(banned_hits)
+        )
+
+    limit_match = _LIMIT_PATTERN.search(sanitized_sql)
+    if limit_match is not None:
+        limit_value = int(limit_match.group(1))
+        if limit_value > policy.max_rows:
+            raise SQLSafetyValidationError(
+                f"generated SQL LIMIT ({limit_value}) exceeds policy max_rows ({policy.max_rows})"
+            )
+
+    referenced_relations = extract_relations(normalized)
+    if policy.allowed_relations and not referenced_relations:
+        raise SQLSafetyValidationError("generated SQL must reference at least one allowed relation")
+    if policy.allowed_relations:
+        allowed = {value.lower() for value in policy.allowed_relations}
+        disallowed = sorted(
+            relation for relation in referenced_relations if relation not in allowed
+        )
+        if disallowed:
+            raise SQLSafetyValidationError(
+                "generated SQL references disallowed relation(s): " + ", ".join(disallowed)
+            )
+    return normalized
+
+
+def validate_result_columns(columns: tuple[str, ...], *, policy: SQLSafetyPolicy) -> None:
+    """Validate returned column names against allowlist policy."""
+    if not policy.allowed_columns:
+        return
+    allowed = {column.lower() for column in policy.allowed_columns}
+    disallowed = sorted(
+        {column for column in columns if column.strip() and column.lower() not in allowed}
+    )
+    if disallowed:
+        raise SQLSafetyValidationError(
+            "generated SQL returns disallowed column(s): " + ", ".join(disallowed)
+        )

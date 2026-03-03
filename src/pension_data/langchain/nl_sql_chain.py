@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -11,13 +12,17 @@ from uuid import uuid4
 
 from pension_data.query.sql_safety import (
     AmbiguousPromptError,
+    SQLSafetyPolicy,
     SQLSafetyValidationError,
+    default_nl_query_policy,
     validate_nl_prompt,
-    validate_read_only_sql,
+    validate_result_columns,
+    validate_sql_policy,
 )
 
 SqlParams = Mapping[str, Any] | tuple[Any, ...] | list[Any]
 NLToSQLStatus = Literal["ok", "error"]
+NLToSQLPolicy = SQLSafetyPolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +54,16 @@ class NLToSQLMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class NLToSQLProvenanceRow:
+    """Provenance metadata for one returned SQL row."""
+
+    row_index: int
+    source_document_id: str | None
+    evidence_refs: tuple[str, ...]
+    confidence: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class NLToSQLResponse:
     """Deterministic NL-to-SQL execution response envelope."""
 
@@ -56,6 +71,7 @@ class NLToSQLResponse:
     sql: str | None
     columns: tuple[str, ...]
     rows: tuple[tuple[Any, ...], ...]
+    provenance: tuple[NLToSQLProvenanceRow, ...]
     metadata: NLToSQLMetadata
     error: NLToSQLError | None
 
@@ -143,6 +159,77 @@ def _extract_sql(generated: str | Mapping[str, Any]) -> str:
     return sql
 
 
+def _safe_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        token = value.strip()
+        if not token:
+            return None
+        try:
+            return float(token)
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_evidence_refs(raw: Any) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if isinstance(raw, str):
+        token = raw.strip()
+        if not token:
+            return ()
+        if token.startswith("[") and token.endswith("]"):
+            try:
+                parsed = json.loads(token)
+            except ValueError:
+                parsed = None
+            if isinstance(parsed, list):
+                refs = [item.strip() for item in parsed if isinstance(item, str) and item.strip()]
+                return tuple(dict.fromkeys(refs))
+        refs = [value.strip() for value in token.split(",") if value.strip()]
+        return tuple(dict.fromkeys(refs))
+    if isinstance(raw, (tuple, list)):
+        refs = [item.strip() for item in raw if isinstance(item, str) and item.strip()]
+        return tuple(dict.fromkeys(refs))
+    return ()
+
+
+def _build_provenance(
+    *, columns: tuple[str, ...], rows: tuple[tuple[Any, ...], ...]
+) -> tuple[NLToSQLProvenanceRow, ...]:
+    column_index = {name.lower(): idx for idx, name in enumerate(columns)}
+    source_idx = column_index.get("source_document_id")
+    evidence_idx = column_index.get("evidence_refs")
+    confidence_idx = column_index.get("confidence")
+
+    provenance_rows: list[NLToSQLProvenanceRow] = []
+    for row_index, row in enumerate(rows):
+        source_document_id: str | None = None
+        if source_idx is not None and source_idx < len(row):
+            raw_source = row[source_idx]
+            if isinstance(raw_source, str) and raw_source.strip():
+                source_document_id = raw_source.strip()
+        evidence_refs: tuple[str, ...] = ()
+        if evidence_idx is not None and evidence_idx < len(row):
+            evidence_refs = _parse_evidence_refs(row[evidence_idx])
+        confidence: float | None = None
+        if confidence_idx is not None and confidence_idx < len(row):
+            confidence = _safe_float(row[confidence_idx])
+        provenance_rows.append(
+            NLToSQLProvenanceRow(
+                row_index=row_index,
+                source_document_id=source_document_id,
+                evidence_refs=evidence_refs,
+                confidence=confidence,
+            )
+        )
+    return tuple(provenance_rows)
+
+
 def _error_code(exc: Exception) -> str:
     if isinstance(exc, AmbiguousPromptError):
         return "AMBIGUOUS_PROMPT"
@@ -166,6 +253,7 @@ def run_nl_sql_chain(
     request: NLToSQLRequest,
     chain: NLToSQLChain,
     trace_sink: LangSmithTraceSink | None = None,
+    policy: SQLSafetyPolicy | None = None,
 ) -> NLToSQLResponse:
     """Generate SQL from NL prompt, enforce read-only policy, and execute query."""
     request_id = f"nlq:{uuid4().hex}"
@@ -178,6 +266,7 @@ def run_nl_sql_chain(
         sql: str | None,
         columns: tuple[str, ...],
         rows: tuple[tuple[Any, ...], ...],
+        provenance: tuple[NLToSQLProvenanceRow, ...],
         error: NLToSQLError | None,
     ) -> NLToSQLResponse:
         duration_ms = max(0, int(round((perf_counter() - started) * 1000)))
@@ -186,6 +275,7 @@ def run_nl_sql_chain(
             sql=sql,
             columns=columns,
             rows=rows,
+            provenance=provenance,
             metadata=NLToSQLMetadata(
                 request_id=request_id,
                 duration_ms=duration_ms,
@@ -196,11 +286,18 @@ def run_nl_sql_chain(
         )
 
     sql: str | None = None
+    active_policy = policy or default_nl_query_policy()
     try:
         if request.max_rows < 1:
             raise ValueError("max_rows must be >= 1")
         if request.timeout_ms < 1:
             raise ValueError("timeout_ms must be >= 1")
+        if request.max_rows > active_policy.max_rows:
+            raise ValueError(f"max_rows must be <= policy max_rows ({active_policy.max_rows})")
+        if request.timeout_ms > active_policy.max_timeout_ms:
+            raise ValueError(
+                "timeout_ms exceeds policy max_timeout_ms " f"({active_policy.max_timeout_ms})"
+            )
         params = _normalize_params(request.params)
         question = validate_nl_prompt(request.question)
         _emit_trace(
@@ -211,7 +308,7 @@ def run_nl_sql_chain(
         )
 
         generated = chain.invoke({"question": question, "dialect": "sqlite"})
-        sql = validate_read_only_sql(_extract_sql(generated))
+        sql = validate_sql_policy(_extract_sql(generated), policy=active_policy)
         _emit_trace(
             trace_sink,
             emitted_events,
@@ -223,10 +320,18 @@ def run_nl_sql_chain(
         _set_timeout_handler(connection, deadline_s=deadline)
         cursor = connection.execute(sql, params)
         columns = tuple(column[0] for column in (cursor.description or ()))
+        validate_result_columns(columns, policy=active_policy)
         fetched = tuple(tuple(row) for row in cursor.fetchmany(request.max_rows + 1))
         if len(fetched) > request.max_rows:
             raise MaxRowsExceededError(
                 f"generated SQL exceeded max_rows limit ({request.max_rows})"
+            )
+        provenance = _build_provenance(columns=columns, rows=fetched)
+        if "source_document_id" in {column.lower() for column in columns} and any(
+            row.source_document_id is None for row in provenance
+        ):
+            raise SQLSafetyValidationError(
+                "source_document_id must be populated for provenance-tracked rows"
             )
         _emit_trace(
             trace_sink,
@@ -243,6 +348,7 @@ def run_nl_sql_chain(
             sql=sql,
             columns=columns,
             rows=fetched,
+            provenance=provenance,
             error=None,
         )
     except Exception as exc:  # noqa: BLE001
@@ -264,6 +370,7 @@ def run_nl_sql_chain(
             sql=sql,
             columns=(),
             rows=(),
+            provenance=(),
             error=NLToSQLError(code=_error_code(exc), message=str(exc)),
         )
     finally:
