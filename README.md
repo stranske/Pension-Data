@@ -58,7 +58,7 @@ scripts/                  Utility scripts and LangChain-assisted tooling
 
 Two intentionally incomplete components are tracked:
 
-- A higher-quality analyst-facing UI/GUI.
+- A higher-quality analyst-facing UI/GUI (browser path now includes Cloudflare + PWA zero-install mode).
 - A LangChain interaction layer for findings exploration from repo outputs.
 - A packaged Mac desktop app path (scaffold now present under `apps/mac-desktop/`).
 
@@ -70,6 +70,8 @@ See [docs/UI_LANGCHAIN_OPTIONS.md](docs/UI_LANGCHAIN_OPTIONS.md) for deployment 
 - [docs/CI_SYSTEM_GUIDE.md](docs/CI_SYSTEM_GUIDE.md)
 - [docs/KEEPALIVE_TROUBLESHOOTING.md](docs/KEEPALIVE_TROUBLESHOOTING.md)
 - [docs/deploy/CLOUDFLARE_PAGES_SETUP.md](docs/deploy/CLOUDFLARE_PAGES_SETUP.md)
+- [docs/deploy/PC_ZERO_INSTALL_IT_REVIEW.md](docs/deploy/PC_ZERO_INSTALL_IT_REVIEW.md)
+- [docs/ux/CAPABILITY_MATRIX.md](docs/ux/CAPABILITY_MATRIX.md)
 - [docs/ops/QUALITY_LAYER_OPERATIONS.md](docs/ops/QUALITY_LAYER_OPERATIONS.md)
 - [docs/contracts/DOCUMENT_ORCHESTRATION_JOB_CONTRACT.md](docs/contracts/DOCUMENT_ORCHESTRATION_JOB_CONTRACT.md)
 - [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md)

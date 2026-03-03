@@ -2,16 +2,22 @@ const DEFAULT_CONFIG_PATH = "./config/default.json";
 const RUNTIME_CONFIG_PATH = "./config/runtime.json";
 const WORKSPACE_DATA_PATH = "./data/workspace.json";
 const SAVED_VIEWS_KEY = "pension-data.saved-views.v1";
+const OFFLINE_WORKSPACE_KEY = "pension-data.offline-workspace.v1";
+const OFFLINE_WORKSPACE_SOURCE_KEY = "pension-data.offline-workspace-source.v1";
+const SERVICE_WORKER_PATH = "./sw.js";
 const REQUIRED_CONFIG_KEYS = ["environment", "apiBaseUrl", "artifactBaseUrl"];
 
 const state = {
   config: null,
   datasets: [],
+  packagedWorkspace: null,
+  workspaceSource: "unknown",
   selectedDatasetId: "",
   selectedRowIndex: null,
   storageWarningShown: false,
   currentChartSpec: null,
   chartRefreshTimer: null,
+  deferredInstallPrompt: null,
   filters: {
     entity: "",
     period: "",
@@ -67,6 +73,92 @@ function applyQueryOverrides(config) {
     }
   }
   return next;
+}
+
+function setBundleStatus(message, level = "ok") {
+  const status = document.getElementById("local-bundle-status");
+  if (!status) {
+    return;
+  }
+  status.textContent = message;
+  status.dataset.level = level;
+}
+
+function normalizeWorkspaceBundle(payload) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("workspace bundle must be a JSON object");
+  }
+  const datasets = payload.datasets;
+  if (!Array.isArray(datasets) || !datasets.length) {
+    throw new Error("workspace bundle requires a non-empty datasets array");
+  }
+  datasets.forEach((dataset, index) => {
+    if (!dataset || typeof dataset !== "object") {
+      throw new Error(`dataset at index ${index} is not an object`);
+    }
+    if (!normalizeText(dataset.id)) {
+      throw new Error(`dataset at index ${index} is missing id`);
+    }
+    if (!Array.isArray(dataset.rows)) {
+      throw new Error(`dataset '${dataset.id}' is missing rows array`);
+    }
+  });
+  return payload;
+}
+
+function persistOfflineWorkspace(workspace, sourceLabel) {
+  try {
+    localStorage.setItem(OFFLINE_WORKSPACE_KEY, JSON.stringify(workspace));
+    localStorage.setItem(OFFLINE_WORKSPACE_SOURCE_KEY, sourceLabel);
+  } catch (error) {
+    console.warn("Unable to persist offline workspace cache.", error);
+  }
+}
+
+function loadOfflineWorkspace() {
+  try {
+    const raw = localStorage.getItem(OFFLINE_WORKSPACE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const payload = normalizeWorkspaceBundle(JSON.parse(raw));
+    const sourceLabel = normalizeText(localStorage.getItem(OFFLINE_WORKSPACE_SOURCE_KEY)) || "offline cache";
+    return { payload, sourceLabel };
+  } catch (error) {
+    console.warn("Unable to load offline workspace cache.", error);
+    return null;
+  }
+}
+
+function updateWorkspaceSource(sourceLabel) {
+  state.workspaceSource = sourceLabel;
+  const source = document.getElementById("workspace-source");
+  if (source) {
+    source.textContent = sourceLabel;
+  }
+}
+
+function applyWorkspaceBundle(payload, sourceLabel) {
+  state.datasets = payload.datasets;
+  if (!state.datasets.length) {
+    throw new Error("workspace dataset inventory is empty");
+  }
+  if (!state.selectedDatasetId || !state.datasets.some((dataset) => dataset.id === state.selectedDatasetId)) {
+    state.selectedDatasetId = state.datasets[0].id;
+  }
+  state.selectedRowIndex = null;
+  updateWorkspaceSource(sourceLabel);
+  renderWorkspace();
+  if (window.PensionDataApp) {
+    window.PensionDataApp.datasetCount = state.datasets.length;
+  }
+}
+
+async function loadPackagedWorkspaceBundle() {
+  const payload = normalizeWorkspaceBundle(await loadJson(WORKSPACE_DATA_PATH));
+  state.packagedWorkspace = payload;
+  persistOfflineWorkspace(payload, "packaged bundle");
+  return payload;
 }
 
 function loadSavedViews() {
@@ -136,10 +228,12 @@ function renderMeta() {
   const environment = document.querySelector("[data-testid='environment-badge']");
   const api = document.getElementById("api-endpoint");
   const artifact = document.getElementById("artifact-endpoint");
+  const source = document.getElementById("workspace-source");
 
   environment.textContent = `Environment: ${state.config.environment}`;
   api.textContent = state.config.apiBaseUrl;
   artifact.textContent = state.config.artifactBaseUrl;
+  source.textContent = state.workspaceSource;
 }
 
 function renderInventory() {
@@ -469,6 +563,81 @@ function bindExportHandlers() {
   });
 }
 
+async function handleLocalBundleLoad() {
+  const input = document.getElementById("local-bundle-file");
+  const file = input.files?.[0];
+  if (!file) {
+    setBundleStatus("Choose a JSON bundle file before loading.", "warn");
+    return;
+  }
+  try {
+    const payload = normalizeWorkspaceBundle(JSON.parse(await file.text()));
+    persistOfflineWorkspace(payload, `local bundle: ${file.name}`);
+    applyWorkspaceBundle(payload, `local bundle: ${file.name}`);
+    setBundleStatus(`Loaded local bundle '${file.name}'.`, "ok");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setBundleStatus(`Local bundle load failed: ${message}`, "error");
+  }
+}
+
+async function handleReloadPackagedBundle() {
+  try {
+    const payload = state.packagedWorkspace || (await loadPackagedWorkspaceBundle());
+    applyWorkspaceBundle(payload, "packaged bundle");
+    setBundleStatus("Reloaded packaged workspace bundle.", "ok");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setBundleStatus(`Could not reload packaged bundle: ${message}`, "error");
+  }
+}
+
+function bindZeroInstallHandlers() {
+  document.getElementById("load-local-bundle").addEventListener("click", () => {
+    void handleLocalBundleLoad();
+  });
+  document.getElementById("reload-packaged-data").addEventListener("click", () => {
+    void handleReloadPackagedBundle();
+  });
+}
+
+function bindPwaInstallHandlers() {
+  const installButton = document.getElementById("install-app");
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    state.deferredInstallPrompt = event;
+    installButton.hidden = false;
+  });
+  window.addEventListener("appinstalled", () => {
+    state.deferredInstallPrompt = null;
+    installButton.hidden = true;
+    setBundleStatus("App installed. Offline cache remains available for browser mode.", "ok");
+  });
+  installButton.addEventListener("click", async () => {
+    if (!state.deferredInstallPrompt) {
+      setBundleStatus("Install prompt is not available in this browser context.", "warn");
+      return;
+    }
+    await state.deferredInstallPrompt.prompt();
+    await state.deferredInstallPrompt.userChoice;
+    state.deferredInstallPrompt = null;
+    installButton.hidden = true;
+  });
+}
+
+async function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    setBundleStatus("Service worker unavailable. Offline mode may be limited.", "warn");
+    return;
+  }
+  try {
+    await navigator.serviceWorker.register(SERVICE_WORKER_PATH);
+  } catch (error) {
+    console.warn("Service worker registration failed.", error);
+    setBundleStatus("Offline cache setup failed. Browser mode is still available online.", "warn");
+  }
+}
+
 function chartTitle(template) {
   const labels = {
     timeSeries: "Time Series",
@@ -749,30 +918,43 @@ function renderWorkspace() {
 }
 
 async function init() {
-  const [defaultConfig, runtimeConfig, workspace] = await Promise.all([
+  const [defaultConfig, runtimeConfig] = await Promise.all([
     loadJson(DEFAULT_CONFIG_PATH),
     loadJson(RUNTIME_CONFIG_PATH).catch(() => ({})),
-    loadJson(WORKSPACE_DATA_PATH),
   ]);
 
   const config = applyQueryOverrides({ ...defaultConfig, ...runtimeConfig });
   assertConfig(config);
 
-  const datasets = Array.isArray(workspace.datasets) ? workspace.datasets : [];
-  if (!datasets.length) {
-    throw new Error("workspace dataset inventory is empty");
-  }
-
   state.config = config;
-  state.datasets = datasets;
-  state.selectedDatasetId = datasets[0].id;
   state.savedViews = loadSavedViews();
 
   bindFilterHandlers();
   bindSavedViewHandlers();
   bindExportHandlers();
+  bindZeroInstallHandlers();
+  bindPwaInstallHandlers();
   bindChartStudio();
-  renderWorkspace();
+  await registerServiceWorker();
+
+  let workspaceLoaded = false;
+  try {
+    const packaged = await loadPackagedWorkspaceBundle();
+    applyWorkspaceBundle(packaged, "packaged bundle");
+    setBundleStatus("Using packaged workspace bundle.", "ok");
+    workspaceLoaded = true;
+  } catch (error) {
+    console.warn("Packaged workspace bundle unavailable.", error);
+  }
+
+  if (!workspaceLoaded) {
+    const offlineWorkspace = loadOfflineWorkspace();
+    if (!offlineWorkspace) {
+      throw new Error("workspace bundle unavailable (packaged and offline cache missing)");
+    }
+    applyWorkspaceBundle(offlineWorkspace.payload, offlineWorkspace.sourceLabel);
+    setBundleStatus("Using offline cached workspace bundle.", "warn");
+  }
 
   window.PensionDataApp = {
     config: state.config,

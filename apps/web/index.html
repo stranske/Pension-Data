@@ -8,6 +8,8 @@
       name="description"
       content="Unified Pension-Data workspace for dataset inventory, filtering, drilldowns, saved views, and exports."
     />
+    <meta name="theme-color" content="#0f766e" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -25,7 +27,30 @@
           <div class="meta-line">
             <strong>Artifacts:</strong> <span id="artifact-endpoint">Loading...</span>
           </div>
+          <div class="meta-line"><strong>Data Source:</strong> <span id="workspace-source">Loading...</span></div>
         </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Zero-Install Mode</h2>
+          <p class="hint">
+            Browser-only usage for locked-down PCs: install as PWA where allowed, or load local
+            bundle JSON exports directly in session.
+          </p>
+        </div>
+        <div class="saved-row">
+          <button id="install-app" type="button" hidden>Install App</button>
+          <input
+            id="local-bundle-file"
+            type="file"
+            accept="application/json,.json"
+            aria-label="Select local workspace bundle JSON"
+          />
+          <button id="load-local-bundle" type="button">Load Local Bundle</button>
+          <button id="reload-packaged-data" type="button">Reload Packaged Bundle</button>
+        </div>
+        <p id="local-bundle-status" class="hint">Using packaged workspace bundle.</p>
       </section>
 
       <section class="workspace-grid">
