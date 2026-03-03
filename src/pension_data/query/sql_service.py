@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import sqlite3
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from time import perf_counter
@@ -264,33 +263,40 @@ def _error_code(exc: Exception) -> str:
         return "ROW_LIMIT_EXCEEDED"
     if isinstance(exc, SQLExecutionValidationError):
         return "INVALID_REQUEST"
-    if isinstance(exc, TimeoutError):
-        return "TIMEOUT"
-    if isinstance(exc, sqlite3.OperationalError):
-        message = str(exc).lower()
-        if "syntax error" in message:
-            return "SYNTAX_ERROR"
-        if "interrupted" in message:
-            return "TIMEOUT"
     message = str(exc).lower()
-    exception_name = type(exc).__name__.lower()
+    if isinstance(exc, TimeoutError) or _is_timeout_message(message):
+        return "TIMEOUT"
     if "syntax error" in message:
         return "SYNTAX_ERROR"
-    if "statement timeout" in message or "timed out" in message or "interrupted" in message:
-        return "TIMEOUT"
-    if "operationalerror" in exception_name:
-        return "EXECUTION_ERROR"
     return "EXECUTION_ERROR"
+
+
+def _is_timeout_message(message: str) -> bool:
+    lowered = message.lower()
+    return (
+        "statement timeout" in lowered
+        or "timed out" in lowered
+        or "interrupted" in lowered
+        or "canceling statement due to statement timeout" in lowered
+    )
+
+
+def _is_timeout_exception(exc: Exception) -> bool:
+    return isinstance(exc, TimeoutError) or _is_timeout_message(str(exc))
 
 
 def _set_timeout_handler(
     connection: DBConnection,
     *,
+    dialect: DatabaseDialect,
+    timeout_ms: int,
     deadline_s: float,
     clock: Callable[[], float],
 ) -> None:
     raw_setter = getattr(connection, "set_progress_handler", None)
     if raw_setter is None or not callable(raw_setter):
+        if dialect == "postgresql":
+            connection.execute("SET statement_timeout = %s", (timeout_ms,))
         return
 
     def _check_timeout() -> int:
@@ -300,9 +306,11 @@ def _set_timeout_handler(
     setter(_check_timeout, 1_000)
 
 
-def _clear_timeout_handler(connection: DBConnection) -> None:
+def _clear_timeout_handler(connection: DBConnection, *, dialect: DatabaseDialect) -> None:
     raw_setter = getattr(connection, "set_progress_handler", None)
     if raw_setter is None or not callable(raw_setter):
+        if dialect == "postgresql":
+            connection.execute("SET statement_timeout = DEFAULT")
         return
     setter = cast(Callable[[Callable[[], int] | None, int], None], raw_setter)
     setter(None, 0)
@@ -367,7 +375,13 @@ def execute_sql_query(
         params = _normalize_params(request.params)
 
         deadline = start + (request.timeout_ms / 1000.0)
-        _set_timeout_handler(connection, deadline_s=deadline, clock=clock)
+        _set_timeout_handler(
+            connection,
+            dialect=dialect,
+            timeout_ms=request.timeout_ms,
+            deadline_s=deadline,
+            clock=clock,
+        )
 
         count_cursor = connection.execute(_count_query(sql), _count_params(params))
         total_rows = int(count_cursor.fetchone()[0])
@@ -401,13 +415,7 @@ def execute_sql_query(
             error=None,
         )
     except Exception as exc:  # noqa: BLE001
-        message = str(exc).lower()
-        if (
-            isinstance(exc, sqlite3.OperationalError)
-            and "interrupted" in message
-            or "statement timeout" in message
-            or "canceling statement due to statement timeout" in message
-        ):
+        if _is_timeout_exception(exc):
             exc = TimeoutError("query timed out before completion")
         error = SQLQueryError(code=_error_code(exc), message=str(exc))
         return _finalize(
@@ -418,4 +426,4 @@ def execute_sql_query(
             error=error,
         )
     finally:
-        _clear_timeout_handler(connection)
+        _clear_timeout_handler(connection, dialect=dialect)
