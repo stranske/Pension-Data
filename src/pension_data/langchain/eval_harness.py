@@ -8,7 +8,7 @@ import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from pension_data.query.sql_safety import SQLSafetyValidationError, validate_read_only_sql
 
@@ -136,7 +136,7 @@ def _as_mapping(value: object) -> Mapping[str, object]:
 def _load_yaml_or_json(path: Path) -> Mapping[str, object]:
     text = path.read_text(encoding="utf-8")
     try:
-        import yaml  # type: ignore[import-not-found]
+        import yaml
 
         payload = yaml.safe_load(text)
     except Exception:
@@ -147,7 +147,7 @@ def _load_yaml_or_json(path: Path) -> Mapping[str, object]:
 def _parse_feature(value: object) -> CaseFeature:
     token = str(value).strip() if value is not None else ""
     if token in {"nl_sql", "findings_explain", "findings_compare"}:
-        return token
+        return cast(CaseFeature, token)
     raise DatasetValidationError(
         "case feature must be one of: nl_sql, findings_explain, findings_compare"
     )
@@ -188,7 +188,9 @@ def load_eval_dataset(dataset_path: Path) -> EvalDataset:
     thresholds_payload = _as_mapping(payload.get("thresholds", {}))
     thresholds = _parse_thresholds(thresholds_payload)
     cases_payload = payload.get("cases")
-    if not isinstance(cases_payload, Sequence) or isinstance(cases_payload, (str, bytes, bytearray)):
+    if not isinstance(cases_payload, Sequence) or isinstance(
+        cases_payload, (str, bytes, bytearray)
+    ):
         raise DatasetValidationError("dataset cases must be a list")
 
     cases: list[EvalCase] = []
@@ -204,7 +206,9 @@ def load_eval_dataset(dataset_path: Path) -> EvalDataset:
         if not question:
             raise DatasetValidationError(f"case {case_id} must include non-empty question")
         recorded_output_raw = case_payload.get("recorded_output")
-        recorded_output = str(recorded_output_raw).strip() if recorded_output_raw is not None else None
+        recorded_output = (
+            str(recorded_output_raw).strip() if recorded_output_raw is not None else None
+        )
         cases.append(
             EvalCase(
                 case_id=case_id,
@@ -212,7 +216,9 @@ def load_eval_dataset(dataset_path: Path) -> EvalDataset:
                 feature=_parse_feature(case_payload.get("feature", "nl_sql")),
                 question=question,
                 recorded_output=recorded_output if recorded_output else None,
-                expected_sql_contains=_normalize_string_tuple(case_payload.get("expected_sql_contains")),
+                expected_sql_contains=_normalize_string_tuple(
+                    case_payload.get("expected_sql_contains")
+                ),
                 expected_citations=_normalize_string_tuple(case_payload.get("expected_citations")),
                 allowed_relations=_normalize_string_tuple(case_payload.get("allowed_relations")),
             )
@@ -242,7 +248,7 @@ def _validate_schema(case: EvalCase, output: Mapping[str, object]) -> list[str]:
         if not isinstance(output.get("sql"), str) or not str(output.get("sql", "")).strip():
             details.append("schema invalid: nl_sql output requires non-empty string field 'sql'")
     elif case.feature == "findings_explain":
-        required = ("summary", "key_drivers", "caveats", "citations")
+        required: tuple[str, ...] = ("summary", "key_drivers", "caveats", "citations")
         for key in required:
             if key not in output:
                 details.append(f"schema invalid: findings_explain output missing '{key}'")
@@ -400,10 +406,10 @@ def evaluate_dataset(
         case_results.append(_evaluate_case(case, output))
 
     total = len(case_results)
-    schema_validity_rate = sum(1 for case in case_results if case.schema_valid) / total
-    citation_coverage_rate = sum(case.citation_coverage for case in case_results) / total
-    no_hallucination_rate = sum(1 for case in case_results if case.no_hallucination) / total
-    safety_pass_rate = sum(1 for case in case_results if case.safety_pass) / total
+    schema_validity_rate = sum(1 for result in case_results if result.schema_valid) / total
+    citation_coverage_rate = sum(result.citation_coverage for result in case_results) / total
+    no_hallucination_rate = sum(1 for result in case_results if result.no_hallucination) / total
+    safety_pass_rate = sum(1 for result in case_results if result.safety_pass) / total
 
     failures: list[str] = []
     thresholds = dataset.thresholds
@@ -427,13 +433,13 @@ def evaluate_dataset(
             "safety_pass_rate below threshold: "
             f"{safety_pass_rate:.4f} < {thresholds.min_safety_pass_rate:.4f}"
         )
-    safety_regressions = [case.case_id for case in case_results if not case.safety_pass]
+    safety_regressions = [result.case_id for result in case_results if not result.safety_pass]
     if safety_regressions:
         failures.append("safety regressions detected in cases: " + ", ".join(safety_regressions))
 
-    for case in case_results:
-        if case.details:
-            failures.append(f"case {case.case_id}: " + "; ".join(case.details))
+    for result in case_results:
+        if result.details:
+            failures.append(f"case {result.case_id}: " + "; ".join(result.details))
 
     status: Literal["pass", "fail"] = "fail" if failures else "pass"
     return EvaluationReport(

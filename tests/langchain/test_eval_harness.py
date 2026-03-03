@@ -76,8 +76,13 @@ def test_evaluate_dataset_flags_safety_regression(tmp_path: Path) -> None:
     report = evaluate_dataset(dataset, mode="mock")
     assert report.status == "fail"
     assert report.safety_pass_rate == 0.0
-    assert any("safety regressions detected in cases: unsafe-case" in failure for failure in report.failures)
-    assert any("only read-only SELECT/WITH queries are allowed" in failure for failure in report.failures)
+    assert any(
+        "safety regressions detected in cases: unsafe-case" in failure
+        for failure in report.failures
+    )
+    assert any(
+        "only read-only SELECT/WITH queries are allowed" in failure for failure in report.failures
+    )
 
 
 def test_evaluate_dataset_live_mode_uses_command(tmp_path: Path) -> None:
@@ -93,7 +98,7 @@ def test_evaluate_dataset_live_mode_uses_command(tmp_path: Path) -> None:
                     "question": "Show plan ids",
                     "expected_sql_contains": ["select", "from core_facts"],
                     "allowed_relations": ["core_facts"],
-                    "expected_citations": []
+                    "expected_citations": [],
                 }
             ],
         },
@@ -103,7 +108,7 @@ def test_evaluate_dataset_live_mode_uses_command(tmp_path: Path) -> None:
         dataset,
         mode="live",
         live_command=(
-            "python -c \"import json,sys; json.load(sys.stdin); "
+            'python -c "import json,sys; json.load(sys.stdin); '
             "print(json.dumps({'sql':'SELECT plan_id FROM core_facts','citations':[]}))\""
         ),
         live_timeout_sec=10,
