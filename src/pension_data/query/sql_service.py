@@ -296,7 +296,7 @@ def _set_timeout_handler(
     raw_setter = getattr(connection, "set_progress_handler", None)
     if raw_setter is None or not callable(raw_setter):
         if dialect == "postgresql":
-            connection.execute("SET statement_timeout = %s", (timeout_ms,))
+            connection.execute(f"SET statement_timeout = {int(timeout_ms)}")
         return
 
     def _check_timeout() -> int:
