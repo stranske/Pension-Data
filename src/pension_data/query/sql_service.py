@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import re
-import sqlite3
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, cast
 from uuid import uuid4
 
+DatabaseDialect = Literal["sqlite", "postgresql"]
 SqlParams = Mapping[str, Any] | tuple[Any, ...] | list[Any]
 
 _FORBIDDEN_SQL_TOKENS: tuple[str, ...] = (
@@ -93,6 +93,13 @@ class SQLExecutionValidationError(ValueError):
 
 class SQLRowLimitExceededError(SQLExecutionValidationError):
     """Raised when query result would exceed configured max_rows guardrail."""
+
+
+class DBConnection(Protocol):
+    """Minimal DB-API connection contract used by SQL service."""
+
+    def execute(self, sql: str, params: SqlParams | tuple[()] = ()) -> Any:
+        """Execute SQL and return DB-API cursor-like result."""
 
 
 def _normalized_sql(sql: str) -> str:
@@ -241,7 +248,11 @@ def _count_query(sql: str) -> str:
     return f"SELECT COUNT(*) AS _pd_total_rows FROM ({sql}) AS _pd_count"
 
 
-def _paged_query(sql: str, *, params: SqlParams | None) -> str:
+def _paged_query(sql: str, *, params: SqlParams | None, dialect: DatabaseDialect) -> str:
+    if dialect == "postgresql":
+        if isinstance(params, Mapping):
+            return f"SELECT * FROM ({sql}) AS _pd_page LIMIT %(_pd_limit)s OFFSET %(_pd_offset)s"
+        return f"SELECT * FROM ({sql}) AS _pd_page LIMIT %s OFFSET %s"
     if isinstance(params, Mapping):
         return f"SELECT * FROM ({sql}) AS _pd_page LIMIT :_pd_limit OFFSET :_pd_offset"
     return f"SELECT * FROM ({sql}) AS _pd_page LIMIT ? OFFSET ?"
@@ -252,38 +263,65 @@ def _error_code(exc: Exception) -> str:
         return "ROW_LIMIT_EXCEEDED"
     if isinstance(exc, SQLExecutionValidationError):
         return "INVALID_REQUEST"
-    if isinstance(exc, TimeoutError):
+    message = str(exc).lower()
+    if isinstance(exc, TimeoutError) or _is_timeout_message(message):
         return "TIMEOUT"
-    if isinstance(exc, sqlite3.OperationalError):
-        message = str(exc).lower()
-        if "syntax error" in message:
-            return "SYNTAX_ERROR"
-        if "interrupted" in message:
-            return "TIMEOUT"
+    if "syntax error" in message:
+        return "SYNTAX_ERROR"
     return "EXECUTION_ERROR"
 
 
+def _is_timeout_message(message: str) -> bool:
+    lowered = message.lower()
+    return (
+        "statement timeout" in lowered
+        or "timed out" in lowered
+        or "interrupted" in lowered
+        or "canceling statement due to statement timeout" in lowered
+    )
+
+
+def _is_timeout_exception(exc: Exception) -> bool:
+    return isinstance(exc, TimeoutError) or _is_timeout_message(str(exc))
+
+
 def _set_timeout_handler(
-    connection: sqlite3.Connection,
+    connection: DBConnection,
     *,
+    dialect: DatabaseDialect,
+    timeout_ms: int,
     deadline_s: float,
     clock: Callable[[], float],
 ) -> None:
+    raw_setter = getattr(connection, "set_progress_handler", None)
+    if raw_setter is None or not callable(raw_setter):
+        if dialect == "postgresql":
+            connection.execute("SET statement_timeout = %s", (timeout_ms,))
+        return
+
     def _check_timeout() -> int:
         return 1 if clock() > deadline_s else 0
 
-    connection.set_progress_handler(_check_timeout, 1_000)
+    setter = cast(Callable[[Callable[[], int] | None, int], None], raw_setter)
+    setter(_check_timeout, 1_000)
 
 
-def _clear_timeout_handler(connection: sqlite3.Connection) -> None:
-    connection.set_progress_handler(None, 0)
+def _clear_timeout_handler(connection: DBConnection, *, dialect: DatabaseDialect) -> None:
+    raw_setter = getattr(connection, "set_progress_handler", None)
+    if raw_setter is None or not callable(raw_setter):
+        if dialect == "postgresql":
+            connection.execute("SET statement_timeout = DEFAULT")
+        return
+    setter = cast(Callable[[Callable[[], int] | None, int], None], raw_setter)
+    setter(None, 0)
 
 
 def execute_sql_query(
     *,
-    connection: sqlite3.Connection,
+    connection: DBConnection,
     request: SQLQueryRequest,
     caller_key_id: str,
+    dialect: DatabaseDialect = "sqlite",
     audit_log_store: list[SQLExecutionAuditLog] | None = None,
     clock: Callable[[], float] = perf_counter,
 ) -> SQLQueryResponse:
@@ -337,7 +375,13 @@ def execute_sql_query(
         params = _normalize_params(request.params)
 
         deadline = start + (request.timeout_ms / 1000.0)
-        _set_timeout_handler(connection, deadline_s=deadline, clock=clock)
+        _set_timeout_handler(
+            connection,
+            dialect=dialect,
+            timeout_ms=request.timeout_ms,
+            deadline_s=deadline,
+            clock=clock,
+        )
 
         count_cursor = connection.execute(_count_query(sql), _count_params(params))
         total_rows = int(count_cursor.fetchone()[0])
@@ -358,7 +402,7 @@ def execute_sql_query(
 
         page_limit = min(request.page_size, request.max_rows)
         page_cursor = connection.execute(
-            _paged_query(sql, params=params),
+            _paged_query(sql, params=params, dialect=dialect),
             _paged_params(params, limit=page_limit, offset=offset),
         )
         columns = tuple(column[0] for column in (page_cursor.description or ()))
@@ -371,7 +415,7 @@ def execute_sql_query(
             error=None,
         )
     except Exception as exc:  # noqa: BLE001
-        if isinstance(exc, sqlite3.OperationalError) and "interrupted" in str(exc).lower():
+        if _is_timeout_exception(exc):
             exc = TimeoutError("query timed out before completion")
         error = SQLQueryError(code=_error_code(exc), message=str(exc))
         return _finalize(
@@ -382,4 +426,4 @@ def execute_sql_query(
             error=error,
         )
     finally:
-        _clear_timeout_handler(connection)
+        _clear_timeout_handler(connection, dialect=dialect)
