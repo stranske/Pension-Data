@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Literal
 from uuid import uuid4
 
-SqlParams = Mapping[str, Any] | Sequence[Any]
+SqlParams = Mapping[str, Any] | tuple[Any, ...] | list[Any]
 
 _FORBIDDEN_SQL_TOKENS: tuple[str, ...] = (
     "insert",
@@ -25,6 +26,8 @@ _FORBIDDEN_SQL_TOKENS: tuple[str, ...] = (
     "vacuum",
     "reindex",
 )
+_RESERVED_PAGING_PARAM_KEYS: frozenset[str] = frozenset({"_pd_limit", "_pd_offset"})
+_SQL_WORD_PATTERN = re.compile(r"\b[a-z_][a-z0-9_]*\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,10 +114,13 @@ def _validate_request(request: SQLQueryRequest) -> None:
 
 
 def _enforce_read_only_sql(sql: str) -> None:
-    lowered = sql.lower().lstrip()
-    if not lowered.startswith(("select", "with", "explain")):
-        raise SQLExecutionValidationError("only read-only SELECT/WITH/EXPLAIN queries are allowed")
-    tokens = {token.strip("(),") for token in lowered.replace("\n", " ").split()}
+    sanitized = _strip_sql_comments_and_strings(sql)
+    lowered = sanitized.lower().lstrip()
+    if not lowered.startswith(("select", "with")):
+        raise SQLExecutionValidationError("only read-only SELECT/WITH queries are allowed")
+    if ";" in sanitized:
+        raise SQLExecutionValidationError("multiple SQL statements are not allowed")
+    tokens = {match.group(0).lower() for match in _SQL_WORD_PATTERN.finditer(sanitized)}
     forbidden = sorted(token for token in _FORBIDDEN_SQL_TOKENS if token in tokens)
     if forbidden:
         raise SQLExecutionValidationError(
@@ -122,18 +128,112 @@ def _enforce_read_only_sql(sql: str) -> None:
         )
 
 
-def _count_params(params: SqlParams | None) -> SqlParams | tuple[()]:
-    return params if params is not None else ()
+def _strip_sql_comments_and_strings(sql: str) -> str:
+    result: list[str] = []
+    index = 0
+    in_single = False
+    in_double = False
+    in_line_comment = False
+    in_block_comment = False
+    while index < len(sql):
+        current = sql[index]
+        nxt = sql[index + 1] if index + 1 < len(sql) else ""
+
+        if in_line_comment:
+            if current == "\n":
+                in_line_comment = False
+                result.append("\n")
+            else:
+                result.append(" ")
+            index += 1
+            continue
+        if in_block_comment:
+            if current == "*" and nxt == "/":
+                in_block_comment = False
+                result.extend((" ", " "))
+                index += 2
+            else:
+                result.append(" ")
+                index += 1
+            continue
+        if in_single:
+            if current == "'" and nxt == "'":
+                result.extend((" ", " "))
+                index += 2
+                continue
+            if current == "'":
+                in_single = False
+            result.append(" ")
+            index += 1
+            continue
+        if in_double:
+            if current == '"' and nxt == '"':
+                result.extend((" ", " "))
+                index += 2
+                continue
+            if current == '"':
+                in_double = False
+            result.append(" ")
+            index += 1
+            continue
+
+        if current == "-" and nxt == "-":
+            in_line_comment = True
+            result.extend((" ", " "))
+            index += 2
+            continue
+        if current == "/" and nxt == "*":
+            in_block_comment = True
+            result.extend((" ", " "))
+            index += 2
+            continue
+        if current == "'":
+            in_single = True
+            result.append(" ")
+            index += 1
+            continue
+        if current == '"':
+            in_double = True
+            result.append(" ")
+            index += 1
+            continue
+        result.append(current)
+        index += 1
+    return "".join(result)
 
 
-def _paged_params(params: SqlParams | None, *, limit: int, offset: int) -> SqlParams:
+def _normalize_params(params: SqlParams | None) -> SqlParams | tuple[()]:
     if params is None:
+        return ()
+    if isinstance(params, Mapping):
+        collisions = sorted(_RESERVED_PAGING_PARAM_KEYS.intersection(params))
+        if collisions:
+            raise SQLExecutionValidationError(
+                "params cannot define reserved paging key(s): " + ", ".join(collisions)
+            )
+        return params
+    if isinstance(params, (str, bytes, bytearray)):
+        raise SQLExecutionValidationError("params must be a mapping or positional list/tuple")
+    if isinstance(params, tuple):
+        return params
+    if isinstance(params, list):
+        return tuple(params)
+    raise SQLExecutionValidationError("params must be a mapping or positional list/tuple")
+
+
+def _count_params(params: SqlParams | tuple[()]) -> SqlParams | tuple[()]:
+    return params
+
+
+def _paged_params(params: SqlParams | tuple[()], *, limit: int, offset: int) -> SqlParams:
+    if params == ():
         return (limit, offset)
     if isinstance(params, Mapping):
-        updated = dict(params)
-        updated["_pd_limit"] = limit
-        updated["_pd_offset"] = offset
-        return updated
+        return {
+            **params,
+            "_pd_limit": limit,
+            "_pd_offset": offset,
+        }
     return (*params, limit, offset)
 
 
@@ -234,11 +334,12 @@ def execute_sql_query(
         _validate_request(request)
         sql = _normalized_sql(request.sql)
         _enforce_read_only_sql(sql)
+        params = _normalize_params(request.params)
 
         deadline = start + (request.timeout_ms / 1000.0)
         _set_timeout_handler(connection, deadline_s=deadline, clock=clock)
 
-        count_cursor = connection.execute(_count_query(sql), _count_params(request.params))
+        count_cursor = connection.execute(_count_query(sql), _count_params(params))
         total_rows = int(count_cursor.fetchone()[0])
         if total_rows > request.max_rows:
             raise SQLRowLimitExceededError(
@@ -257,8 +358,8 @@ def execute_sql_query(
 
         page_limit = min(request.page_size, request.max_rows)
         page_cursor = connection.execute(
-            _paged_query(sql, params=request.params),
-            _paged_params(request.params, limit=page_limit, offset=offset),
+            _paged_query(sql, params=params),
+            _paged_params(params, limit=page_limit, offset=offset),
         )
         columns = tuple(column[0] for column in (page_cursor.description or ()))
         rows = tuple(tuple(row) for row in page_cursor.fetchall())

@@ -170,3 +170,77 @@ def test_sql_service_enforces_max_rows_limit() -> None:
     assert len(audit_logs) == 1
     assert audit_logs[0].status == "error"
     assert audit_logs[0].error_code == "ROW_LIMIT_EXCEEDED"
+
+
+def test_sql_service_rejects_statement_separator_before_execution() -> None:
+    connection = _seed_connection(rows=2)
+    try:
+        response = execute_sql_query(
+            connection=connection,
+            request=SQLQueryRequest(sql="SELECT id FROM sample_metrics; SELECT value FROM sample_metrics"),
+            caller_key_id="key:test",
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert "multiple SQL statements" in response.error.message
+
+
+def test_sql_service_rejects_reserved_paging_keys_in_named_params() -> None:
+    connection = _seed_connection(rows=2)
+    try:
+        response = execute_sql_query(
+            connection=connection,
+            request=SQLQueryRequest(
+                sql="SELECT id FROM sample_metrics WHERE id >= :min_id",
+                params={"min_id": 1, "_pd_limit": 100},
+            ),
+            caller_key_id="key:test",
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert "reserved paging key" in response.error.message
+
+
+def test_sql_service_rejects_string_params_payload() -> None:
+    connection = _seed_connection(rows=2)
+    try:
+        response = execute_sql_query(
+            connection=connection,
+            request=SQLQueryRequest(
+                sql="SELECT id FROM sample_metrics WHERE metric = ?",
+                params="m-001",  # type: ignore[arg-type]
+            ),
+            caller_key_id="key:test",
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert "mapping or positional list/tuple" in response.error.message
+
+
+def test_sql_service_rejects_explain_queries_with_paging_wrapper() -> None:
+    connection = _seed_connection(rows=2)
+    try:
+        response = execute_sql_query(
+            connection=connection,
+            request=SQLQueryRequest(sql="EXPLAIN SELECT id FROM sample_metrics"),
+            caller_key_id="key:test",
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert "SELECT/WITH" in response.error.message
