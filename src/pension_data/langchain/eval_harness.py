@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import re
 import subprocess
@@ -136,9 +137,9 @@ def _as_mapping(value: object) -> Mapping[str, object]:
 def _load_yaml_or_json(path: Path) -> Mapping[str, object]:
     text = path.read_text(encoding="utf-8")
     try:
-        import yaml
-
-        payload = yaml.safe_load(text)
+        yaml_module = importlib.import_module("yaml")
+        safe_load = yaml_module.safe_load
+        payload = safe_load(text)
     except Exception:
         payload = json.loads(text)
     return _as_mapping(payload)
