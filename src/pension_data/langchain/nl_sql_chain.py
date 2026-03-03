@@ -112,18 +112,22 @@ class MaxRowsExceededError(ValueError):
     """Raised when generated SQL returns more rows than allowed by request.max_rows."""
 
 
+class NLRequestValidationError(ValueError):
+    """Raised when request inputs violate deterministic NL policy bounds."""
+
+
 def _normalize_params(params: SqlParams | None) -> SqlParams | tuple[()]:
     if params is None:
         return ()
     if isinstance(params, Mapping):
         return params
     if isinstance(params, (str, bytes, bytearray)):
-        raise ValueError("params must be a mapping or positional list/tuple")
+        raise NLRequestValidationError("params must be a mapping or positional list/tuple")
     if isinstance(params, tuple):
         return params
     if isinstance(params, list):
         return tuple(params)
-    raise ValueError("params must be a mapping or positional list/tuple")
+    raise NLRequestValidationError("params must be a mapping or positional list/tuple")
 
 
 def _set_timeout_handler(connection: sqlite3.Connection, *, deadline_s: float) -> None:
@@ -231,6 +235,8 @@ def _build_provenance(
 
 
 def _error_code(exc: Exception) -> str:
+    if isinstance(exc, NLRequestValidationError):
+        return "INVALID_REQUEST"
     if isinstance(exc, AmbiguousPromptError):
         return "AMBIGUOUS_PROMPT"
     if isinstance(exc, SQLSafetyValidationError):
@@ -289,13 +295,15 @@ def run_nl_sql_chain(
     active_policy = policy or default_nl_query_policy()
     try:
         if request.max_rows < 1:
-            raise ValueError("max_rows must be >= 1")
+            raise NLRequestValidationError("max_rows must be >= 1")
         if request.timeout_ms < 1:
-            raise ValueError("timeout_ms must be >= 1")
+            raise NLRequestValidationError("timeout_ms must be >= 1")
         if request.max_rows > active_policy.max_rows:
-            raise ValueError(f"max_rows must be <= policy max_rows ({active_policy.max_rows})")
+            raise NLRequestValidationError(
+                f"max_rows must be <= policy max_rows ({active_policy.max_rows})"
+            )
         if request.timeout_ms > active_policy.max_timeout_ms:
-            raise ValueError(
+            raise NLRequestValidationError(
                 "timeout_ms exceeds policy max_timeout_ms " f"({active_policy.max_timeout_ms})"
             )
         params = _normalize_params(request.params)
