@@ -40,6 +40,8 @@ psycopg-binary==3.3.3 ; implementation_name != 'pypy'
     # via psycopg
 pygments==2.19.2
     # via pytest
+pypdf==6.7.5
+    # via pension-data (pyproject.toml)
 pytest==9.0.2
     # via
     #   pension-data (pyproject.toml)
