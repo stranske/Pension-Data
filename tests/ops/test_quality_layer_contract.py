@@ -14,7 +14,12 @@ from pension_data.scheduling.cadence import (
     latest_publications,
 )
 from pension_data.scheduling.planner import plan_refresh_windows
-from tools.ci_quality.replay_gate import evaluate_replay_diff
+from tools.ci_quality.replay_gate import (
+    build_report,
+    evaluate_replay_diff,
+    sample_unexpected_changes,
+    summarize_replay_changes,
+)
 from tools.replay.harness import (
     CorpusDocument,
     FieldExtraction,
@@ -113,6 +118,24 @@ def test_ops_quality_layer_contract_remains_wired_end_to_end() -> None:
     assert anomalies
     assert queue_items
     assert queue_items[0].queue_id.startswith("review:")
+    assert "confidence=" in queue_items[0].reason
+    evidence_context = queue_items[0].evidence_context
+    assert evidence_context["previous_period"] == "FY2024"
+    assert evidence_context["current_period"] == "FY2025"
+    assert evidence_context["current_provenance"] == {
+        "source_url": "https://example.org/ca-2025.pdf"
+    }
+    assert evidence_context["metric_evidence"] == {
+        "metric": "funded_ratio",
+        "previous_value": 0.82,
+        "current_value": 0.68,
+        "signed_delta": -0.14,
+        "absolute_delta": 0.14,
+        "thresholds": {
+            "warning": 0.05,
+            "critical": 0.1,
+        },
+    }
 
     corpus = [CorpusDocument(document_id="doc-1", content="ca-pension")]
     baseline = build_snapshot(
@@ -131,3 +154,30 @@ def test_ops_quality_layer_contract_remains_wired_end_to_end() -> None:
         unexpected_changes=diff["unexpected_changes"], max_unexpected=0
     )
     assert violations
+    assert "unexpected replay drift" in violations[0]
+    diff_payload: dict[str, object] = dict(diff)
+    classification_counts = summarize_replay_changes(diff_payload)
+    assert classification_counts == {"unexpected_drift": 1}
+    unexpected_examples = sample_unexpected_changes(diff_payload, limit=1)
+    assert unexpected_examples == [
+        {
+            "document_id": "doc-1",
+            "field": "funded_ratio",
+            "attribute": "value",
+            "baseline": "ca-pension:0.79",
+            "current": "ca-pension:0.74",
+            "classification": "unexpected_drift",
+        }
+    ]
+
+    report = build_report(
+        total_changes=diff["total_changes"],
+        unexpected_changes=diff["unexpected_changes"],
+        max_unexpected=0,
+        violations=violations,
+        classification_counts=classification_counts,
+        unexpected_examples=unexpected_examples,
+    )
+    assert report["status"] == "fail"
+    assert report["classification_counts"] == {"unexpected_drift": 1}
+    assert report["unexpected_examples"] == unexpected_examples
