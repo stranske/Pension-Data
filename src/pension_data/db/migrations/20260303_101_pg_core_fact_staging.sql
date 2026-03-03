@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS staging_manager_fund_vehicle_relationships (
   source_document_id TEXT NOT NULL
 );
 
-CREATE VIEW IF NOT EXISTS curated_metric_facts AS
+CREATE OR REPLACE VIEW curated_metric_facts AS
 SELECT
   plan_id,
   plan_period,
