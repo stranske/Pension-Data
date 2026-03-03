@@ -132,127 +132,127 @@ def build_metric_history_rows(
     """Build deterministic metric-history rows from bitemporal core facts."""
     rows: list[MetricHistoryRow] = []
 
-    for fact in funded_facts:
+    for funded_fact in funded_facts:
         rows.append(
             MetricHistoryRow(
-                entity_id=fact.context.plan_id,
-                plan_period=fact.context.plan_period,
+                entity_id=funded_fact.context.plan_id,
+                plan_period=funded_fact.context.plan_period,
                 metric_family="funded",
-                metric_name=fact.metric_name,
-                as_reported_value=fact.metric_value.as_reported_value,
-                normalized_value=fact.metric_value.normalized_value,
-                as_reported_unit=fact.metric_value.as_reported_unit,
-                normalized_unit=fact.metric_value.normalized_unit,
-                confidence=fact.confidence,
-                effective_date=fact.context.effective_date,
-                ingestion_date=fact.context.ingestion_date,
-                benchmark_version=fact.context.benchmark_version,
-                report_id=fact.context.source_document_id,
-                source_document_id=fact.context.source_document_id,
+                metric_name=funded_fact.metric_name,
+                as_reported_value=funded_fact.metric_value.as_reported_value,
+                normalized_value=funded_fact.metric_value.normalized_value,
+                as_reported_unit=funded_fact.metric_value.as_reported_unit,
+                normalized_unit=funded_fact.metric_value.normalized_unit,
+                confidence=funded_fact.confidence,
+                effective_date=funded_fact.context.effective_date,
+                ingestion_date=funded_fact.context.ingestion_date,
+                benchmark_version=funded_fact.context.benchmark_version,
+                report_id=funded_fact.context.source_document_id,
+                source_document_id=funded_fact.context.source_document_id,
                 provenance_refs=_normalize_provenance_refs(
-                    report_id=fact.context.source_document_id,
-                    source_document_id=fact.context.source_document_id,
-                    evidence_refs=fact.evidence_refs,
+                    report_id=funded_fact.context.source_document_id,
+                    source_document_id=funded_fact.context.source_document_id,
+                    evidence_refs=funded_fact.evidence_refs,
                 ),
             )
         )
 
-    for fact in actuarial_facts:
+    for actuarial_fact in actuarial_facts:
         rows.append(
             MetricHistoryRow(
-                entity_id=fact.context.plan_id,
-                plan_period=fact.context.plan_period,
+                entity_id=actuarial_fact.context.plan_id,
+                plan_period=actuarial_fact.context.plan_period,
                 metric_family="actuarial",
-                metric_name=fact.metric_name,
-                as_reported_value=fact.metric_value.as_reported_value,
-                normalized_value=fact.metric_value.normalized_value,
-                as_reported_unit=fact.metric_value.as_reported_unit,
-                normalized_unit=fact.metric_value.normalized_unit,
-                confidence=fact.confidence,
-                effective_date=fact.context.effective_date,
-                ingestion_date=fact.context.ingestion_date,
-                benchmark_version=fact.context.benchmark_version,
-                report_id=fact.context.source_document_id,
-                source_document_id=fact.context.source_document_id,
+                metric_name=actuarial_fact.metric_name,
+                as_reported_value=actuarial_fact.metric_value.as_reported_value,
+                normalized_value=actuarial_fact.metric_value.normalized_value,
+                as_reported_unit=actuarial_fact.metric_value.as_reported_unit,
+                normalized_unit=actuarial_fact.metric_value.normalized_unit,
+                confidence=actuarial_fact.confidence,
+                effective_date=actuarial_fact.context.effective_date,
+                ingestion_date=actuarial_fact.context.ingestion_date,
+                benchmark_version=actuarial_fact.context.benchmark_version,
+                report_id=actuarial_fact.context.source_document_id,
+                source_document_id=actuarial_fact.context.source_document_id,
                 provenance_refs=_normalize_provenance_refs(
-                    report_id=fact.context.source_document_id,
-                    source_document_id=fact.context.source_document_id,
-                    evidence_refs=fact.evidence_refs,
+                    report_id=actuarial_fact.context.source_document_id,
+                    source_document_id=actuarial_fact.context.source_document_id,
+                    evidence_refs=actuarial_fact.evidence_refs,
                 ),
             )
         )
 
-    for fact in allocation_facts:
+    for allocation_fact in allocation_facts:
         rows.append(
             MetricHistoryRow(
-                entity_id=fact.context.plan_id,
-                plan_period=fact.context.plan_period,
+                entity_id=allocation_fact.context.plan_id,
+                plan_period=allocation_fact.context.plan_period,
                 metric_family="allocation",
-                metric_name=fact.metric_name,
-                as_reported_value=fact.metric_value.as_reported_value,
-                normalized_value=fact.metric_value.normalized_value,
-                as_reported_unit=fact.metric_value.as_reported_unit,
-                normalized_unit=fact.metric_value.normalized_unit,
-                confidence=fact.confidence,
-                effective_date=fact.context.effective_date,
-                ingestion_date=fact.context.ingestion_date,
-                benchmark_version=fact.context.benchmark_version,
-                report_id=fact.context.source_document_id,
-                source_document_id=fact.context.source_document_id,
+                metric_name=allocation_fact.metric_name,
+                as_reported_value=allocation_fact.metric_value.as_reported_value,
+                normalized_value=allocation_fact.metric_value.normalized_value,
+                as_reported_unit=allocation_fact.metric_value.as_reported_unit,
+                normalized_unit=allocation_fact.metric_value.normalized_unit,
+                confidence=allocation_fact.confidence,
+                effective_date=allocation_fact.context.effective_date,
+                ingestion_date=allocation_fact.context.ingestion_date,
+                benchmark_version=allocation_fact.context.benchmark_version,
+                report_id=allocation_fact.context.source_document_id,
+                source_document_id=allocation_fact.context.source_document_id,
                 provenance_refs=_normalize_provenance_refs(
-                    report_id=fact.context.source_document_id,
-                    source_document_id=fact.context.source_document_id,
-                    evidence_refs=fact.evidence_refs,
+                    report_id=allocation_fact.context.source_document_id,
+                    source_document_id=allocation_fact.context.source_document_id,
+                    evidence_refs=allocation_fact.evidence_refs,
                 ),
             )
         )
 
-    for fact in holding_facts:
+    for holding_fact in holding_facts:
         rows.append(
             MetricHistoryRow(
-                entity_id=fact.context.plan_id,
-                plan_period=fact.context.plan_period,
+                entity_id=holding_fact.context.plan_id,
+                plan_period=holding_fact.context.plan_period,
                 metric_family="holding",
-                metric_name=fact.metric_name,
-                as_reported_value=fact.metric_value.as_reported_value,
-                normalized_value=fact.metric_value.normalized_value,
-                as_reported_unit=fact.metric_value.as_reported_unit,
-                normalized_unit=fact.metric_value.normalized_unit,
-                confidence=fact.confidence,
-                effective_date=fact.context.effective_date,
-                ingestion_date=fact.context.ingestion_date,
-                benchmark_version=fact.context.benchmark_version,
-                report_id=fact.context.source_document_id,
-                source_document_id=fact.context.source_document_id,
+                metric_name=holding_fact.metric_name,
+                as_reported_value=holding_fact.metric_value.as_reported_value,
+                normalized_value=holding_fact.metric_value.normalized_value,
+                as_reported_unit=holding_fact.metric_value.as_reported_unit,
+                normalized_unit=holding_fact.metric_value.normalized_unit,
+                confidence=holding_fact.confidence,
+                effective_date=holding_fact.context.effective_date,
+                ingestion_date=holding_fact.context.ingestion_date,
+                benchmark_version=holding_fact.context.benchmark_version,
+                report_id=holding_fact.context.source_document_id,
+                source_document_id=holding_fact.context.source_document_id,
                 provenance_refs=_normalize_provenance_refs(
-                    report_id=fact.context.source_document_id,
-                    source_document_id=fact.context.source_document_id,
-                    evidence_refs=fact.evidence_refs,
+                    report_id=holding_fact.context.source_document_id,
+                    source_document_id=holding_fact.context.source_document_id,
+                    evidence_refs=holding_fact.evidence_refs,
                 ),
             )
         )
 
-    for fact in fee_facts:
+    for fee_fact in fee_facts:
         rows.append(
             MetricHistoryRow(
-                entity_id=fact.context.plan_id,
-                plan_period=fact.context.plan_period,
+                entity_id=fee_fact.context.plan_id,
+                plan_period=fee_fact.context.plan_period,
                 metric_family="fee",
-                metric_name=fact.fee_category,
-                as_reported_value=fact.metric_value.as_reported_value,
-                normalized_value=fact.metric_value.normalized_value,
-                as_reported_unit=fact.metric_value.as_reported_unit,
-                normalized_unit=fact.metric_value.normalized_unit,
-                confidence=fact.confidence,
-                effective_date=fact.context.effective_date,
-                ingestion_date=fact.context.ingestion_date,
-                benchmark_version=fact.context.benchmark_version,
-                report_id=fact.context.source_document_id,
-                source_document_id=fact.context.source_document_id,
+                metric_name=fee_fact.fee_category,
+                as_reported_value=fee_fact.metric_value.as_reported_value,
+                normalized_value=fee_fact.metric_value.normalized_value,
+                as_reported_unit=fee_fact.metric_value.as_reported_unit,
+                normalized_unit=fee_fact.metric_value.normalized_unit,
+                confidence=fee_fact.confidence,
+                effective_date=fee_fact.context.effective_date,
+                ingestion_date=fee_fact.context.ingestion_date,
+                benchmark_version=fee_fact.context.benchmark_version,
+                report_id=fee_fact.context.source_document_id,
+                source_document_id=fee_fact.context.source_document_id,
                 provenance_refs=_normalize_provenance_refs(
-                    report_id=fact.context.source_document_id,
-                    source_document_id=fact.context.source_document_id,
-                    evidence_refs=fact.evidence_refs,
+                    report_id=fee_fact.context.source_document_id,
+                    source_document_id=fee_fact.context.source_document_id,
+                    evidence_refs=fee_fact.evidence_refs,
                 ),
             )
         )

@@ -14,6 +14,7 @@ from pension_data.db.models.core_facts import (
 )
 from pension_data.query.metric_history_service import (
     MetricHistoryRequest,
+    MetricHistoryRow,
     build_metric_history_rows,
     query_metric_history,
 )
@@ -52,7 +53,7 @@ def _value(
     )
 
 
-def _seed_history_rows() -> list:
+def _seed_history_rows() -> list[MetricHistoryRow]:
     funded_facts = (
         FundedStatusFact(
             context=_context(
