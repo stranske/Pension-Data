@@ -119,8 +119,14 @@ def test_cross_plan_lookup_returns_exposures_with_holdings_allocation_and_eviden
     assert all(row.exposure_weight is not None for row in results)
     assert all(row.allocation_weight_context is not None for row in results)
     assert all(row.allocation_amount_usd_context is not None for row in results)
-    assert any("p.45" in row.evidence_refs for row in results)
-    assert any(row.lifecycle_state == "still_invested" for row in results)
+    ca_row = next(row for row in results if row.plan_id == "CA-PERS")
+    tx_row = next(row for row in results if row.plan_id == "TX-ERS")
+    assert "p.45" in ca_row.evidence_refs
+    assert "p.30" in ca_row.evidence_refs
+    assert "p.46" in ca_row.evidence_refs
+    assert "p.18" in tx_row.evidence_refs
+    assert "p.12" in tx_row.evidence_refs
+    assert ca_row.lifecycle_state == "still_invested"
 
 
 def test_lookup_resolves_aliases_and_includes_non_disclosure_states() -> None:

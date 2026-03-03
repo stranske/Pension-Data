@@ -59,8 +59,8 @@ def _dedupe_refs(*values: tuple[str, ...]) -> tuple[str, ...]:
 
 def _allocation_context(
     rows: Sequence[AssetAllocationObservation],
-) -> dict[tuple[str, str], tuple[float | None, float | None]]:
-    by_plan_period: dict[tuple[str, str], tuple[float | None, float | None]] = {}
+) -> dict[tuple[str, str], tuple[float | None, float | None, tuple[str, ...]]]:
+    by_plan_period: dict[tuple[str, str], tuple[float | None, float | None, tuple[str, ...]]] = {}
     grouped: dict[tuple[str, str], list[AssetAllocationObservation]] = {}
     for row in rows:
         grouped.setdefault((row.plan_id, row.plan_period), []).append(row)
@@ -76,17 +76,19 @@ def _allocation_context(
             for value in (item.normalized_amount_usd for item in allocation_rows)
             if value is not None
         )
+        allocation_refs = _dedupe_refs(*(item.evidence_refs for item in allocation_rows))
         by_plan_period[key] = (
             round(weight_total, 6) if allocation_rows else None,
             round(amount_total, 6) if allocation_rows else None,
+            allocation_refs,
         )
     return by_plan_period
 
 
 def _lifecycle_index(
     events: Sequence[ManagerLifecycleEvent],
-) -> dict[tuple[str, str, str, str], str]:
-    indexed: dict[tuple[str, str, str, str], str] = {}
+) -> dict[tuple[str, str, str, str], tuple[str, tuple[str, ...]]]:
+    indexed: dict[tuple[str, str, str, str], tuple[str, tuple[str, ...]]] = {}
     for event in sorted(
         events,
         key=lambda item: (
@@ -104,7 +106,7 @@ def _lifecycle_index(
                 normalize_entity_token(event.manager_name),
                 normalize_entity_token(event.fund_name),
             )
-        ] = event.event_type
+        ] = (event.event_type, event.evidence_refs)
     return indexed
 
 
@@ -145,18 +147,19 @@ def build_entity_exposure_views(
             if position.market_value is not None and market_total > 0
             else None
         )
-        allocation_weight, allocation_amount_usd = allocation_context.get(
-            plan_period_key, (None, None)
+        allocation_weight, allocation_amount_usd, allocation_refs = allocation_context.get(
+            plan_period_key, (None, None, ())
         )
-        lifecycle_state = lifecycle_state_by_key.get(
+        lifecycle_state, lifecycle_refs = lifecycle_state_by_key.get(
             (
                 position.plan_id,
                 position.plan_period,
                 normalize_entity_token(position.manager_name),
                 normalize_entity_token(position.fund_name),
-            )
+            ),
+            (None, ()),
         )
-        evidence_refs = _dedupe_refs(position.evidence_refs)
+        evidence_refs = _dedupe_refs(position.evidence_refs, allocation_refs, lifecycle_refs)
 
         if position.manager_name and position.manager_name.strip():
             exposure_rows.append(
