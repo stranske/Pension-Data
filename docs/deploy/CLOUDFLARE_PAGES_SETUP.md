@@ -6,9 +6,9 @@ This guide configures the `apps/web` scaffold for Cloudflare Pages deployment wi
 
 1. In Cloudflare dashboard, create a Pages project (for example `pension-data-web`).
 2. Configure build settings:
-- Framework preset: `None`
-- Build command: _(empty)_
-- Build output directory: `apps/web`
+   - Framework preset: `None`
+   - Build command: _(empty)_
+   - Build output directory: `apps/web`
 
 ## 2. GitHub Repository Configuration
 
@@ -16,6 +16,7 @@ Set repository secrets:
 
 - `CF_API_TOKEN`: Cloudflare API token with Pages edit permissions.
 - `CF_ACCOUNT_ID`: Cloudflare account identifier.
+- `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (optional but recommended): service token pair for post-deploy smoke checks when Cloudflare Access is enabled.
 
 Set repository variables:
 
@@ -50,6 +51,6 @@ Workflow: `.github/workflows/web-cloudflare-pages.yml`
 
 - Check workflow summary for successful smoke and deploy jobs.
 - Open deployed URL and confirm:
-- Environment badge is populated.
-- API and artifact endpoints show expected values.
-- Access policy blocks unauthorized users.
+  - Environment badge is populated.
+  - API and artifact endpoints show expected values.
+  - Access policy blocks unauthorized users.

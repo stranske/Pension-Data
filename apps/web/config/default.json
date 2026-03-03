@@ -1,5 +1,6 @@
 {
   "environment": "local",
   "apiBaseUrl": "http://localhost:8000/api",
-  "artifactBaseUrl": "http://localhost:8000/artifacts"
+  "artifactBaseUrl": "http://localhost:8000/artifacts",
+  "enableQueryOverrides": true
 }
