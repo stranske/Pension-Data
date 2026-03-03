@@ -119,8 +119,14 @@ def test_cross_plan_lookup_returns_exposures_with_holdings_allocation_and_eviden
     assert all(row.exposure_weight is not None for row in results)
     assert all(row.allocation_weight_context is not None for row in results)
     assert all(row.allocation_amount_usd_context is not None for row in results)
-    assert any("p.45" in row.evidence_refs for row in results)
-    assert any(row.lifecycle_state == "still_invested" for row in results)
+    ca_row = next(row for row in results if row.plan_id == "CA-PERS")
+    tx_row = next(row for row in results if row.plan_id == "TX-ERS")
+    assert "p.45" in ca_row.evidence_refs
+    assert "p.30" in ca_row.evidence_refs
+    assert "p.46" in ca_row.evidence_refs
+    assert "p.18" in tx_row.evidence_refs
+    assert "p.12" in tx_row.evidence_refs
+    assert ca_row.lifecycle_state == "still_invested"
 
 
 def test_lookup_resolves_aliases_and_includes_non_disclosure_states() -> None:
@@ -144,6 +150,58 @@ def test_lookup_resolves_aliases_and_includes_non_disclosure_states() -> None:
     assert len(nondisclosure_results) == 1
     assert nondisclosure_results[0].relationship_completeness == "not_disclosed"
     assert nondisclosure_results[0].market_value is None
+
+
+def test_lookup_resolves_lineage_alias_to_current_canonical_id() -> None:
+    rows = build_entity_exposure_views(
+        positions=_positions(),
+        allocation_observations=_allocations(),
+        lifecycle_events=_lifecycle_events(),
+    )
+    index = build_entity_exposure_index(
+        rows,
+        lineage_aliases={"Alpha Legacy Capital": "manager:alpha capital"},
+    )
+
+    results, trace = lookup_entity_exposures(
+        index,
+        entity_query="Alpha Legacy Capital",
+    )
+
+    assert trace.resolved_entity_id == "manager:alpha capital"
+    assert len(results) == 2
+    assert {row.plan_id for row in results} == {"CA-PERS", "TX-ERS"}
+
+
+def test_lifecycle_evidence_refs_are_merged_for_same_key() -> None:
+    lifecycle_events = list(_lifecycle_events())
+    lifecycle_events.append(
+        ManagerLifecycleEvent(
+            plan_id="CA-PERS",
+            plan_period="FY2025",
+            manager_name="Alpha Capital",
+            fund_name="Fund I",
+            event_type="still_invested",
+            basis="inferred",
+            confidence=0.93,
+            evidence_refs=("p.47",),
+        )
+    )
+
+    rows = build_entity_exposure_views(
+        positions=_positions(),
+        allocation_observations=_allocations(),
+        lifecycle_events=lifecycle_events,
+    )
+    index = build_entity_exposure_index(rows)
+    results, _ = lookup_entity_exposures(
+        index,
+        entity_query="manager:alpha capital",
+    )
+
+    ca_row = next(row for row in results if row.plan_id == "CA-PERS")
+    assert "p.46" in ca_row.evidence_refs
+    assert "p.47" in ca_row.evidence_refs
 
 
 def test_fund_lookup_uses_manager_scoped_canonical_ids_to_avoid_collisions() -> None:

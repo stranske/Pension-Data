@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from pension_data.db.views.entity_exposure_views import EntityExposureRow
@@ -31,7 +31,11 @@ class LookupExecutionTrace:
     resolved_entity_id: str | None
 
 
-def build_entity_exposure_index(rows: Sequence[EntityExposureRow]) -> EntityExposureIndex:
+def build_entity_exposure_index(
+    rows: Sequence[EntityExposureRow],
+    *,
+    lineage_aliases: Mapping[str, str] | None = None,
+) -> EntityExposureIndex:
     """Build deterministic indexes for frequent entity lookup access paths."""
     grouped_by_entity: dict[str, list[EntityExposureRow]] = defaultdict(list)
     grouped_by_plan_period: dict[tuple[str, str], list[EntityExposureRow]] = defaultdict(list)
@@ -62,6 +66,17 @@ def build_entity_exposure_index(rows: Sequence[EntityExposureRow]) -> EntityExpo
             alias_candidates[normalize_entity_token(row.manager_name)].add(row.canonical_entity_id)
         if row.canonical_entity_type == "fund" and row.fund_name:
             alias_candidates[normalize_entity_token(row.fund_name)].add(row.canonical_entity_id)
+
+    if lineage_aliases:
+        entity_ids = set(grouped_by_entity.keys())
+        for alias, target in lineage_aliases.items():
+            alias_key = normalize_entity_token(alias)
+            if not alias_key:
+                continue
+            target_entity_id = _normalize_existing_entity_id(entity_ids, target)
+            if target_entity_id is None:
+                continue
+            alias_candidates[alias_key].add(target_entity_id)
 
     alias_to_entity_id = {
         alias: next(iter(entity_ids))
@@ -111,6 +126,15 @@ def _normalize_canonical_query(entity_query: str) -> str | None:
 
     normalized_fund = normalize_entity_token(remainder)
     return f"fund:{normalized_fund}" if normalized_fund else None
+
+
+def _normalize_existing_entity_id(entity_ids: set[str], entity_query: str) -> str | None:
+    if entity_query in entity_ids:
+        return entity_query
+    normalized = _normalize_canonical_query(entity_query)
+    if normalized and normalized in entity_ids:
+        return normalized
+    return None
 
 
 def resolve_canonical_entity_id(
