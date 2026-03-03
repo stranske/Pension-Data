@@ -1,0 +1,179 @@
+{
+  "alias_cases": [
+    {
+      "candidates": [
+        {
+          "aliases": [
+            "Alpha Capital",
+            "ALPHA CAPITAL",
+            "Alpha Capital Management"
+          ],
+          "entity_id": "mgr:alpha_capital"
+        },
+        {
+          "aliases": [
+            "Beta Partners",
+            "Beta Partner Advisors"
+          ],
+          "entity_id": "mgr:beta_partners"
+        }
+      ],
+      "case_id": "exact_alias_variant_auto_match",
+      "expected": {
+        "decision": "matched",
+        "entity_id": "mgr:alpha_capital",
+        "review_state": "auto_accept"
+      },
+      "query_alias": "  alpha   capital  "
+    },
+    {
+      "candidates": [
+        {
+          "aliases": [
+            "Summit Growth Partners",
+            "Summit GP"
+          ],
+          "entity_id": "mgr:summit_growth_partners"
+        },
+        {
+          "aliases": [
+            "Summit Growth Capital",
+            "Summit Capital Growth"
+          ],
+          "entity_id": "mgr:summit_growth_capital"
+        }
+      ],
+      "case_id": "ambiguous_alias_routes_to_review",
+      "expected": {
+        "decision": "ambiguous_review",
+        "entity_id": null,
+        "review_state": "review_medium"
+      },
+      "query_alias": "Summit Growth"
+    },
+    {
+      "candidates": [
+        {
+          "aliases": [
+            "State Retirement Advisors",
+            "SRA Group"
+          ],
+          "entity_id": "mgr:state_retirement_advisors"
+        },
+        {
+          "aliases": [
+            "Street Capital",
+            "StreetCap"
+          ],
+          "entity_id": "mgr:street_capital"
+        }
+      ],
+      "case_id": "false_positive_trap_rejected",
+      "expected": {
+        "decision": "no_match",
+        "entity_id": null,
+        "review_state": "review_high"
+      },
+      "query_alias": "State Street Advisors"
+    },
+    {
+      "candidates": [
+        {
+          "aliases": [
+            "North Ridge Capital",
+            "N Ridge Capital",
+            "North-Ridge Capital"
+          ],
+          "entity_id": "mgr:north_ridge_capital"
+        },
+        {
+          "aliases": [
+            "North River Capital"
+          ],
+          "entity_id": "mgr:north_river_capital"
+        }
+      ],
+      "case_id": "punctuation_and_spacing_variant_matches",
+      "expected": {
+        "decision": "matched",
+        "entity_id": "mgr:north_ridge_capital",
+        "review_state": "auto_accept"
+      },
+      "query_alias": "N. Ridge   Capital"
+    }
+  ],
+  "lineage_cases": [
+    {
+      "case_id": "rename_then_merge_chain",
+      "events": [
+        {
+          "event_type": "rename",
+          "from_entity_id": "mgr:legacy_asset",
+          "to_entity_id": "mgr:legacy_asset_rebrand"
+        },
+        {
+          "event_type": "merge",
+          "from_entity_id": "mgr:legacy_asset_rebrand",
+          "to_entity_id": "mgr:unified_platform"
+        },
+        {
+          "event_type": "merge",
+          "from_entity_id": "mgr:peer_firm",
+          "to_entity_id": "mgr:unified_platform"
+        }
+      ],
+      "expected": {
+        "reachable_entities": [
+          "mgr:legacy_asset",
+          "mgr:legacy_asset_rebrand",
+          "mgr:unified_platform"
+        ],
+        "terminal_entities": [
+          "mgr:unified_platform"
+        ]
+      },
+      "root_entity_id": "mgr:legacy_asset"
+    },
+    {
+      "case_id": "split_lineage_two_terminals",
+      "events": [
+        {
+          "event_type": "split",
+          "from_entity_id": "inv:multi_strategy_fund",
+          "to_entity_id": "inv:credit_strategy_fund"
+        },
+        {
+          "event_type": "split",
+          "from_entity_id": "inv:multi_strategy_fund",
+          "to_entity_id": "inv:equity_strategy_fund"
+        }
+      ],
+      "expected": {
+        "reachable_entities": [
+          "inv:credit_strategy_fund",
+          "inv:equity_strategy_fund",
+          "inv:multi_strategy_fund"
+        ],
+        "terminal_entities": [
+          "inv:credit_strategy_fund",
+          "inv:equity_strategy_fund"
+        ]
+      },
+      "root_entity_id": "inv:multi_strategy_fund"
+    },
+    {
+      "case_id": "isolated_entity_stays_terminal",
+      "events": [],
+      "expected": {
+        "reachable_entities": [
+          "inv:single_asset_fund"
+        ],
+        "terminal_entities": [
+          "inv:single_asset_fund"
+        ]
+      },
+      "root_entity_id": "inv:single_asset_fund"
+    }
+  ],
+  "schema_version": 1
+}
