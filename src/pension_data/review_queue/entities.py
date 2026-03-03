@@ -29,6 +29,13 @@ _STATE_ORDER: dict[EntityReviewState, int] = {
     "resolved": 3,
 }
 
+_VALID_DECISIONS: set[EntityDecisionAction] = {
+    "approve_alias",
+    "merge",
+    "split",
+    "reject",
+}
+
 
 def _normalize_utc(dt: datetime | None) -> datetime:
     current = dt or datetime.now(UTC)
@@ -151,6 +158,8 @@ def _validate_resolved_action(
 
     if action is None:
         raise ValueError("resolved transition requires a decision action")
+    if action not in _VALID_DECISIONS:
+        raise ValueError(f"unsupported decision action '{action}'")
 
     if action in {"approve_alias", "merge"} and not resolved_entity_ids:
         raise ValueError(f"{action} decision requires at least one resolved entity id")

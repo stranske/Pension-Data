@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import cast
 
 import pytest
 
-from pension_data.db.models.review_queue_entities import UnresolvedEntityCandidate
+from pension_data.db.models.review_queue_entities import (
+    EntityDecisionAction,
+    UnresolvedEntityCandidate,
+)
 from pension_data.review_queue.entities import (
     apply_entity_review_decision,
     ingest_entity_review_candidates,
@@ -133,6 +137,17 @@ def test_invalid_resolved_decision_payload_is_rejected() -> None:
             reviewer="reviewer-b",
             rationale="reject test",
             action="reject",
+            resolved_entity_ids=("manager:alpha capital",),
+        )
+
+    with pytest.raises(ValueError, match="unsupported decision action"):
+        apply_entity_review_decision(
+            queued,
+            queue_id="entity-review:cand:alpha",
+            next_state="resolved",
+            reviewer="reviewer-b",
+            rationale="unknown action test",
+            action=cast(EntityDecisionAction, "archive"),
             resolved_entity_ids=("manager:alpha capital",),
         )
 
