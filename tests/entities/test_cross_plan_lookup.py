@@ -152,6 +152,27 @@ def test_lookup_resolves_aliases_and_includes_non_disclosure_states() -> None:
     assert nondisclosure_results[0].market_value is None
 
 
+def test_lookup_resolves_lineage_alias_to_current_canonical_id() -> None:
+    rows = build_entity_exposure_views(
+        positions=_positions(),
+        allocation_observations=_allocations(),
+        lifecycle_events=_lifecycle_events(),
+    )
+    index = build_entity_exposure_index(
+        rows,
+        lineage_aliases={"Alpha Legacy Capital": "manager:alpha capital"},
+    )
+
+    results, trace = lookup_entity_exposures(
+        index,
+        entity_query="Alpha Legacy Capital",
+    )
+
+    assert trace.resolved_entity_id == "manager:alpha capital"
+    assert len(results) == 2
+    assert {row.plan_id for row in results} == {"CA-PERS", "TX-ERS"}
+
+
 def test_fund_lookup_uses_manager_scoped_canonical_ids_to_avoid_collisions() -> None:
     positions = list(_positions())
     positions.append(
