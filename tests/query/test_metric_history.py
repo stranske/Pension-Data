@@ -270,3 +270,16 @@ def test_metric_history_limit_applies_after_ordering() -> None:
     assert len(response.rows) == 2
     assert response.rows[0].effective_date == "2023-06-30"
     assert response.rows[1].ingestion_date == "2025-01-15"
+
+
+def test_metric_history_metric_filters_are_case_insensitive() -> None:
+    rows = _seed_history_rows()
+    response = query_metric_history(
+        rows,
+        request=MetricHistoryRequest(
+            entity_id="CA-PERS",
+            metric_name="FUNDED_RATIO",
+            metric_family="FUNDED",
+        ),
+    )
+    assert response.total_rows == 3

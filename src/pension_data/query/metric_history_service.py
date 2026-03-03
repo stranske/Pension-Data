@@ -86,7 +86,7 @@ def _normalize_metric_token(value: str | None) -> str | None:
     token = value.strip()
     if not token:
         return None
-    return token
+    return token.casefold()
 
 
 def _normalize_provenance_refs(
@@ -305,9 +305,15 @@ def query_metric_history(
     for row in rows:
         if row.entity_id != entity_id:
             continue
-        if metric_name is not None and row.metric_name != metric_name:
+        if (
+            metric_name is not None
+            and _normalize_metric_token(row.metric_name) != metric_name
+        ):
             continue
-        if metric_family is not None and row.metric_family != metric_family:
+        if (
+            metric_family is not None
+            and _normalize_metric_token(row.metric_family) != metric_family
+        ):
             continue
 
         row_effective = _parse_iso_temporal(row.effective_date, field_name="row.effective_date")
