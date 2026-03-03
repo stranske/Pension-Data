@@ -35,10 +35,14 @@ def test_postgres_sql_query_paginates_against_real_connection() -> None:
               value DOUBLE PRECISION NOT NULL
             )
             """)
-        connection.executemany(
-            "INSERT INTO sample_metrics (id, metric, value) VALUES (%s, %s, %s)",
-            [(1, "m-001", 1.0), (2, "m-002", 2.0), (3, "m-003", 3.0), (4, "m-004", 4.0)],
-        )
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(
+                "INSERT INTO sample_metrics (id, metric, value) VALUES (%s, %s, %s)",
+                [(1, "m-001", 1.0), (2, "m-002", 2.0), (3, "m-003", 3.0), (4, "m-004", 4.0)],
+            )
+        finally:
+            cursor.close()
         connection.commit()
 
         response = execute_sql_query(

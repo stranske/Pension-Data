@@ -310,7 +310,14 @@ def _clear_timeout_handler(connection: DBConnection, *, dialect: DatabaseDialect
     raw_setter = getattr(connection, "set_progress_handler", None)
     if raw_setter is None or not callable(raw_setter):
         if dialect == "postgresql":
-            connection.execute("SET statement_timeout = DEFAULT")
+            try:
+                connection.execute("SET statement_timeout = DEFAULT")
+            except Exception:  # noqa: BLE001
+                # Timeout/cancel errors can leave Postgres in aborted transaction state.
+                rollback = getattr(connection, "rollback", None)
+                if callable(rollback):
+                    rollback()
+                    connection.execute("SET statement_timeout = DEFAULT")
         return
     setter = cast(Callable[[Callable[[], int] | None, int], None], raw_setter)
     setter(None, 0)
