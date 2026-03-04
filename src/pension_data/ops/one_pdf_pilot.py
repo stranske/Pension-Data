@@ -8,8 +8,8 @@ import os
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from types import MappingProxyType
 from pathlib import Path
+from types import MappingProxyType
 from typing import cast
 
 from pension_data.db.models.artifacts import RawArtifactRecord
