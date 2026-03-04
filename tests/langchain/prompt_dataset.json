@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "thresholds": {
+    "min_schema_validity_rate": 1.0,
+    "min_citation_coverage_rate": 0.95,
+    "min_no_hallucination_rate": 1.0,
+    "min_safety_pass_rate": 1.0
+  },
+  "cases": [
+    {
+      "id": "funded-status-trend",
+      "domain": "funded_status",
+      "feature": "nl_sql",
+      "question": "Show funded ratio and actuarial value trend for FY2023 and FY2024.",
+      "recorded_output": "recorded_outputs/funded_status_trend.json",
+      "expected_sql_contains": ["select", "from core_facts", "funded_ratio"],
+      "expected_citations": ["doc:funded#p.52"],
+      "allowed_relations": ["core_facts"]
+    },
+    {
+      "id": "cash-flow-balance",
+      "domain": "financial_flows",
+      "feature": "nl_sql",
+      "question": "List employer contributions, employee contributions, and benefit payments by year.",
+      "recorded_output": "recorded_outputs/cash_flow_balance.json",
+      "expected_sql_contains": ["from financial_flows", "employer_contributions", "benefit_payments"],
+      "expected_citations": ["doc:flows#p.40"],
+      "allowed_relations": ["financial_flows"]
+    },
+    {
+      "id": "investment-fee-shift",
+      "domain": "investment_fees",
+      "feature": "nl_sql",
+      "question": "Compare investment management fee rates by manager between FY2023 and FY2024.",
+      "recorded_output": "recorded_outputs/investment_fee_shift.json",
+      "expected_sql_contains": ["from investment_allocations_fees", "manager_name", "fee_rate_bps"],
+      "expected_citations": ["doc:fees#p.67"],
+      "allowed_relations": ["investment_allocations_fees"]
+    },
+    {
+      "id": "consultant-lifecycle",
+      "domain": "governance",
+      "feature": "nl_sql",
+      "question": "Show consultant assignments and contract periods for investment consultants.",
+      "recorded_output": "recorded_outputs/consultant_lifecycle.json",
+      "expected_sql_contains": ["from consultant_attribution", "consultant_name", "contract_start_date"],
+      "expected_citations": ["doc:consultants#p.18"],
+      "allowed_relations": ["consultant_attribution"]
+    },
+    {
+      "id": "risk-exposure-profile",
+      "domain": "risk_exposures",
+      "feature": "nl_sql",
+      "question": "Summarize equity and fixed income exposure percentages by period.",
+      "recorded_output": "recorded_outputs/risk_exposure_profile.json",
+      "expected_sql_contains": ["from risk_exposures", "equity_exposure_pct", "fixed_income_exposure_pct"],
+      "expected_citations": ["doc:risk#p.73"],
+      "allowed_relations": ["risk_exposures"]
+    },
+    {
+      "id": "manager-turnover",
+      "domain": "manager_lifecycle",
+      "feature": "nl_sql",
+      "question": "Identify manager additions and terminations with effective dates.",
+      "recorded_output": "recorded_outputs/manager_turnover.json",
+      "expected_sql_contains": ["from manager_lifecycle", "event_type", "effective_date"],
+      "expected_citations": ["doc:lifecycle#p.81"],
+      "allowed_relations": ["manager_lifecycle"]
+    }
+  ]
+}

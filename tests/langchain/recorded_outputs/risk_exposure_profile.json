@@ -1,0 +1,4 @@
+{
+  "sql": "SELECT plan_id, fiscal_year, equity_exposure_pct, fixed_income_exposure_pct FROM risk_exposures ORDER BY fiscal_year",
+  "citations": ["doc:risk#p.73"]
+}

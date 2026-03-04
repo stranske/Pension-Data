@@ -1,0 +1,4 @@
+{
+  "sql": "SELECT manager_name, event_type, effective_date FROM manager_lifecycle WHERE event_type IN ('added', 'terminated') ORDER BY effective_date",
+  "citations": ["doc:lifecycle#p.81"]
+}

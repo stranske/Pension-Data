@@ -1,0 +1,4 @@
+{
+  "sql": "SELECT consultant_name, contract_start_date, contract_end_date, role FROM consultant_attribution WHERE role = 'investment_consultant' ORDER BY contract_start_date",
+  "citations": ["doc:consultants#p.18"]
+}
