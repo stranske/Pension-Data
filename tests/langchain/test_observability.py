@@ -19,6 +19,7 @@ from pension_data.langchain.observability import (
     replay_logged_request,
     summarize_nl_operation_logs,
 )
+from pension_data.query.sql_safety import SQLSafetyPolicy
 
 
 class _StaticChain:
@@ -74,6 +75,16 @@ def _sample_entry(*, request_id: str, status: str, latency_ms: int) -> NLOperati
     )
 
 
+def _sample_policy() -> SQLSafetyPolicy:
+    return SQLSafetyPolicy(
+        allowed_relations=("sample_metrics",),
+        allowed_columns=("id", "metric", "value"),
+        banned_clauses=(),
+        max_rows=10,
+        max_timeout_ms=2_000,
+    )
+
+
 def test_append_log_enforces_retention(tmp_path: Path) -> None:
     log_path = tmp_path / "nl_ops.jsonl"
     append_nl_operation_log(
@@ -119,6 +130,7 @@ def test_replay_logged_request_uses_logged_sql() -> None:
             chain=_StaticChain(
                 "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"
             ),
+            policy=_sample_policy(),
         )
         entry = build_nl_operation_log_entry(
             request=request,
@@ -155,6 +167,7 @@ def test_nl_route_emits_structured_log_entry(tmp_path: Path) -> None:
             correlation_id="corr:unit-test",
             log_path=log_path,
             event={"request_origin": "unit-test"},
+            policy=_sample_policy(),
         )
     finally:
         connection.close()
@@ -201,6 +214,7 @@ def test_nl_route_logging_failure_does_not_break_endpoint(tmp_path: Path) -> Non
             provider="openai",
             model="gpt-4o-mini",
             log_path=bad_log_path,
+            policy=_sample_policy(),
         )
     finally:
         connection.close()
