@@ -72,7 +72,7 @@ def test_postgresql_dialect_uses_named_limit_offset_placeholders() -> None:
     assert response.status == "ok"
     assert response.rows == ((1, "m-001"), (2, "m-002"))
     assert len(connection.calls) == 4
-    assert connection.calls[0] == ("SET statement_timeout = %s", (2_000,))
+    assert connection.calls[0] == ("SET statement_timeout = 2000", ())
     assert "LIMIT %(_pd_limit)s OFFSET %(_pd_offset)s" in connection.calls[2][0]
     assert connection.calls[2][1]["_pd_limit"] == 2
     assert connection.calls[2][1]["_pd_offset"] == 0
@@ -96,7 +96,7 @@ def test_postgresql_dialect_uses_positional_limit_offset_placeholders() -> None:
 
     assert response.status == "ok"
     assert len(connection.calls) == 4
-    assert connection.calls[0] == ("SET statement_timeout = %s", (2_000,))
+    assert connection.calls[0] == ("SET statement_timeout = 2000", ())
     assert "LIMIT %s OFFSET %s" in connection.calls[2][0]
     assert connection.calls[2][1] == (1, 1, 1)
     assert connection.calls[3] == ("SET statement_timeout = DEFAULT", ())
@@ -119,5 +119,5 @@ def test_postgresql_statement_timeout_maps_to_timeout_error() -> None:
     assert response.status == "error"
     assert response.error is not None
     assert response.error.code == "TIMEOUT"
-    assert connection.calls[0] == ("SET statement_timeout = %s", (2_000,))
+    assert connection.calls[0] == ("SET statement_timeout = 2000", ())
     assert connection.calls[-1] == ("SET statement_timeout = DEFAULT", ())
