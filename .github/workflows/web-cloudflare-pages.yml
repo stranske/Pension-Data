@@ -1,0 +1,129 @@
+name: Web Cloudflare Pages
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "scripts/web/smoke_test.py"
+      - "docs/deploy/CLOUDFLARE_PAGES_SETUP.md"
+      - ".github/workflows/web-cloudflare-pages.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/web/**"
+      - "scripts/web/smoke_test.py"
+      - "docs/deploy/CLOUDFLARE_PAGES_SETUP.md"
+      - ".github/workflows/web-cloudflare-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-cloudflare-pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Local smoke check
+        run: python scripts/web/smoke_test.py --base-dir apps/web
+
+  deploy-pages:
+    if: github.event_name != 'pull_request'
+    needs:
+      - web-smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    env:
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CF_PAGES_PROJECT_NAME: ${{ vars.CF_PAGES_PROJECT_NAME }}
+      PENSION_DATA_API_BASE_URL: ${{ vars.PENSION_DATA_API_BASE_URL }}
+      PENSION_DATA_ARTIFACT_BASE_URL: ${{ vars.PENSION_DATA_ARTIFACT_BASE_URL }}
+      PENSION_DATA_ENVIRONMENT_LABEL: ${{ vars.PENSION_DATA_ENVIRONMENT_LABEL }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Validate deploy prerequisites and write runtime config
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          required = {
+              "CF_API_TOKEN": os.getenv("CF_API_TOKEN", "").strip(),
+              "CF_ACCOUNT_ID": os.getenv("CF_ACCOUNT_ID", "").strip(),
+              "CF_PAGES_PROJECT_NAME": os.getenv("CF_PAGES_PROJECT_NAME", "").strip(),
+              "PENSION_DATA_API_BASE_URL": os.getenv("PENSION_DATA_API_BASE_URL", "").strip(),
+              "PENSION_DATA_ARTIFACT_BASE_URL": os.getenv("PENSION_DATA_ARTIFACT_BASE_URL", "").strip(),
+              "PENSION_DATA_ENVIRONMENT_LABEL": os.getenv("PENSION_DATA_ENVIRONMENT_LABEL", "").strip(),
+          }
+          missing = [name for name, value in required.items() if not value]
+          if missing:
+              raise SystemExit("Missing required deploy configuration: " + ", ".join(missing))
+
+          runtime_path = Path("apps/web/config/runtime.json")
+          runtime_path.write_text(
+              json.dumps(
+                  {
+                      "environment": required["PENSION_DATA_ENVIRONMENT_LABEL"],
+                      "apiBaseUrl": required["PENSION_DATA_API_BASE_URL"],
+                      "artifactBaseUrl": required["PENSION_DATA_ARTIFACT_BASE_URL"],
+                      "enableQueryOverrides": False,
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Smoke check with runtime config
+        run: python scripts/web/smoke_test.py --base-dir apps/web --require-runtime
+
+      - name: Deploy to Cloudflare Pages
+        id: deploy
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          projectName: ${{ vars.CF_PAGES_PROJECT_NAME }}
+          directory: apps/web
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke check deployed URL
+        if: ${{ steps.deploy.outputs.url != '' && env.CF_ACCESS_CLIENT_ID != '' && env.CF_ACCESS_CLIENT_SECRET != '' }}
+        run: |
+          python scripts/web/smoke_test.py \
+            --base-dir apps/web \
+            --url "${{ steps.deploy.outputs.url }}" \
+            --cf-access-client-id "${{ env.CF_ACCESS_CLIENT_ID }}" \
+            --cf-access-client-secret "${{ env.CF_ACCESS_CLIENT_SECRET }}" \
+            --expect-runtime
+
+      - name: Skip remote smoke without Access service tokens
+        if: ${{ steps.deploy.outputs.url != '' && (env.CF_ACCESS_CLIENT_ID == '' || env.CF_ACCESS_CLIENT_SECRET == '') }}
+        run: |
+          echo "Skipping remote smoke check: CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET not configured."

@@ -1,0 +1,151 @@
+{
+  "contractVersion": "1.0.0",
+  "datasets": [
+    {
+      "id": "core_facts",
+      "name": "Core Facts",
+      "domain": "funded_status",
+      "kind": "table",
+      "freshness": "daily",
+      "lastUpdated": "2026-03-02T23:45:00Z",
+      "rows": [
+        {
+          "entity": "CA-PERS",
+          "plan_period": "FY2024",
+          "metric_family": "funded_status",
+          "metric": "funded_ratio",
+          "value": 0.81,
+          "confidence": 0.96,
+          "provenance": {
+            "source_document": "doc:funded-2024",
+            "evidence_refs": [
+              "page=52",
+              "table=3"
+            ]
+          }
+        },
+        {
+          "entity": "CA-PERS",
+          "plan_period": "FY2023",
+          "metric_family": "funded_status",
+          "metric": "funded_ratio",
+          "value": 0.78,
+          "confidence": 0.94,
+          "provenance": {
+            "source_document": "doc:funded-2023",
+            "evidence_refs": [
+              "page=49"
+            ]
+          }
+        },
+        {
+          "entity": "NY-STRS",
+          "plan_period": "FY2024",
+          "metric_family": "funded_status",
+          "metric": "actuarial_liability",
+          "value": 98100000000,
+          "confidence": 0.88,
+          "provenance": {
+            "source_document": "doc:nystrs-2024",
+            "evidence_refs": [
+              "page=31"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "metric_history",
+      "name": "Metric History View",
+      "domain": "analytics",
+      "kind": "view",
+      "freshness": "hourly",
+      "lastUpdated": "2026-03-03T02:10:00Z",
+      "rows": [
+        {
+          "entity": "CA-PERS",
+          "plan_period": "FY2024",
+          "metric_family": "cash_flows",
+          "metric": "employer_contributions",
+          "value": 4250000000,
+          "confidence": 0.91,
+          "provenance": {
+            "source_document": "doc:flows-2024",
+            "evidence_refs": [
+              "page=40",
+              "row=12"
+            ]
+          }
+        },
+        {
+          "entity": "NY-STRS",
+          "plan_period": "FY2024",
+          "metric_family": "cash_flows",
+          "metric": "benefit_payments",
+          "value": 7850000000,
+          "confidence": 0.89,
+          "provenance": {
+            "source_document": "doc:nystrs-2024",
+            "evidence_refs": [
+              "page=44",
+              "row=8"
+            ]
+          }
+        },
+        {
+          "entity": "TX-ERS",
+          "plan_period": "FY2024",
+          "metric_family": "risk_exposures",
+          "metric": "equity_exposure_pct",
+          "value": 0.63,
+          "confidence": 0.86,
+          "provenance": {
+            "source_document": "doc:txers-2024",
+            "evidence_refs": [
+              "page=73"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "review_queue",
+      "name": "Review Queue",
+      "domain": "quality",
+      "kind": "table",
+      "freshness": "daily",
+      "lastUpdated": "2026-03-03T01:05:00Z",
+      "rows": [
+        {
+          "entity": "CA-PERS",
+          "plan_period": "FY2024",
+          "metric_family": "quality",
+          "metric": "confidence_flag",
+          "value": "needs_review",
+          "confidence": 0.52,
+          "provenance": {
+            "source_document": "doc:funded-2024",
+            "evidence_refs": [
+              "page=67",
+              "note=anomaly-1"
+            ]
+          }
+        },
+        {
+          "entity": "NY-STRS",
+          "plan_period": "FY2024",
+          "metric_family": "quality",
+          "metric": "lineage_gap",
+          "value": "entity_match_pending",
+          "confidence": 0.48,
+          "provenance": {
+            "source_document": "doc:nystrs-2024",
+            "evidence_refs": [
+              "page=88"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

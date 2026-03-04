@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Pension-Data icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f766e" />
+      <stop offset="100%" stop-color="#f06f42" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)" />
+  <path d="M138 348V164h136c58 0 93 35 93 86 0 55-39 90-101 90h-58v58h-70zm70-116h54c23 0 37-14 37-33 0-18-13-31-35-31h-56v64z" fill="#f7faf9" />
+</svg>

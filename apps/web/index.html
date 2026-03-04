@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pension-Data Workspace</title>
+    <meta
+      name="description"
+      content="Unified Pension-Data workspace for dataset inventory, filtering, drilldowns, saved views, and exports."
+    />
+    <meta name="theme-color" content="#0f766e" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="app" class="layout" data-testid="web-foundation-root">
+      <section class="hero">
+        <p class="eyebrow">Pension-Data</p>
+        <h1>Cloudflare Web Workspace Foundation</h1>
+        <p class="lede">
+          Unified interaction workspace for collected pension datasets. Explore inventory, apply
+          global filters, inspect provenance, and export filtered slices for analyst workflows.
+        </p>
+        <div class="hero-meta">
+          <div class="environment-chip" data-testid="environment-badge">Environment: loading...</div>
+          <div class="meta-line"><strong>API:</strong> <span id="api-endpoint">Loading...</span></div>
+          <div class="meta-line">
+            <strong>Artifacts:</strong> <span id="artifact-endpoint">Loading...</span>
+          </div>
+          <div class="meta-line"><strong>Data Source:</strong> <span id="workspace-source">Loading...</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Zero-Install Mode</h2>
+          <p class="hint">
+            Browser-only usage for locked-down PCs: install as PWA where allowed, or load local
+            bundle JSON exports directly in session.
+          </p>
+        </div>
+        <div class="saved-row">
+          <button id="install-app" type="button" hidden>Install App</button>
+          <input
+            id="local-bundle-file"
+            type="file"
+            accept="application/json,.json"
+            aria-label="Select local workspace bundle JSON"
+          />
+          <button id="load-local-bundle" type="button">Load Local Bundle</button>
+          <button id="reload-packaged-data" type="button">Reload Packaged Bundle</button>
+        </div>
+        <p id="local-bundle-status" class="hint">Using packaged workspace bundle.</p>
+      </section>
+
+      <section class="workspace-grid">
+        <aside class="panel stack">
+          <div class="panel-head">
+            <h2>Dataset Inventory</h2>
+            <p class="hint">Domain, freshness, and row counts across primary datasets.</p>
+          </div>
+          <ul id="inventory-list" class="inventory-list"></ul>
+          <div id="dataset-meta" class="hint"></div>
+        </aside>
+
+        <section class="stack">
+          <article class="panel">
+            <div class="panel-head">
+              <h2>Global Filters</h2>
+              <p class="hint">Entity, period, metric family, confidence, and source document.</p>
+            </div>
+            <div class="filters-grid">
+              <label>
+                Entity
+                <input id="filter-entity" type="text" placeholder="CA-PERS" />
+              </label>
+              <label>
+                Plan Period
+                <input id="filter-period" type="text" placeholder="FY2024" />
+              </label>
+              <label>
+                Metric Family
+                <input id="filter-family" type="text" placeholder="funded_status" />
+              </label>
+              <label>
+                Source Document
+                <input id="filter-source" type="text" placeholder="doc:funded-2024" />
+              </label>
+              <label>
+                Min Confidence
+                <input id="filter-confidence" type="range" min="0" max="1" step="0.01" value="0" />
+                <span id="filter-confidence-value">0.00</span>
+              </label>
+              <div class="button-row">
+                <button id="clear-filters" type="button">Clear Filters</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h2>Saved Views + Export</h2>
+              <p class="hint">Store common filter states and export filtered records.</p>
+            </div>
+            <div class="saved-row">
+              <select id="saved-view-select">
+                <option value="">Select a saved view</option>
+              </select>
+              <button id="load-view" type="button">Load</button>
+              <button id="save-view" type="button">Save Current</button>
+              <button id="delete-view" type="button">Delete</button>
+            </div>
+            <div class="saved-row">
+              <button id="export-json" type="button">Export JSON</button>
+              <button id="export-csv" type="button">Export CSV</button>
+              <span id="result-count" class="hint">0 rows</span>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section class="workspace-grid data-grid">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>Table Explorer</h2>
+            <p class="hint">Click a row to inspect provenance and evidence references.</p>
+          </div>
+          <div class="table-wrap">
+            <table id="data-table">
+              <thead id="table-head"></thead>
+              <tbody id="table-body"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h2>Record Details</h2>
+            <p class="hint">Drilldown pane with provenance and evidence links.</p>
+          </div>
+          <div id="detail-content" class="detail-content">Select a row to inspect details.</div>
+        </article>
+      </section>
+
+      <section class="panel stack">
+        <div class="panel-head">
+          <h2>Chart Studio</h2>
+          <p class="hint">
+            Build publication-quality charts from filtered rows, edit JSON spec live, and export
+            in presentation + editable formats.
+          </p>
+        </div>
+        <div class="saved-row">
+          <label>
+            Template
+            <select id="chart-template">
+              <option value="timeSeries">Time Series</option>
+              <option value="distribution">Distribution</option>
+              <option value="attribution">Attribution</option>
+              <option value="riskReturn">Risk / Return Scatter</option>
+              <option value="heatmap">Heatmap</option>
+            </select>
+          </label>
+          <button id="chart-build" type="button">Build from Filtered Rows</button>
+          <button id="chart-apply-spec" type="button">Apply Spec JSON</button>
+        </div>
+        <label for="chart-spec">Chart Spec JSON</label>
+        <textarea id="chart-spec" class="spec-editor" spellcheck="false"></textarea>
+        <div class="saved-row">
+          <button id="chart-export-json" type="button">Export Spec JSON</button>
+          <button id="chart-export-png" type="button">Export PNG</button>
+          <button id="chart-export-svg" type="button">Export SVG</button>
+          <button id="chart-export-html" type="button">Export Interactive HTML</button>
+        </div>
+        <div id="chart-preview" class="chart-preview"></div>
+      </section>
+    </main>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>

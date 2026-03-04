@@ -1,0 +1,28 @@
+{
+  "name": "Pension-Data Workspace",
+  "short_name": "PensionData",
+  "description": "Browser-first workspace for pension dataset exploration, provenance review, and chart exports.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#edf7f4",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "./icons/pension-data-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/pension-data-mark-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./icons/pension-data-mark-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
