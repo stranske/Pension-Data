@@ -19,6 +19,24 @@ def _artifact_rows(artifacts: dict[str, object], key: str) -> list[object]:
     return value
 
 
+def _artifact_payload(artifacts: dict[str, object]) -> dict[str, list[object]]:
+    keys = (
+        "published_rows",
+        "review_queue_rows",
+        "financial_flow_rows",
+        "risk_exposure_rows",
+        "consultant_entity_rows",
+        "consultant_engagement_rows",
+        "consultant_recommendation_rows",
+        "consultant_attribution_rows",
+        "lifecycle_event_rows",
+        "manager_relationship_rows",
+        "extraction_warning_rows",
+        "component_coverage_reports",
+    )
+    return {key: _artifact_rows(artifacts, key) for key in keys}
+
+
 def _job(
     *,
     source_url: str,
@@ -175,7 +193,101 @@ def test_one_document_run_is_reproducible_and_idempotent() -> None:
     assert second_ledger.status == "success"
     assert second_ledger.document_outcomes[0].status == "skipped"
     assert _artifact_rows(second_artifacts, "published_rows") == []
+    assert _artifact_payload(second_artifacts) == {
+        "published_rows": [],
+        "review_queue_rows": [],
+        "financial_flow_rows": [],
+        "risk_exposure_rows": [],
+        "consultant_entity_rows": [],
+        "consultant_engagement_rows": [],
+        "consultant_recommendation_rows": [],
+        "consultant_attribution_rows": [],
+        "lifecycle_event_rows": [],
+        "manager_relationship_rows": [],
+        "extraction_warning_rows": [],
+        "component_coverage_reports": [],
+    }
     assert second_state.published_fact_ids == first_state.published_fact_ids
+
+
+def test_document_order_does_not_change_orchestration_outputs() -> None:
+    first_doc = _job(
+        source_url="https://example.org/ca-a-2024.pdf",
+        fetched_at="2026-03-03T00:00:00Z",
+        source_document_id="doc:ca:a:2024:v1",
+        content=b"doc-a-v1",
+    )
+    second_doc = _job(
+        source_url="https://example.org/ca-b-2024.pdf",
+        fetched_at="2026-03-03T00:00:00Z",
+        source_document_id="doc:ca:b:2024:v1",
+        content=b"doc-b-v1",
+    )
+
+    forward_ledger, forward_state, forward_artifacts = run_document_orchestration(
+        documents=[first_doc, second_doc],
+        parser=_parser,
+        state=DocumentOrchestrationState(),
+        run_id="run-forward",
+    )
+    reverse_ledger, reverse_state, reverse_artifacts = run_document_orchestration(
+        documents=[second_doc, first_doc],
+        parser=_parser,
+        state=DocumentOrchestrationState(),
+        run_id="run-reverse",
+    )
+
+    assert forward_ledger.status == "success"
+    assert reverse_ledger.status == "success"
+    assert forward_state == reverse_state
+    assert _artifact_payload(forward_artifacts) == _artifact_payload(reverse_artifacts)
+
+    assert tuple(
+        (
+            outcome.plan_id,
+            outcome.plan_period,
+            outcome.source_url,
+            outcome.status,
+            outcome.promoted_fact_count,
+            outcome.review_queue_count,
+            outcome.notes,
+        )
+        for outcome in forward_ledger.document_outcomes
+    ) == tuple(
+        (
+            outcome.plan_id,
+            outcome.plan_period,
+            outcome.source_url,
+            outcome.status,
+            outcome.promoted_fact_count,
+            outcome.review_queue_count,
+            outcome.notes,
+        )
+        for outcome in reverse_ledger.document_outcomes
+    )
+    assert tuple(
+        (
+            metric.stage,
+            metric.domain,
+            metric.status,
+            metric.record_count,
+            metric.error_count,
+            metric.attempt_count,
+            metric.notes,
+        )
+        for metric in forward_ledger.stage_metrics
+    ) == tuple(
+        (
+            metric.stage,
+            metric.domain,
+            metric.status,
+            metric.record_count,
+            metric.error_count,
+            metric.attempt_count,
+            metric.notes,
+        )
+        for metric in reverse_ledger.stage_metrics
+    )
 
 
 def test_domain_failure_is_isolated_and_other_domains_still_publish(
