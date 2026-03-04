@@ -164,6 +164,12 @@ def test_one_document_run_is_reproducible_and_idempotent() -> None:
         assert ("parse_extract", domain) in domain_metrics
         assert ("validation", domain) in domain_metrics
         assert ("publish", domain) in domain_metrics
+    assert len(_artifact_rows(first_artifacts, "component_coverage_reports")) == 1
+    first_report = _artifact_rows(first_artifacts, "component_coverage_reports")[0][
+        "component_coverage_report"
+    ]
+    assert first_report["is_valid"] is True
+    assert first_report["expected_component_count"] == 19
     assert first_ledger.failures == ()
 
     assert second_ledger.status == "success"
@@ -241,6 +247,10 @@ def test_revised_document_reprocesses_with_lineage_preserved() -> None:
     assert "reprocessed revised artifact" in outcome.notes
     assert len(second_state.processed_artifact_ids) == 2
     assert len(_artifact_rows(second_artifacts, "published_rows")) > 0
+    second_coverage_report = _artifact_rows(second_artifacts, "component_coverage_reports")[0][
+        "component_coverage_report"
+    ]
+    assert second_coverage_report["is_valid"]
 
 
 def test_small_batch_run_records_actionable_stage_failure_diagnostics() -> None:
@@ -278,3 +288,4 @@ def test_small_batch_run_records_actionable_stage_failure_diagnostics() -> None:
     assert any("RuntimeError" in failure.message for failure in ledger.failures)
     assert len(state.processed_artifact_ids) == 1
     assert len(_artifact_rows(artifacts, "published_rows")) > 0
+    assert len(_artifact_rows(artifacts, "component_coverage_reports")) == 1
