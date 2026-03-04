@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from types import MappingProxyType
 from pathlib import Path
 from typing import cast
 
@@ -24,6 +26,167 @@ from pension_data.ops.document_orchestration import (
     run_document_orchestration,
 )
 from pension_data.parser.pdf_pipeline import PDFParserInput, parse_pdf_to_funded_input
+
+_ALLOWED_UNIT_SCALES: tuple[UnitScale, ...] = ("usd", "thousand_usd", "million_usd", "billion_usd")
+
+ONE_PDF_PILOT_REQUIRED_INPUT_FIELDS: tuple[str, ...] = (
+    "pdf_path",
+    "plan_id",
+    "plan_period",
+    "effective_date",
+    "ingestion_date",
+)
+ONE_PDF_PILOT_PATH_FIELDS: tuple[str, ...] = ("pdf_path",)
+ONE_PDF_PILOT_OPTIONAL_METADATA_FIELDS: tuple[str, ...] = (
+    "source_url",
+    "source_document_id",
+    "fetched_at",
+    "mime_type",
+    "default_money_unit_scale",
+)
+ONE_PDF_PILOT_OPTIONAL_RUNTIME_FIELDS: tuple[str, ...] = ("output_root", "run_id")
+
+ONE_PDF_PILOT_ENV_VAR_BY_FIELD: Mapping[str, str] = MappingProxyType(
+    {
+        "pdf_path": "ONE_PDF_PILOT_PDF_PATH",
+        "plan_id": "ONE_PDF_PILOT_PLAN_ID",
+        "plan_period": "ONE_PDF_PILOT_PLAN_PERIOD",
+        "effective_date": "ONE_PDF_PILOT_EFFECTIVE_DATE",
+        "ingestion_date": "ONE_PDF_PILOT_INGESTION_DATE",
+        "source_url": "ONE_PDF_PILOT_SOURCE_URL",
+        "source_document_id": "ONE_PDF_PILOT_SOURCE_DOCUMENT_ID",
+        "fetched_at": "ONE_PDF_PILOT_FETCHED_AT",
+        "mime_type": "ONE_PDF_PILOT_MIME_TYPE",
+        "default_money_unit_scale": "ONE_PDF_PILOT_DEFAULT_MONEY_UNIT_SCALE",
+        "output_root": "ONE_PDF_PILOT_OUTPUT_ROOT",
+        "run_id": "ONE_PDF_PILOT_RUN_ID",
+    }
+)
+
+
+def one_pdf_pilot_input_contract() -> dict[str, object]:
+    """Canonical one-PDF pilot input contract (flags/env vars/metadata)."""
+    return {
+        "required_input_fields": ONE_PDF_PILOT_REQUIRED_INPUT_FIELDS,
+        "path_fields": ONE_PDF_PILOT_PATH_FIELDS,
+        "optional_metadata_fields": ONE_PDF_PILOT_OPTIONAL_METADATA_FIELDS,
+        "optional_runtime_fields": ONE_PDF_PILOT_OPTIONAL_RUNTIME_FIELDS,
+        "env_var_by_field": dict(ONE_PDF_PILOT_ENV_VAR_BY_FIELD),
+        "defaults": {
+            "mime_type": "application/pdf",
+            "default_money_unit_scale": "million_usd",
+            "output_root": "outputs",
+        },
+    }
+
+
+def _resolve_str_arg(
+    *,
+    field: str,
+    value: str | None,
+    env: Mapping[str, str],
+) -> str | None:
+    if value is not None and value.strip():
+        return value.strip()
+    env_var = ONE_PDF_PILOT_ENV_VAR_BY_FIELD[field]
+    from_env = env.get(env_var)
+    if from_env is None or not from_env.strip():
+        return None
+    return from_env.strip()
+
+
+def resolve_one_pdf_pilot_runtime_options(
+    *,
+    output_root: str | Path | None,
+    run_id: str | None,
+    env: Mapping[str, str] | None = None,
+) -> tuple[Path, str | None]:
+    """Resolve optional runtime fields with CLI-first and env fallback precedence."""
+    resolved_env = env if env is not None else os.environ
+    output_root_value = (
+        str(output_root).strip() if output_root is not None else None
+    ) or resolved_env.get(ONE_PDF_PILOT_ENV_VAR_BY_FIELD["output_root"], "outputs").strip()
+    run_id_value = _resolve_str_arg(field="run_id", value=run_id, env=resolved_env)
+    return Path(output_root_value), run_id_value
+
+
+def resolve_one_pdf_pilot_input(
+    *,
+    pdf_path: str | Path | None,
+    plan_id: str | None,
+    plan_period: str | None,
+    effective_date: str | None,
+    ingestion_date: str | None,
+    source_url: str | None = None,
+    source_document_id: str | None = None,
+    fetched_at: str | None = None,
+    mime_type: str | None = None,
+    default_money_unit_scale: str | UnitScale | None = None,
+    env: Mapping[str, str] | None = None,
+) -> OnePdfPilotInput:
+    """Resolve the canonical one-PDF contract from CLI args with env var fallback."""
+    resolved_env = env if env is not None else os.environ
+    resolved: dict[str, str] = {}
+    missing_fields: list[str] = []
+
+    raw_pdf_path = str(pdf_path) if pdf_path is not None else None
+    for field, value in (
+        ("pdf_path", raw_pdf_path),
+        ("plan_id", plan_id),
+        ("plan_period", plan_period),
+        ("effective_date", effective_date),
+        ("ingestion_date", ingestion_date),
+    ):
+        resolved_value = _resolve_str_arg(field=field, value=value, env=resolved_env)
+        if resolved_value is None:
+            missing_fields.append(field)
+            continue
+        resolved[field] = resolved_value
+
+    if missing_fields:
+        missing_env = ", ".join(ONE_PDF_PILOT_ENV_VAR_BY_FIELD[field] for field in missing_fields)
+        missing_names = ", ".join(missing_fields)
+        raise ValueError(
+            f"Missing required one-pdf pilot input fields: {missing_names}. "
+            f"Set CLI args or env vars: {missing_env}."
+        )
+
+    resolved_source_url = _resolve_str_arg(field="source_url", value=source_url, env=resolved_env)
+    resolved_source_document_id = _resolve_str_arg(
+        field="source_document_id",
+        value=source_document_id,
+        env=resolved_env,
+    )
+    resolved_fetched_at = _resolve_str_arg(field="fetched_at", value=fetched_at, env=resolved_env)
+    resolved_mime_type = _resolve_str_arg(field="mime_type", value=mime_type, env=resolved_env)
+    if resolved_mime_type is None:
+        resolved_mime_type = "application/pdf"
+
+    unit_scale_value = _resolve_str_arg(
+        field="default_money_unit_scale",
+        value=str(default_money_unit_scale) if default_money_unit_scale is not None else None,
+        env=resolved_env,
+    )
+    if unit_scale_value is None:
+        unit_scale_value = "million_usd"
+    if unit_scale_value not in _ALLOWED_UNIT_SCALES:
+        allowed = ", ".join(_ALLOWED_UNIT_SCALES)
+        raise ValueError(
+            f"default_money_unit_scale must be one of [{allowed}], got: {unit_scale_value}"
+        )
+
+    return OnePdfPilotInput(
+        pdf_path=Path(resolved["pdf_path"]),
+        plan_id=resolved["plan_id"],
+        plan_period=resolved["plan_period"],
+        effective_date=resolved["effective_date"],
+        ingestion_date=resolved["ingestion_date"],
+        default_money_unit_scale=cast(UnitScale, unit_scale_value),
+        source_url=resolved_source_url,
+        source_document_id=resolved_source_document_id,
+        fetched_at=resolved_fetched_at,
+        mime_type=resolved_mime_type,
+    )
 
 
 @dataclass(frozen=True, slots=True)
