@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from pension_data.ops.one_pdf_pilot import OnePdfPilotInput, run_one_pdf_pilot
+from pension_data.ops.one_pdf_pilot import (
+    OnePdfPilotInput,
+    one_pdf_pilot_input_contract,
+    resolve_one_pdf_pilot_input,
+    resolve_one_pdf_pilot_runtime_options,
+    run_one_pdf_pilot,
+)
 
 
 def _write_pdf_like_text(path: Path, text: str) -> None:
@@ -53,6 +59,7 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
     assert Path(result["staging_core_metrics_json"]).exists()
     assert Path(result["staging_manager_fund_vehicle_relationships_json"]).exists()
     assert Path(result["extraction_warnings_json"]).exists()
+    assert Path(result["schema_component_datasets_manifest_json"]).exists()
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     artifact_files = manifest["artifact_files"]
@@ -63,12 +70,15 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
         "staging_core_metrics_json",
         "staging_manager_fund_vehicle_relationships_json",
         "extraction_warnings_json",
+        "schema_component_datasets_manifest_json",
         "orchestration_ledger_json",
         "orchestration_published_rows_json",
         "orchestration_review_queue_rows_json",
         "orchestration_state_json",
     }
     assert set(artifact_files) == expected_keys
+    expected_result_keys = expected_keys | {"run_id", "run_manifest_json"}
+    assert set(result) == expected_result_keys
     for artifact_path in artifact_files.values():
         assert Path(artifact_path).exists()
 
@@ -76,6 +86,79 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
     assert coverage["has_required_funded_metrics"] is True
     assert coverage["staging_core_metric_count"] > 0
     assert coverage["missing_required_metrics"] == []
+
+
+def test_one_pdf_pilot_artifacts_follow_deterministic_layout(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "layout.pdf"
+    _write_pdf_like_text(
+        pdf_path,
+        "\n".join(
+            (
+                "Funded Ratio: 78.4%",
+                "AAL: $640 million",
+                "AVA: $501.8 million",
+                "Discount Rate: 6.8%",
+                "Employer Contribution Rate: 12.4%",
+                "Employee Contribution Rate: 7.5%",
+                "Participant Count: 325000",
+            )
+        ),
+    )
+
+    output_root = tmp_path / "artifacts"
+    run_id = "pilot-layout"
+    result = run_one_pdf_pilot(
+        pilot_input=OnePdfPilotInput(
+            pdf_path=pdf_path,
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            effective_date="2024-06-30",
+            ingestion_date="2026-03-03",
+        ),
+        output_root=output_root,
+        run_id=run_id,
+    )
+
+    expected_run_root = output_root / "one_pdf_pilot" / run_id
+    assert Path(result["run_manifest_json"]) == expected_run_root / "run_manifest.json"
+    assert Path(result["parser_result_json"]) == expected_run_root / "parser_result.json"
+    assert Path(result["coverage_summary_json"]) == (
+        expected_run_root / "coverage" / "component_coverage_summary.json"
+    )
+    assert Path(result["persistence_contract_json"]) == (
+        expected_run_root / "extraction_persistence" / "persistence_contract.json"
+    )
+    assert Path(result["staging_core_metrics_json"]) == (
+        expected_run_root / "extraction_persistence" / "staging_core_metrics.json"
+    )
+    assert Path(result["staging_manager_fund_vehicle_relationships_json"]) == (
+        expected_run_root
+        / "extraction_persistence"
+        / "staging_manager_fund_vehicle_relationships.json"
+    )
+    assert Path(result["extraction_warnings_json"]) == (
+        expected_run_root / "extraction_persistence" / "extraction_warnings.json"
+    )
+    assert Path(result["schema_component_datasets_manifest_json"]) == (
+        expected_run_root / "extraction_persistence" / "component_datasets_manifest.json"
+    )
+
+    manifest = json.loads(Path(result["run_manifest_json"]).read_text(encoding="utf-8"))
+    artifact_paths = {key: Path(value) for key, value in manifest["artifact_files"].items()}
+    assert artifact_paths["orchestration_ledger_json"] == (
+        expected_run_root / "document_orchestration" / run_id / "ledger.json"
+    )
+    assert artifact_paths["orchestration_published_rows_json"] == (
+        expected_run_root / "document_orchestration" / run_id / "published_rows.json"
+    )
+    assert artifact_paths["orchestration_review_queue_rows_json"] == (
+        expected_run_root / "document_orchestration" / run_id / "review_queue_rows.json"
+    )
+    assert artifact_paths["orchestration_state_json"] == (
+        expected_run_root / "document_orchestration" / run_id / "state.json"
+    )
+    for artifact_path in artifact_paths.values():
+        assert artifact_path.is_relative_to(expected_run_root)
 
 
 def test_one_pdf_pilot_fails_when_required_metrics_are_missing(tmp_path: Path) -> None:
@@ -147,3 +230,146 @@ def test_one_pdf_pilot_default_source_document_id_is_content_stable(
         first_manifest["input"]["source_document_id"]
         == second_manifest["input"]["source_document_id"]
     )
+
+
+def test_one_pdf_pilot_default_run_id_is_input_stable(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "pilot.pdf"
+    _write_pdf_like_text(
+        pdf_path,
+        "\n".join(
+            (
+                "Funded Ratio: 78.4%",
+                "AAL: $640 million",
+                "AVA: $501.8 million",
+                "Discount Rate: 6.8%",
+                "Employer Contribution Rate: 12.4%",
+                "Employee Contribution Rate: 7.5%",
+                "Participant Count: 325000",
+            )
+        ),
+    )
+
+    first = run_one_pdf_pilot(
+        pilot_input=OnePdfPilotInput(
+            pdf_path=pdf_path,
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            effective_date="2024-06-30",
+            ingestion_date="2026-03-03",
+        ),
+        output_root=tmp_path / "outputs",
+    )
+    second = run_one_pdf_pilot(
+        pilot_input=OnePdfPilotInput(
+            pdf_path=pdf_path,
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            effective_date="2024-06-30",
+            ingestion_date="2026-03-03",
+        ),
+        output_root=tmp_path / "outputs",
+    )
+
+    assert first["run_id"] == second["run_id"]
+    assert first["run_manifest_json"] == second["run_manifest_json"]
+
+
+def test_one_pdf_input_contract_includes_required_path_env_and_metadata_fields() -> None:
+    contract = one_pdf_pilot_input_contract()
+    assert contract["required_input_fields"] == (
+        "pdf_path",
+        "plan_id",
+        "plan_period",
+        "effective_date",
+        "ingestion_date",
+    )
+    assert contract["path_fields"] == ("pdf_path",)
+    assert contract["optional_metadata_fields"] == (
+        "source_url",
+        "source_document_id",
+        "fetched_at",
+        "mime_type",
+        "default_money_unit_scale",
+    )
+
+    env_var_by_field = contract["env_var_by_field"]
+    assert isinstance(env_var_by_field, dict)
+    assert env_var_by_field["pdf_path"] == "ONE_PDF_PILOT_PDF_PATH"
+    assert env_var_by_field["plan_id"] == "ONE_PDF_PILOT_PLAN_ID"
+    assert env_var_by_field["plan_period"] == "ONE_PDF_PILOT_PLAN_PERIOD"
+    assert env_var_by_field["effective_date"] == "ONE_PDF_PILOT_EFFECTIVE_DATE"
+    assert env_var_by_field["ingestion_date"] == "ONE_PDF_PILOT_INGESTION_DATE"
+    assert env_var_by_field["source_url"] == "ONE_PDF_PILOT_SOURCE_URL"
+    assert env_var_by_field["source_document_id"] == "ONE_PDF_PILOT_SOURCE_DOCUMENT_ID"
+    assert env_var_by_field["fetched_at"] == "ONE_PDF_PILOT_FETCHED_AT"
+
+
+def test_resolve_one_pdf_pilot_input_uses_env_fallback(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "pilot.pdf"
+    _write_pdf_like_text(pdf_path, "Funded Ratio: 78.4%")
+    env = {
+        "ONE_PDF_PILOT_PDF_PATH": str(pdf_path),
+        "ONE_PDF_PILOT_PLAN_ID": "CA-PERS",
+        "ONE_PDF_PILOT_PLAN_PERIOD": "FY2024",
+        "ONE_PDF_PILOT_EFFECTIVE_DATE": "2024-06-30",
+        "ONE_PDF_PILOT_INGESTION_DATE": "2026-03-03",
+        "ONE_PDF_PILOT_SOURCE_URL": "https://example.org/ca-2024.pdf",
+        "ONE_PDF_PILOT_DEFAULT_MONEY_UNIT_SCALE": "million_usd",
+    }
+    resolved = resolve_one_pdf_pilot_input(
+        pdf_path=None,
+        plan_id=None,
+        plan_period=None,
+        effective_date=None,
+        ingestion_date=None,
+        env=env,
+    )
+
+    assert resolved.pdf_path == pdf_path
+    assert resolved.plan_id == "CA-PERS"
+    assert resolved.plan_period == "FY2024"
+    assert resolved.source_url == "https://example.org/ca-2024.pdf"
+    assert resolved.default_money_unit_scale == "million_usd"
+
+
+def test_resolve_one_pdf_pilot_input_prefers_cli_values_over_env(tmp_path: Path) -> None:
+    cli_pdf_path = tmp_path / "cli.pdf"
+    env_pdf_path = tmp_path / "env.pdf"
+    _write_pdf_like_text(cli_pdf_path, "Funded Ratio: 78.4%")
+    _write_pdf_like_text(env_pdf_path, "Funded Ratio: 78.4%")
+    env = {
+        "ONE_PDF_PILOT_PDF_PATH": str(env_pdf_path),
+        "ONE_PDF_PILOT_PLAN_ID": "ENV",
+        "ONE_PDF_PILOT_PLAN_PERIOD": "ENV",
+        "ONE_PDF_PILOT_EFFECTIVE_DATE": "2023-06-30",
+        "ONE_PDF_PILOT_INGESTION_DATE": "2026-01-01",
+        "ONE_PDF_PILOT_DEFAULT_MONEY_UNIT_SCALE": "usd",
+    }
+    resolved = resolve_one_pdf_pilot_input(
+        pdf_path=cli_pdf_path,
+        plan_id="CLI",
+        plan_period="FY2024",
+        effective_date="2024-06-30",
+        ingestion_date="2026-03-03",
+        default_money_unit_scale="thousand_usd",
+        env=env,
+    )
+
+    assert resolved.pdf_path == cli_pdf_path
+    assert resolved.plan_id == "CLI"
+    assert resolved.plan_period == "FY2024"
+    assert resolved.default_money_unit_scale == "thousand_usd"
+
+
+def test_resolve_runtime_options_uses_contract_defaults_and_env() -> None:
+    output_root, run_id = resolve_one_pdf_pilot_runtime_options(
+        output_root=None,
+        run_id=None,
+        env={
+            "ONE_PDF_PILOT_OUTPUT_ROOT": "pilot-outputs",
+            "ONE_PDF_PILOT_RUN_ID": "pilot-run-id",
+        },
+    )
+
+    assert output_root == Path("pilot-outputs")
+    assert run_id == "pilot-run-id"
