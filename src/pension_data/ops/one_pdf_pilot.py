@@ -257,6 +257,9 @@ def run_one_pdf_pilot(
                 "staging_manager_fund_vehicle_relationships_json"
             ],
             "extraction_warnings_json": persistence_paths["extraction_warnings_json"],
+            "schema_component_datasets_manifest_json": persistence_paths[
+                "schema_component_datasets_manifest_json"
+            ],
             "orchestration_ledger_json": str(
                 run_root / "document_orchestration" / effective_run_id / "ledger.json"
             ),
@@ -284,4 +287,7 @@ def run_one_pdf_pilot(
             "staging_manager_fund_vehicle_relationships_json"
         ],
         "extraction_warnings_json": persistence_paths["extraction_warnings_json"],
+        "schema_component_datasets_manifest_json": persistence_paths[
+            "schema_component_datasets_manifest_json"
+        ],
     }

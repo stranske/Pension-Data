@@ -52,6 +52,7 @@ Required files:
 - `extraction_persistence/staging_core_metrics.json`
 - `extraction_persistence/staging_manager_fund_vehicle_relationships.json`
 - `extraction_persistence/extraction_warnings.json`
+- `extraction_persistence/component_datasets_manifest.json`
 - `document_orchestration/<run-id>/ledger.json`
 - `document_orchestration/<run-id>/published_rows.json`
 - `document_orchestration/<run-id>/review_queue_rows.json`
