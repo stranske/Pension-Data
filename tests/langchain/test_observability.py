@@ -139,7 +139,11 @@ def test_replay_logged_request_uses_logged_sql() -> None:
             model="gpt-4o-mini",
             correlation_id="corr:test",
         )
-        replayed = replay_logged_request(entry=entry, connection=connection)
+        replayed = replay_logged_request(
+            entry=entry,
+            connection=connection,
+            policy=_sample_policy(),
+        )
     finally:
         connection.close()
 

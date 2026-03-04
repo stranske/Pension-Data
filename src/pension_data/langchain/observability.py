@@ -15,6 +15,7 @@ from types import ModuleType
 from typing import Literal
 
 from pension_data.langchain.nl_sql_chain import (
+    NLToSQLPolicy,
     NLToSQLRequest,
     NLToSQLResponse,
     run_nl_sql_chain,
@@ -225,6 +226,7 @@ def replay_logged_request(
     *,
     entry: NLOperationLogEntry,
     connection: sqlite3.Connection,
+    policy: NLToSQLPolicy | None = None,
 ) -> NLToSQLResponse:
     """Replay one logged request deterministically using logged SQL text."""
     if entry.generated_sql is None or not entry.generated_sql.strip():
@@ -237,4 +239,5 @@ def replay_logged_request(
             timeout_ms=max(1, entry.timeout_ms),
         ),
         chain=_ReplayChain(entry.generated_sql),
+        policy=policy,
     )
