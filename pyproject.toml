@@ -48,6 +48,9 @@ dev = [
 Homepage = "https://github.com/stranske/Pension-Data"
 Repository = "https://github.com/stranske/Pension-Data"
 
+[project.scripts]
+one-pdf-pilot = "pension_data.ops.one_pdf_pilot_cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

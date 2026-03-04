@@ -224,6 +224,25 @@ def _default_source_document_id(
     return f"pilot:{plan_id}:{plan_period}:{fingerprint}"
 
 
+def _slugify_segment(value: str) -> str:
+    cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in value.strip())
+    compact = "-".join(part for part in cleaned.split("-") if part)
+    return compact or "unknown"
+
+
+def _default_run_id(
+    *, plan_id: str, plan_period: str, effective_date: str, pdf_bytes: bytes
+) -> str:
+    fingerprint = hashlib.sha256(pdf_bytes).hexdigest()[:12]
+    return (
+        "one-pdf-"
+        f"{_slugify_segment(plan_id)}-"
+        f"{_slugify_segment(plan_period)}-"
+        f"{_slugify_segment(effective_date)}-"
+        f"{fingerprint}"
+    )
+
+
 def _coverage_summary(
     *,
     parser_result: Mapping[str, object],
@@ -288,7 +307,12 @@ def run_one_pdf_pilot(
         pdf_bytes=pdf_bytes,
     )
     fetched_at = pilot_input.fetched_at or _utc_now_iso()
-    effective_run_id = run_id or f"one-pdf-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
+    effective_run_id = run_id or _default_run_id(
+        plan_id=pilot_input.plan_id,
+        plan_period=pilot_input.plan_period,
+        effective_date=pilot_input.effective_date,
+        pdf_bytes=pdf_bytes,
+    )
 
     parser_result = parse_pdf_to_funded_input(
         PDFParserInput(

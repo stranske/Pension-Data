@@ -157,6 +157,48 @@ def test_one_pdf_pilot_default_source_document_id_is_content_stable(
     )
 
 
+def test_one_pdf_pilot_default_run_id_is_input_stable(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "pilot.pdf"
+    _write_pdf_like_text(
+        pdf_path,
+        "\n".join(
+            (
+                "Funded Ratio: 78.4%",
+                "AAL: $640 million",
+                "AVA: $501.8 million",
+                "Discount Rate: 6.8%",
+                "Employer Contribution Rate: 12.4%",
+                "Employee Contribution Rate: 7.5%",
+                "Participant Count: 325000",
+            )
+        ),
+    )
+
+    first = run_one_pdf_pilot(
+        pilot_input=OnePdfPilotInput(
+            pdf_path=pdf_path,
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            effective_date="2024-06-30",
+            ingestion_date="2026-03-03",
+        ),
+        output_root=tmp_path / "outputs",
+    )
+    second = run_one_pdf_pilot(
+        pilot_input=OnePdfPilotInput(
+            pdf_path=pdf_path,
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            effective_date="2024-06-30",
+            ingestion_date="2026-03-03",
+        ),
+        output_root=tmp_path / "outputs",
+    )
+
+    assert first["run_id"] == second["run_id"]
+    assert first["run_manifest_json"] == second["run_manifest_json"]
+
+
 def test_one_pdf_input_contract_includes_required_path_env_and_metadata_fields() -> None:
     contract = one_pdf_pilot_input_contract()
     assert contract["required_input_fields"] == (
