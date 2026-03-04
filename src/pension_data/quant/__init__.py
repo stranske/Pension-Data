@@ -14,6 +14,14 @@ from pension_data.quant.attribution_optimization import (
     optimize_allocation,
     reconcile_attribution,
 )
+from pension_data.quant.metric_engine import (
+    AggregatedMetric,
+    DerivedMetricDefinition,
+    DerivedMetricObservation,
+    aggregate_metric_series,
+    compute_derived_metrics,
+    default_metric_catalog,
+)
 from pension_data.quant.scenarios import (
     ReproducibilityMetadata,
     ScenarioInput,
@@ -27,8 +35,11 @@ from pension_data.quant.scenarios import (
 
 __all__ = [
     "AttributionReconciliation",
+    "AggregatedMetric",
     "AttributionRow",
     "ConstraintDiagnostics",
+    "DerivedMetricDefinition",
+    "DerivedMetricObservation",
     "ExperimentComparison",
     "OptimizationConstraints",
     "OptimizationResult",
@@ -41,7 +52,10 @@ __all__ = [
     "ScenarioResult",
     "ScenarioResultRow",
     "ScenarioRunConfig",
+    "aggregate_metric_series",
     "compute_attribution",
+    "compute_derived_metrics",
+    "default_metric_catalog",
     "optimize_allocation",
     "reconcile_attribution",
     "run_deterministic_scenario",
