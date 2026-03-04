@@ -17,6 +17,7 @@ from pension_data.langchain.nl_sql_chain import (
 )
 from pension_data.query.sql_safety import (
     AmbiguousPromptError,
+    SQLSafetyPolicy,
     SQLSafetyValidationError,
     validate_nl_prompt,
     validate_read_only_sql,
@@ -37,17 +38,47 @@ class StaticChain:
 def _seed_connection() -> sqlite3.Connection:
     connection = sqlite3.connect(":memory:")
     connection.execute(
-        "CREATE TABLE sample_metrics (id INTEGER PRIMARY KEY, metric TEXT NOT NULL, value REAL NOT NULL)"
+        "CREATE TABLE sample_metrics ("
+        "id INTEGER PRIMARY KEY, "
+        "metric TEXT NOT NULL, "
+        "value REAL NOT NULL, "
+        "source_document_id TEXT NOT NULL, "
+        "evidence_refs TEXT, "
+        "confidence REAL)"
     )
     connection.executemany(
-        "INSERT INTO sample_metrics (id, metric, value) VALUES (?, ?, ?)",
+        "INSERT INTO sample_metrics (id, metric, value, source_document_id, evidence_refs, confidence) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
         [
-            (1, "funded_ratio", 0.79),
-            (2, "funded_ratio", 0.81),
-            (3, "discount_rate", 0.0675),
+            (1, "funded_ratio", 0.79, "doc:1", '["p.10"]', 0.9),
+            (2, "funded_ratio", 0.81, "doc:1", '["p.11"]', 0.85),
+            (3, "discount_rate", 0.0675, "doc:2", '["p.20"]', 0.8),
         ],
     )
     return connection
+
+
+def _sample_policy(
+    *,
+    allowed_relations: tuple[str, ...] = ("sample_metrics",),
+    allowed_columns: tuple[str, ...] = (
+        "id",
+        "metric",
+        "value",
+        "source_document_id",
+        "evidence_refs",
+        "confidence",
+    ),
+    max_rows: int = 500,
+    max_timeout_ms: int = 2_000,
+) -> SQLSafetyPolicy:
+    return SQLSafetyPolicy(
+        allowed_relations=allowed_relations,
+        allowed_columns=allowed_columns,
+        banned_clauses=("pragma", "into outfile", "copy ", "pg_catalog", "information_schema"),
+        max_rows=max_rows,
+        max_timeout_ms=max_timeout_ms,
+    )
 
 
 def test_sql_safety_validator_allows_read_only_and_rejects_destructive_queries() -> None:
@@ -84,6 +115,7 @@ def test_nl_sql_chain_executes_read_only_sql_and_emits_langsmith_traces() -> Non
             ),
             chain=StaticChain("SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"),
             trace_sink=traces,
+            policy=_sample_policy(),
         )
     finally:
         connection.close()
@@ -93,6 +125,11 @@ def test_nl_sql_chain_executes_read_only_sql_and_emits_langsmith_traces() -> Non
     assert response.sql is not None
     assert response.columns == ("id", "value")
     assert response.rows == ((1, 0.79), (2, 0.81))
+    assert len(response.provenance) == 2
+    assert response.provenance[0].row_index == 0
+    assert response.provenance[0].source_document_id is None
+    assert response.provenance[0].evidence_refs == ()
+    assert response.provenance[0].confidence is None
     assert [event.stage for event in traces.events] == [
         "nl.prompt.received",
         "nl.sql.generated",
@@ -109,6 +146,7 @@ def test_nl_sql_chain_rejects_unsafe_generated_sql_and_emits_error_trace() -> No
             request=NLToSQLRequest(question="Delete all funded rows now"),
             chain=StaticChain("DELETE FROM sample_metrics"),
             trace_sink=traces,
+            policy=_sample_policy(),
         )
         remaining_rows = connection.execute("SELECT COUNT(*) FROM sample_metrics").fetchone()[0]
     finally:
@@ -134,6 +172,7 @@ def test_nl_sql_chain_returns_specific_error_for_max_rows_overflow() -> None:
             ),
             chain=StaticChain("SELECT id, value FROM sample_metrics ORDER BY id"),
             trace_sink=traces,
+            policy=_sample_policy(max_rows=2),
         )
     finally:
         connection.close()
@@ -167,6 +206,7 @@ def test_nl_sql_chain_timeout_path_emits_timeout_error_code() -> None:
             ),
             chain=StaticChain(recursive_sql),
             trace_sink=traces,
+            policy=_sample_policy(allowed_relations=(), allowed_columns=()),
         )
     finally:
         connection.close()
@@ -190,6 +230,7 @@ def test_nl_route_requires_nl_scope_and_emits_audit_event() -> None:
                 connection=connection,
                 request=NLToSQLRequest(question="Show funded ratio values by id"),
                 chain=StaticChain("SELECT id, value FROM sample_metrics"),
+                policy=_sample_policy(),
             )
     finally:
         connection.close()
@@ -205,6 +246,7 @@ def test_nl_route_requires_nl_scope_and_emits_audit_event() -> None:
             request=NLToSQLRequest(question="Show funded ratio values by id"),
             chain=StaticChain("SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"),
             trace_sink=traces,
+            policy=_sample_policy(),
             event={"request_origin": "unit-test"},
         )
     finally:
@@ -217,3 +259,172 @@ def test_nl_route_requires_nl_scope_and_emits_audit_event() -> None:
     assert result.audit_event["query_status"] == "ok"
     assert result.audit_event["returned_rows"] == 2
     assert len(traces.events) == 3
+
+
+def test_nl_sql_chain_rejects_disallowed_relation() -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="List all values by id"),
+            chain=StaticChain("SELECT id, value FROM sample_metrics"),
+            policy=_sample_policy(allowed_relations=("curated_metric_facts",)),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "UNSAFE_SQL"
+    assert "disallowed relation" in response.error.message
+
+
+def test_nl_sql_chain_rejects_disallowed_result_columns() -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="List metric labels"),
+            chain=StaticChain("SELECT id, metric FROM sample_metrics"),
+            policy=_sample_policy(allowed_columns=("id",)),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "UNSAFE_SQL"
+    assert "disallowed column" in response.error.message
+
+
+def test_nl_sql_chain_rejects_sql_limit_above_policy_max_rows() -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="List all metric values", max_rows=100),
+            chain=StaticChain("SELECT id, value FROM sample_metrics LIMIT 1000"),
+            policy=_sample_policy(max_rows=100),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "UNSAFE_SQL"
+    assert "exceeds policy max_rows" in response.error.message
+
+
+def test_nl_sql_chain_rejects_non_literal_sql_limit() -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="List all metric values", max_rows=100),
+            chain=StaticChain("SELECT id, value FROM sample_metrics LIMIT ?"),
+            policy=_sample_policy(max_rows=100),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "UNSAFE_SQL"
+    assert "LIMIT must be a positive integer literal" in response.error.message
+
+
+def test_nl_sql_chain_rejects_quoted_identifiers() -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show all metric values"),
+            chain=StaticChain('SELECT "id" FROM sample_metrics'),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "UNSAFE_SQL"
+    assert "quoted identifiers are not allowed" in response.error.message
+
+
+def test_nl_sql_chain_rejects_comma_joins() -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Compare values across two aliases"),
+            chain=StaticChain(
+                "SELECT a.id, b.value FROM sample_metrics a, sample_metrics b WHERE a.id = b.id"
+            ),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "UNSAFE_SQL"
+    assert "comma joins are not allowed" in response.error.message
+
+
+def test_nl_sql_chain_rejects_select_alias_bypass_attempt() -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show plan ids"),
+            chain=StaticChain("SELECT evidence_refs AS plan_id FROM sample_metrics"),
+            policy=_sample_policy(allowed_columns=("plan_id",)),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "UNSAFE_SQL"
+    assert "direct column references" in response.error.message
+
+
+def test_nl_sql_chain_returns_invalid_request_for_policy_bound_violation() -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show funded ratio values by id", max_rows=5000),
+            chain=StaticChain("SELECT id, value FROM sample_metrics"),
+            policy=_sample_policy(max_rows=100),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert "policy max_rows" in response.error.message
+
+
+def test_nl_sql_chain_emits_provenance_metadata_when_fields_present() -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show sources for funded ratio"),
+            chain=StaticChain(
+                "SELECT id, source_document_id, evidence_refs, confidence "
+                "FROM sample_metrics WHERE metric = 'funded_ratio' ORDER BY id"
+            ),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "ok"
+    assert response.error is None
+    assert len(response.provenance) == 2
+    assert response.provenance[0].source_document_id == "doc:1"
+    assert response.provenance[0].evidence_refs == ("p.10",)
+    assert response.provenance[0].confidence == pytest.approx(0.9)

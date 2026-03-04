@@ -11,6 +11,7 @@ from pension_data.api.auth import SCOPE_NL, APIKeyStore, authenticate_request, b
 from pension_data.langchain.nl_sql_chain import (
     LangSmithTraceSink,
     NLToSQLChain,
+    NLToSQLPolicy,
     NLToSQLRequest,
     NLToSQLResponse,
     run_nl_sql_chain,
@@ -33,6 +34,7 @@ def run_nl_query_endpoint(
     request: NLToSQLRequest,
     chain: NLToSQLChain,
     trace_sink: LangSmithTraceSink | None = None,
+    policy: NLToSQLPolicy | None = None,
     event: Mapping[str, Any] | None = None,
 ) -> NLRouteResult:
     """Authenticate and execute one NL-to-SQL request with audit metadata."""
@@ -46,6 +48,7 @@ def run_nl_query_endpoint(
         request=request,
         chain=chain,
         trace_sink=trace_sink,
+        policy=policy,
     )
     event_payload = dict(event or {})
     event_payload.update(

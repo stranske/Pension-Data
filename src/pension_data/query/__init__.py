@@ -10,9 +10,14 @@ from pension_data.query.metric_history_service import (
 )
 from pension_data.query.sql_safety import (
     AmbiguousPromptError,
+    SQLSafetyPolicy,
     SQLSafetyValidationError,
+    default_nl_query_policy,
+    extract_relations,
     validate_nl_prompt,
     validate_read_only_sql,
+    validate_result_columns,
+    validate_sql_policy,
 )
 from pension_data.query.sql_service import (
     SQLExecutionAuditLog,
@@ -34,10 +39,15 @@ __all__ = [
     "SQLQueryMetadata",
     "SQLQueryRequest",
     "SQLQueryResponse",
+    "SQLSafetyPolicy",
     "SQLSafetyValidationError",
     "build_metric_history_rows",
+    "default_nl_query_policy",
     "execute_sql_query",
+    "extract_relations",
     "query_metric_history",
     "validate_nl_prompt",
     "validate_read_only_sql",
+    "validate_result_columns",
+    "validate_sql_policy",
 ]
