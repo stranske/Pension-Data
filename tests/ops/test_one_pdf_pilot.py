@@ -86,6 +86,79 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
     assert coverage["missing_required_metrics"] == []
 
 
+def test_one_pdf_pilot_artifacts_follow_deterministic_layout(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "layout.pdf"
+    _write_pdf_like_text(
+        pdf_path,
+        "\n".join(
+            (
+                "Funded Ratio: 78.4%",
+                "AAL: $640 million",
+                "AVA: $501.8 million",
+                "Discount Rate: 6.8%",
+                "Employer Contribution Rate: 12.4%",
+                "Employee Contribution Rate: 7.5%",
+                "Participant Count: 325000",
+            )
+        ),
+    )
+
+    output_root = tmp_path / "artifacts"
+    run_id = "pilot-layout"
+    result = run_one_pdf_pilot(
+        pilot_input=OnePdfPilotInput(
+            pdf_path=pdf_path,
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            effective_date="2024-06-30",
+            ingestion_date="2026-03-03",
+        ),
+        output_root=output_root,
+        run_id=run_id,
+    )
+
+    expected_run_root = output_root / "one_pdf_pilot" / run_id
+    assert Path(result["run_manifest_json"]) == expected_run_root / "run_manifest.json"
+    assert Path(result["parser_result_json"]) == expected_run_root / "parser_result.json"
+    assert Path(result["coverage_summary_json"]) == (
+        expected_run_root / "coverage" / "component_coverage_summary.json"
+    )
+    assert Path(result["persistence_contract_json"]) == (
+        expected_run_root / "extraction_persistence" / "persistence_contract.json"
+    )
+    assert Path(result["staging_core_metrics_json"]) == (
+        expected_run_root / "extraction_persistence" / "staging_core_metrics.json"
+    )
+    assert Path(result["staging_manager_fund_vehicle_relationships_json"]) == (
+        expected_run_root
+        / "extraction_persistence"
+        / "staging_manager_fund_vehicle_relationships.json"
+    )
+    assert Path(result["extraction_warnings_json"]) == (
+        expected_run_root / "extraction_persistence" / "extraction_warnings.json"
+    )
+    assert Path(result["schema_component_datasets_manifest_json"]) == (
+        expected_run_root / "extraction_persistence" / "component_datasets_manifest.json"
+    )
+
+    manifest = json.loads(Path(result["run_manifest_json"]).read_text(encoding="utf-8"))
+    artifact_paths = {key: Path(value) for key, value in manifest["artifact_files"].items()}
+    assert artifact_paths["orchestration_ledger_json"] == (
+        expected_run_root / "document_orchestration" / run_id / "ledger.json"
+    )
+    assert artifact_paths["orchestration_published_rows_json"] == (
+        expected_run_root / "document_orchestration" / run_id / "published_rows.json"
+    )
+    assert artifact_paths["orchestration_review_queue_rows_json"] == (
+        expected_run_root / "document_orchestration" / run_id / "review_queue_rows.json"
+    )
+    assert artifact_paths["orchestration_state_json"] == (
+        expected_run_root / "document_orchestration" / run_id / "state.json"
+    )
+    for artifact_path in artifact_paths.values():
+        assert artifact_path.is_relative_to(expected_run_root)
+
+
 def test_one_pdf_pilot_fails_when_required_metrics_are_missing(tmp_path: Path) -> None:
     pdf_path = tmp_path / "missing-metrics.pdf"
     _write_pdf_like_text(pdf_path, "This page does not include funded metric labels.")
