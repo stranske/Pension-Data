@@ -7,6 +7,7 @@ import json
 import math
 from dataclasses import asdict, dataclass
 from itertools import product
+from pathlib import Path
 from typing import Literal
 
 _MAX_GRID_CANDIDATES = 250_000
@@ -20,6 +21,17 @@ class AttributionRow:
     weight: float
     return_rate: float
     contribution: float
+
+
+@dataclass(frozen=True, slots=True)
+class AttributionReconciliation:
+    """Tolerance-based reconciliation of computed and source aggregate returns."""
+
+    source_aggregate: float
+    computed_total: float
+    delta: float
+    tolerance: float
+    within_tolerance: bool
 
 
 def compute_attribution(
@@ -46,6 +58,25 @@ def compute_attribution(
     return tuple(rows), total_return
 
 
+def reconcile_attribution(
+    *,
+    computed_total: float,
+    source_aggregate: float,
+    tolerance: float = 1e-6,
+) -> AttributionReconciliation:
+    """Reconcile computed attribution total against a source aggregate."""
+    if tolerance < 0:
+        raise ValueError("tolerance must be >= 0")
+    delta = computed_total - source_aggregate
+    return AttributionReconciliation(
+        source_aggregate=source_aggregate,
+        computed_total=computed_total,
+        delta=delta,
+        tolerance=tolerance,
+        within_tolerance=abs(delta) <= tolerance,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class OptimizationConstraints:
     """Per-bucket min/max constraints and target total weight."""
@@ -57,14 +88,26 @@ class OptimizationConstraints:
 
 
 @dataclass(frozen=True, slots=True)
+class ConstraintDiagnostics:
+    """Constraint satisfaction diagnostics for one optimization result."""
+
+    target_total_weight: float
+    realized_total_weight: float
+    total_weight_delta: float
+    violated_bounds: tuple[str, ...]
+    within_tolerance: bool
+
+
+@dataclass(frozen=True, slots=True)
 class OptimizationResult:
-    """Best allocation under objective and constraints."""
+    """Best allocation under objective and constraints with diagnostics."""
 
     objective_value: float
     sensitivity_lambda: float
     weights: dict[str, float]
     expected_return: float
     penalty: float
+    diagnostics: ConstraintDiagnostics
 
 
 def _grid_values(min_weight: float, max_weight: float, step: float) -> tuple[float, ...]:
@@ -78,6 +121,30 @@ def _grid_values(min_weight: float, max_weight: float, step: float) -> tuple[flo
 
 def _valid_weight_sum(weights: tuple[float, ...], *, target_total_weight: float) -> bool:
     return abs(sum(weights) - target_total_weight) <= 1e-6
+
+
+def _build_constraint_diagnostics(
+    *,
+    weights: dict[str, float],
+    constraints: OptimizationConstraints,
+) -> ConstraintDiagnostics:
+    total_weight = sum(weights.values())
+    total_delta = total_weight - constraints.target_total_weight
+    violated_bounds = tuple(
+        sorted(
+            bucket
+            for bucket, weight in weights.items()
+            if weight < (constraints.min_weight[bucket] - 1e-9)
+            or weight > (constraints.max_weight[bucket] + 1e-9)
+        )
+    )
+    return ConstraintDiagnostics(
+        target_total_weight=constraints.target_total_weight,
+        realized_total_weight=total_weight,
+        total_weight_delta=total_delta,
+        violated_bounds=violated_bounds,
+        within_tolerance=(abs(total_delta) <= 1e-6 and not violated_bounds),
+    )
 
 
 def optimize_allocation(
@@ -131,6 +198,9 @@ def optimize_allocation(
         expected_return = sum(weights[bucket] * expected_returns[bucket] for bucket in buckets)
         penalty = sum((weights[bucket] ** 2) * risk_penalties[bucket] for bucket in buckets)
         objective = expected_return - (sensitivity_lambda * penalty)
+        diagnostics = _build_constraint_diagnostics(weights=weights, constraints=constraints)
+        if not diagnostics.within_tolerance:
+            continue
         if best is None or objective > best.objective_value:
             best = OptimizationResult(
                 objective_value=objective,
@@ -138,6 +208,7 @@ def optimize_allocation(
                 weights=weights,
                 expected_return=expected_return,
                 penalty=penalty,
+                diagnostics=diagnostics,
             )
 
     if best is None:
@@ -212,3 +283,104 @@ class QuantExperimentRegistry:
         return tuple(
             asdict(self._records[experiment_id]) for experiment_id in sorted(self._records)
         )
+
+    def export_json(self, *, indent: int = 2) -> str:
+        """Export registry records as a deterministic JSON document."""
+        return json.dumps(self.snapshot(), sort_keys=True, indent=indent)
+
+    def export_json_file(self, path: str) -> str:
+        """Write deterministic JSON export to disk."""
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(self.export_json(), encoding="utf-8")
+        return str(target)
+
+
+class QuantExperimentRunner:
+    """Convenience runner for recording and comparing quant experiments."""
+
+    def __init__(self, registry: QuantExperimentRegistry | None = None) -> None:
+        self.registry = registry or QuantExperimentRegistry()
+
+    def run_optimization_experiment(
+        self,
+        *,
+        experiment_id: str,
+        expected_returns: dict[str, float],
+        risk_penalties: dict[str, float],
+        constraints: OptimizationConstraints,
+        sensitivity_lambda: float,
+        artifact_links: tuple[str, ...] = (),
+        seed: int | None = None,
+    ) -> OptimizationResult:
+        result = optimize_allocation(
+            expected_returns=expected_returns,
+            risk_penalties=risk_penalties,
+            constraints=constraints,
+            sensitivity_lambda=sensitivity_lambda,
+        )
+        input_payload: dict[str, object] = {
+            "expected_returns": expected_returns,
+            "risk_penalties": risk_penalties,
+            "constraints": asdict(constraints),
+            "sensitivity_lambda": sensitivity_lambda,
+        }
+        output_payload: dict[str, object] = asdict(result)
+        record = QuantExperimentRecord(
+            experiment_id=experiment_id,
+            module="optimization",
+            seed=seed,
+            input_hash=self.registry.stable_hash(input_payload),
+            output_hash=self.registry.stable_hash(output_payload),
+            artifact_links=artifact_links,
+            objective_value=result.objective_value,
+            total_return=None,
+        )
+        self.registry.add_record(record)
+        return result
+
+    def run_attribution_experiment(
+        self,
+        *,
+        experiment_id: str,
+        weights: dict[str, float],
+        realized_returns: dict[str, float],
+        source_aggregate: float | None = None,
+        tolerance: float = 1e-6,
+        artifact_links: tuple[str, ...] = (),
+        seed: int | None = None,
+    ) -> tuple[tuple[AttributionRow, ...], float, AttributionReconciliation | None]:
+        rows, total_return = compute_attribution(
+            weights=weights,
+            realized_returns=realized_returns,
+        )
+        reconciliation: AttributionReconciliation | None = None
+        if source_aggregate is not None:
+            reconciliation = reconcile_attribution(
+                computed_total=total_return,
+                source_aggregate=source_aggregate,
+                tolerance=tolerance,
+            )
+        input_payload: dict[str, object] = {
+            "weights": weights,
+            "realized_returns": realized_returns,
+            "source_aggregate": source_aggregate,
+            "tolerance": tolerance,
+        }
+        output_payload: dict[str, object] = {
+            "rows": [asdict(row) for row in rows],
+            "total_return": total_return,
+            "reconciliation": asdict(reconciliation) if reconciliation is not None else None,
+        }
+        record = QuantExperimentRecord(
+            experiment_id=experiment_id,
+            module="attribution",
+            seed=seed,
+            input_hash=self.registry.stable_hash(input_payload),
+            output_hash=self.registry.stable_hash(output_payload),
+            artifact_links=artifact_links,
+            objective_value=None,
+            total_return=total_return,
+        )
+        self.registry.add_record(record)
+        return rows, total_return, reconciliation

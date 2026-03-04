@@ -71,6 +71,7 @@ def _sample_policy(
     ),
     max_rows: int = 500,
     max_timeout_ms: int = 2_000,
+    require_source_document_id: bool = False,
 ) -> SQLSafetyPolicy:
     return SQLSafetyPolicy(
         allowed_relations=allowed_relations,
@@ -78,6 +79,7 @@ def _sample_policy(
         banned_clauses=("pragma", "into outfile", "copy ", "pg_catalog", "information_schema"),
         max_rows=max_rows,
         max_timeout_ms=max_timeout_ms,
+        require_source_document_id=require_source_document_id,
     )
 
 
@@ -428,3 +430,41 @@ def test_nl_sql_chain_emits_provenance_metadata_when_fields_present() -> None:
     assert response.provenance[0].source_document_id == "doc:1"
     assert response.provenance[0].evidence_refs == ("p.10",)
     assert response.provenance[0].confidence == pytest.approx(0.9)
+
+
+def test_nl_sql_chain_requires_source_document_id_when_policy_enforces_provenance() -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show funded ratio values"),
+            chain=StaticChain("SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"),
+            policy=_sample_policy(require_source_document_id=True),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "UNSAFE_SQL"
+    assert "must include source_document_id" in response.error.message
+
+
+def test_nl_sql_chain_accepts_source_document_id_when_policy_enforces_provenance() -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show funded ratio sources"),
+            chain=StaticChain(
+                "SELECT id, source_document_id FROM sample_metrics WHERE metric = 'funded_ratio'"
+            ),
+            policy=_sample_policy(require_source_document_id=True),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "ok"
+    assert response.error is None
+    assert response.columns == ("id", "source_document_id")
+    assert all(row.source_document_id is not None for row in response.provenance)
