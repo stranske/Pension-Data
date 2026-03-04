@@ -14,6 +14,7 @@ from pension_data.db.models.artifacts import RawArtifactRecord
 from pension_data.extract.actuarial.metrics import RawFundedActuarialInput
 from pension_data.extract.persistence import (
     build_schema_component_datasets,
+    extraction_persistence_contract,
     write_extraction_persistence_artifacts,
 )
 from pension_data.normalize.financial_units import UnitScale
@@ -67,10 +68,16 @@ def _coverage_summary(
 ) -> dict[str, object]:
     published_rows = cast(list[dict[str, object]], orchestration_artifacts["published_rows"])
     review_queue_rows = cast(list[dict[str, object]], orchestration_artifacts["review_queue_rows"])
-    core_rows = cast(list[dict[str, object]], orchestration_artifacts["staging_core_metrics_rows"])
+    core_rows = cast(
+        list[dict[str, object]],
+        orchestration_artifacts.get("staging_core_metrics_rows", published_rows),
+    )
     relationship_rows = cast(
         list[dict[str, object]],
-        orchestration_artifacts["staging_manager_fund_vehicle_relationship_rows"],
+        orchestration_artifacts.get(
+            "staging_manager_fund_vehicle_relationship_rows",
+            orchestration_artifacts.get("manager_relationship_rows", []),
+        ),
     )
     warning_rows = cast(list[dict[str, object]], orchestration_artifacts["extraction_warning_rows"])
     missing_metrics = cast(list[str], parser_result["missing_metrics"])
@@ -177,28 +184,40 @@ def run_one_pdf_pilot(
         output_root=run_root,
     )
 
+    core_rows = cast(
+        list[dict[str, object]],
+        orchestration_artifacts.get(
+            "staging_core_metrics_rows",
+            orchestration_artifacts["published_rows"],
+        ),
+    )
+    relationship_rows = cast(
+        list[dict[str, object]],
+        orchestration_artifacts.get(
+            "staging_manager_fund_vehicle_relationship_rows",
+            orchestration_artifacts.get("manager_relationship_rows", []),
+        ),
+    )
+    warning_rows = cast(
+        list[dict[str, object]],
+        orchestration_artifacts["extraction_warning_rows"],
+    )
+
     schema_component_datasets = build_schema_component_datasets(
-        persisted_core_metrics=cast(
-            list[dict[str, object]],
-            orchestration_artifacts["staging_core_metrics_rows"],
-        ),
-        relationship_rows=cast(
-            list[dict[str, object]],
-            orchestration_artifacts["staging_manager_fund_vehicle_relationship_rows"],
-        ),
-        warning_rows=cast(
-            list[dict[str, object]], orchestration_artifacts["extraction_warning_rows"]
-        ),
+        persisted_core_metrics=core_rows,
+        relationship_rows=relationship_rows,
+        warning_rows=warning_rows,
     )
 
     persistence_paths = write_extraction_persistence_artifacts(
         {
-            "persistence_contract": orchestration_artifacts["persistence_contract"],
-            "staging_core_metrics_rows": orchestration_artifacts["staging_core_metrics_rows"],
-            "staging_manager_fund_vehicle_relationship_rows": orchestration_artifacts[
-                "staging_manager_fund_vehicle_relationship_rows"
-            ],
-            "extraction_warning_rows": orchestration_artifacts["extraction_warning_rows"],
+            "persistence_contract": orchestration_artifacts.get(
+                "persistence_contract",
+                extraction_persistence_contract(),
+            ),
+            "staging_core_metrics_rows": core_rows,
+            "staging_manager_fund_vehicle_relationship_rows": relationship_rows,
+            "extraction_warning_rows": warning_rows,
             "schema_component_datasets": schema_component_datasets,
         },
         output_root=run_root,
