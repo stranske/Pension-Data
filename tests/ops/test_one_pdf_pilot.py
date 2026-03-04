@@ -77,6 +77,8 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
         "orchestration_state_json",
     }
     assert set(artifact_files) == expected_keys
+    expected_result_keys = expected_keys | {"run_id", "run_manifest_json"}
+    assert set(result) == expected_result_keys
     for artifact_path in artifact_files.values():
         assert Path(artifact_path).exists()
 

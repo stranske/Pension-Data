@@ -477,4 +477,16 @@ def run_one_pdf_pilot(
         "schema_component_datasets_manifest_json": persistence_paths[
             "schema_component_datasets_manifest_json"
         ],
+        "orchestration_ledger_json": str(
+            run_root / "document_orchestration" / effective_run_id / "ledger.json"
+        ),
+        "orchestration_published_rows_json": str(
+            run_root / "document_orchestration" / effective_run_id / "published_rows.json"
+        ),
+        "orchestration_review_queue_rows_json": str(
+            run_root / "document_orchestration" / effective_run_id / "review_queue_rows.json"
+        ),
+        "orchestration_state_json": str(
+            run_root / "document_orchestration" / effective_run_id / "state.json"
+        ),
     }
