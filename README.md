@@ -16,6 +16,8 @@ Pension-Data is a Python codebase for extracting, normalizing, and validating pe
 git clone https://github.com/stranske/Pension-Data.git
 cd Pension-Data
 pip install -e ".[dev]"
+# Optional LangChain runtime support:
+pip install -e ".[langchain]"
 ```
 
 Run local checks:
@@ -68,6 +70,7 @@ See [docs/UI_LANGCHAIN_OPTIONS.md](docs/UI_LANGCHAIN_OPTIONS.md) for deployment 
 - [docs/AGENT_ISSUE_FORMAT.md](docs/AGENT_ISSUE_FORMAT.md)
 - [docs/CI_SYSTEM_GUIDE.md](docs/CI_SYSTEM_GUIDE.md)
 - [docs/KEEPALIVE_TROUBLESHOOTING.md](docs/KEEPALIVE_TROUBLESHOOTING.md)
+- [docs/LANGCHAIN_FOUNDATIONS.md](docs/LANGCHAIN_FOUNDATIONS.md)
 - [docs/ops/QUALITY_LAYER_OPERATIONS.md](docs/ops/QUALITY_LAYER_OPERATIONS.md)
 - [docs/contracts/DOCUMENT_ORCHESTRATION_JOB_CONTRACT.md](docs/contracts/DOCUMENT_ORCHESTRATION_JOB_CONTRACT.md)
 - [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md)
