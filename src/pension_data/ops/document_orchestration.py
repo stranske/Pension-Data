@@ -11,6 +11,10 @@ from functools import partial
 from pathlib import Path
 from typing import Literal, TypeVar, cast
 
+from pension_data.coverage.component_completeness import (
+    build_component_datasets,
+    validate_component_coverage,
+)
 from pension_data.db.models.artifacts import RawArtifactRecord
 from pension_data.db.models.consultant_attribution import ConsultantAttributionObservation
 from pension_data.db.models.consultants import (
@@ -742,6 +746,7 @@ def run_document_orchestration(
     document_outcomes: list[DocumentOutcome] = []
     published_rows: list[dict[str, object]] = []
     review_queue_rows: list[dict[str, object]] = []
+    component_coverage_reports: list[dict[str, object]] = []
     total_attempts = 0
 
     try:
@@ -1294,6 +1299,75 @@ def run_document_orchestration(
         warning_rows = artifacts["extraction_warning_rows"]
         assert isinstance(warning_rows, list)
 
+        component_datasets = build_component_datasets(
+            persisted_core_metrics=core_rows,
+            relationship_rows=relationship_rows,
+            warning_rows=warning_rows,
+            plan_id=item.plan_id,
+            plan_period=item.plan_period,
+            effective_date=item.effective_date,
+            ingestion_date=item.ingestion_date,
+            source_document_id=item.source_document_id,
+        )
+        coverage_report = validate_component_coverage(component_datasets=component_datasets)
+        component_coverage_reports.append(
+            {
+                "document_key": _document_key(item),
+                "component_coverage_report": coverage_report,
+            }
+        )
+        if not coverage_report["is_valid"]:
+            missing_components = coverage_report.get("missing_components")
+            missing_names: list[str] = []
+            if isinstance(missing_components, list):
+                missing_names = [
+                    item.strip()
+                    for item in missing_components
+                    if isinstance(item, str) and item.strip()
+                ]
+            missing_count = len(missing_names)
+            missing_sample = ",".join(sorted(missing_names)[:5])
+            message = (
+                f"schema component coverage validation failed (missing_components={missing_count}"
+            )
+            if missing_sample:
+                message += f"; sample={missing_sample}"
+            message += ")"
+            publish_failures += 1
+            missing_components = coverage_report.get("missing_components", [])
+            invalid_state_rows = coverage_report.get("invalid_state_rows", [])
+            metadata_violations = coverage_report.get("metadata_violations", [])
+            details: list[str] = []
+            if isinstance(missing_components, list) and missing_components:
+                details.append(f"missing_components={len(missing_components)}")
+            if isinstance(invalid_state_rows, list) and invalid_state_rows:
+                details.append(f"invalid_state_rows={len(invalid_state_rows)}")
+            if isinstance(metadata_violations, list) and metadata_violations:
+                details.append(f"metadata_violations={len(metadata_violations)}")
+            detail_suffix = ", ".join(details) if details else "unknown_details"
+            failures.append(
+                OrchestrationFailure(
+                    stage="validation",
+                    document_key=_document_key(item),
+                    attempts=1,
+                    message=f"{message}; {detail_suffix}",
+                )
+            )
+            document_outcomes.append(
+                DocumentOutcome(
+                    plan_id=item.plan_id,
+                    plan_period=item.plan_period,
+                    source_url=item.source_url,
+                    artifact_id=artifact.artifact_id,
+                    supersedes_artifact_id=artifact.supersedes_artifact_id,
+                    status="failed",
+                    promoted_fact_count=0,
+                    review_queue_count=len(queue_rows),
+                    notes="validation blocked promotion: schema component coverage report failed",
+                )
+            )
+            continue
+
         new_rows = [row for row in core_rows if str(row.get("fact_id")) not in published_ids]
         for row in new_rows:
             published_ids.add(str(row["fact_id"]))
@@ -1450,6 +1524,7 @@ def run_document_orchestration(
         "lifecycle_event_rows": lifecycle_event_rows,
         "manager_relationship_rows": manager_relationship_rows,
         "extraction_warning_rows": extraction_warning_rows,
+        "component_coverage_reports": component_coverage_reports,
         "state": asdict(next_state),
     }
     if output_root is not None:
@@ -1469,6 +1544,7 @@ def run_document_orchestration(
         _write_json(run_dir / "lifecycle_event_rows.json", lifecycle_event_rows)
         _write_json(run_dir / "manager_relationship_rows.json", manager_relationship_rows)
         _write_json(run_dir / "extraction_warning_rows.json", extraction_warning_rows)
+        _write_json(run_dir / "component_coverage_reports.json", component_coverage_reports)
         _write_json(run_dir / "state.json", artifacts_payload["state"])
         artifacts_payload["output_dir"] = str(run_dir)
 
