@@ -13,6 +13,15 @@ Issue: #123
 
 Portfolio total return is the sum of row contributions.
 
+`reconcile_attribution(...)` adds tolerance-based reconciliation against a source
+aggregate with:
+
+- `source_aggregate`
+- `computed_total`
+- `delta`
+- `tolerance`
+- `within_tolerance`
+
 ## Optimization Sandbox
 
 `optimize_allocation(...)` supports:
@@ -30,6 +39,11 @@ Output diagnostics:
 - `expected_return`
 - `penalty`
 - `weights`
+- `diagnostics.target_total_weight`
+- `diagnostics.realized_total_weight`
+- `diagnostics.total_weight_delta`
+- `diagnostics.violated_bounds`
+- `diagnostics.within_tolerance`
 
 ## Experiment Registry
 
@@ -47,6 +61,16 @@ Comparison output:
 
 - `objective_delta`
 - `total_return_delta`
+
+Export support:
+
+- `QuantExperimentRegistry.export_json()`
+- `QuantExperimentRegistry.export_json_file(path)`
+
+Runner support:
+
+- `QuantExperimentRunner.run_optimization_experiment(...)`
+- `QuantExperimentRunner.run_attribution_experiment(...)`
 
 Implementation:
 

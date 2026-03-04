@@ -40,6 +40,7 @@ class SQLSafetyPolicy:
     banned_clauses: tuple[str, ...]
     max_rows: int
     max_timeout_ms: int
+    require_source_document_id: bool = False
 
 
 def default_nl_query_policy() -> SQLSafetyPolicy:
@@ -79,6 +80,7 @@ def default_nl_query_policy() -> SQLSafetyPolicy:
         ),
         max_rows=500,
         max_timeout_ms=2_000,
+        require_source_document_id=True,
     )
 
 
@@ -303,6 +305,33 @@ def _validate_select_column_allowlist(
             raise SQLSafetyValidationError(
                 f"generated SQL references disallowed column '{column_name}'"
             )
+
+
+def extract_selected_columns(sql: str) -> tuple[str, ...]:
+    """Extract projected SELECT column names from validated SQL."""
+    normalized = validate_read_only_sql(sql)
+    sanitized_sql = _sanitize_sql(normalized)
+    if _COMMA_JOIN_PATTERN.search(sanitized_sql):
+        raise SQLSafetyValidationError("comma joins are not allowed")
+    select_clause = _main_select_clause(sanitized_sql)
+    expressions = _split_select_expressions(select_clause)
+    if not expressions:
+        raise SQLSafetyValidationError("generated SQL must project at least one column")
+
+    projected_columns: list[str] = []
+    for index, expression in enumerate(expressions):
+        normalized_expr = expression.strip()
+        if index == 0 and normalized_expr.startswith("distinct "):
+            normalized_expr = normalized_expr[len("distinct ") :].strip()
+        if normalized_expr == "*":
+            raise SQLSafetyValidationError("SELECT * is not allowed")
+        match = re.fullmatch(r"(?:[a-z_][a-z0-9_]*\.)?([a-z_][a-z0-9_]*)", normalized_expr)
+        if match is None:
+            raise SQLSafetyValidationError(
+                "SELECT expressions must be direct column references without aliases"
+            )
+        projected_columns.append(match.group(1).lower())
+    return tuple(projected_columns)
 
 
 def _extract_cte_aliases(sanitized_sql: str) -> set[str]:

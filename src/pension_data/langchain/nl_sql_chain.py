@@ -15,6 +15,7 @@ from pension_data.query.sql_safety import (
     SQLSafetyPolicy,
     SQLSafetyValidationError,
     default_nl_query_policy,
+    extract_selected_columns,
     validate_nl_prompt,
     validate_result_columns,
     validate_sql_policy,
@@ -317,6 +318,12 @@ def run_nl_sql_chain(
 
         generated = chain.invoke({"question": question, "dialect": "sqlite"})
         sql = validate_sql_policy(_extract_sql(generated), policy=active_policy)
+        if active_policy.require_source_document_id:
+            selected_columns = extract_selected_columns(sql)
+            if "source_document_id" not in set(selected_columns):
+                raise SQLSafetyValidationError(
+                    "generated SQL must include source_document_id in SELECT for provenance metadata"
+                )
         _emit_trace(
             trace_sink,
             emitted_events,
