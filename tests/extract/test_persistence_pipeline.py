@@ -472,3 +472,41 @@ def test_investment_warnings_use_null_when_temporal_provenance_is_unknown() -> N
         assert row["ingestion_date"] is None
         assert row["source_document_id"] is None
         assert row["source_url"] is None
+
+
+def test_schema_component_datasets_fallback_to_metric_dates_without_warning_context() -> None:
+    manager_positions, manager_warnings = build_manager_fund_positions(
+        [
+            ManagerFundDisclosureInput(
+                plan_id="CA-PERS",
+                plan_period="FY2025",
+                manager_name="Alpha Capital",
+                fund_name="Fund I",
+                commitment=110.0,
+                unfunded=22.0,
+                market_value=95.0,
+                confidence=0.94,
+                evidence_refs=("p55",),
+            )
+        ]
+    )
+    context = PositionPersistenceContext(
+        effective_date="2025-06-30",
+        ingestion_date="2026-01-15",
+        source_document_id="doc:ca:2025:manager_positions",
+        source_url="https://example.gov/ca-2025-manager-disclosures.pdf",
+        benchmark_version="v1",
+    )
+
+    artifacts = build_extraction_persistence_artifacts(
+        manager_position_rows=manager_positions,
+        manager_position_warnings=manager_warnings,
+        manager_position_context=context,
+    )
+
+    plan_dataset = artifacts["schema_component_datasets"]["pension_plan"][0]
+    position_dataset = artifacts["schema_component_datasets"]["plan_manager_fund_position"][0]
+    assert plan_dataset["status"] == "present"
+    assert position_dataset["effective_date"] == "2025-06-30"
+    assert position_dataset["ingestion_date"] == "2026-01-15"
+    assert position_dataset["source_document_id"] == "doc:ca:2025:manager_positions"

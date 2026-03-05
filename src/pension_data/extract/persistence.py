@@ -769,6 +769,24 @@ def _collect_refs_from_row_dicts(rows: Sequence[dict[str, object]]) -> tuple[str
     return tuple(sorted(refs))
 
 
+def _fallback_text_field(
+    *,
+    preferred: str | None,
+    field_name: str,
+    rows: Sequence[dict[str, object]],
+) -> str | None:
+    if preferred is not None:
+        return preferred
+    values = sorted(
+        {
+            str(row.get(field_name))
+            for row in rows
+            if isinstance(row.get(field_name), str) and str(row.get(field_name)).strip()
+        }
+    )
+    return values[0] if values else None
+
+
 def _component_dataset_row(
     *,
     component_name: str,
@@ -820,30 +838,32 @@ def build_schema_component_datasets(
     manager_lifecycle_events: Sequence[ManagerLifecycleEvent] = (),
 ) -> dict[str, list[dict[str, object]]]:
     """Build one deterministic dataset row per schema component with present/partial/not_disclosed."""
-    plan_id = funded_warning_context.plan_id if funded_warning_context is not None else None
-    if plan_id is None:
-        plan_id = _first_non_empty_metric_field(persisted_core_metrics, "plan_id")
-
-    plan_period = funded_warning_context.plan_period if funded_warning_context is not None else None
-    if plan_period is None:
-        plan_period = _first_non_empty_metric_field(persisted_core_metrics, "plan_period")
-
-    effective_date = funded_warning_context.effective_date if funded_warning_context else None
-    if effective_date is None:
-        effective_date = _first_non_empty_metric_field(persisted_core_metrics, "effective_date")
-
-    ingestion_date = funded_warning_context.ingestion_date if funded_warning_context else None
-    if ingestion_date is None:
-        ingestion_date = _first_non_empty_metric_field(persisted_core_metrics, "ingestion_date")
-
-    source_document_id = (
-        funded_warning_context.source_document_id if funded_warning_context else None
+    metadata_rows = [*persisted_core_metrics, *relationship_rows, *warning_rows]
+    plan_id = _fallback_text_field(
+        preferred=funded_warning_context.plan_id if funded_warning_context is not None else None,
+        field_name="plan_id",
+        rows=metadata_rows,
     )
-    if source_document_id is None:
-        source_document_id = _first_non_empty_metric_field(
-            persisted_core_metrics,
-            "source_document_id",
-        )
+    plan_period = _fallback_text_field(
+        preferred=funded_warning_context.plan_period if funded_warning_context is not None else None,
+        field_name="plan_period",
+        rows=metadata_rows,
+    )
+    effective_date = _fallback_text_field(
+        preferred=funded_warning_context.effective_date if funded_warning_context else None,
+        field_name="effective_date",
+        rows=metadata_rows,
+    )
+    ingestion_date = _fallback_text_field(
+        preferred=funded_warning_context.ingestion_date if funded_warning_context else None,
+        field_name="ingestion_date",
+        rows=metadata_rows,
+    )
+    source_document_id = _fallback_text_field(
+        preferred=funded_warning_context.source_document_id if funded_warning_context else None,
+        field_name="source_document_id",
+        rows=metadata_rows,
+    )
 
     manager_names = {
         row.manager_name.strip()
