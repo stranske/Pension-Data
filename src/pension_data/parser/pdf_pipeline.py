@@ -82,7 +82,7 @@ def _decode_pdf_string_token(token: str) -> str:
                 index += 1
             index += 1
             continue
-        if escape.isdigit() and escape in {"0", "1", "2", "3", "4", "5", "6", "7"}:
+        if escape in {"0", "1", "2", "3", "4", "5", "6", "7"}:
             octal_digits = [escape]
             index += 1
             for _ in range(2):
