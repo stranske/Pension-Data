@@ -298,6 +298,14 @@ def validate_component_coverage(
             component_status[component] = statuses[0]
         else:
             component_status[component] = "mixed"
+            invalid_state_rows.append(
+                {
+                    "component": component,
+                    "row_index": None,
+                    "status": statuses,
+                    "message": "component rows must share a single status value",
+                }
+            )
 
     is_valid = (
         not missing_components
