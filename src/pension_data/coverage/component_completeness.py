@@ -231,6 +231,9 @@ def validate_component_coverage(
     """Validate component datasets and return a deterministic machine-readable report."""
     expected = tuple(expected_components)
     observed_components = sorted(component_datasets.keys())
+    unexpected_components = sorted(
+        component for component in observed_components if component not in expected
+    )
     missing_components = sorted(
         component for component in expected if component not in component_datasets
     )
@@ -296,7 +299,12 @@ def validate_component_coverage(
         else:
             component_status[component] = "mixed"
 
-    is_valid = not missing_components and not invalid_state_rows and not metadata_violations
+    is_valid = (
+        not missing_components
+        and not unexpected_components
+        and not invalid_state_rows
+        and not metadata_violations
+    )
 
     return {
         "is_valid": is_valid,
@@ -305,6 +313,7 @@ def validate_component_coverage(
         "observed_component_count": len(observed_components),
         "observed_components": observed_components,
         "missing_components": missing_components,
+        "unexpected_components": unexpected_components,
         "invalid_state_rows": invalid_state_rows,
         "metadata_violations": metadata_violations,
         "status_counts": status_counts,

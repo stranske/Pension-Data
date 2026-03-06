@@ -45,6 +45,48 @@ def test_validator_rejects_present_rows_without_required_evidence_metadata() -> 
     assert any(item["field"] == "evidence_refs" for item in report["metadata_violations"])
 
 
+def test_validator_rejects_unexpected_components() -> None:
+    payload = {
+        component: [
+            {
+                "component_name": component,
+                "status": "not_disclosed",
+                "row_count": 0,
+                "plan_id": "CA-PERS",
+                "plan_period": "FY2024",
+                "effective_date": "2024-06-30",
+                "ingestion_date": "2026-03-03",
+                "source_document_id": "doc:1",
+                "confidence": None,
+                "evidence_refs": [],
+                "notes": "synthetic",
+            }
+        ]
+        for component in CORE_SCHEMA_COMPONENTS
+    }
+    payload["unexpected_component"] = [
+        {
+            "component_name": "unexpected_component",
+            "status": "present",
+            "row_count": 1,
+            "plan_id": "CA-PERS",
+            "plan_period": "FY2024",
+            "effective_date": "2024-06-30",
+            "ingestion_date": "2026-03-03",
+            "source_document_id": "doc:1",
+            "confidence": 1.0,
+            "evidence_refs": ["p.1"],
+            "notes": "synthetic",
+        }
+    ]
+
+    report = validate_component_coverage(component_datasets=payload)
+
+    assert report["is_valid"] is False
+    assert report["missing_components"] == []
+    assert report["unexpected_components"] == ["unexpected_component"]
+
+
 def test_build_component_datasets_is_deterministic_and_valid_for_core_metric_payload() -> None:
     core_rows = [
         {
