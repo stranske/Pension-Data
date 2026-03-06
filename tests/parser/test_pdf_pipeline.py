@@ -242,7 +242,7 @@ def test_table_primary_decodes_pdf_string_escape_sequences() -> None:
         b"[(Discount rate ) 10 (6.8%)] TJ\n"
         b"[(Employer contribution rate ) 10 (10.9%)] TJ\n"
         b"[(Employee contribution rate ) 10 (7.0%)] TJ\n"
-        b"[(Participant count\\n) 10 (132000)] TJ\n"
+        b"[(Participant count\\\n) 10 (132000)] TJ\n"
     )
 
     parser_result = parse_pdf_to_funded_input(_base_input(pdf_bytes=escaped_tj_pdf))
@@ -251,3 +251,14 @@ def test_table_primary_decodes_pdf_string_escape_sequences() -> None:
     assert parser_result.raw is not None
     assert parser_result.missing_metrics == ()
     assert len(parser_result.raw.table_rows) >= 7
+
+    table_labels = [row.get("label", "") for row in parser_result.raw.table_rows]
+    all_text = list(parser_result.raw.text_blocks) + table_labels
+    assert all("\\t" not in text for text in all_text)
+    assert all("\\040" not in text for text in all_text)
+    assert all("\\n" not in text for text in all_text)
+
+    lowered = [text.lower() for text in all_text]
+    assert any("funded ratio" in text for text in lowered)
+    assert any("ava" in text for text in lowered)
+    assert any("participant count" in text for text in lowered)

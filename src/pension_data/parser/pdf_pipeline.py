@@ -25,9 +25,9 @@ from pension_data.extract.orchestration.fallback import (
 )
 from pension_data.normalize.financial_units import UnitScale
 
-_TEXT_TOKEN_PATTERN = re.compile(r"\((?P<token>(?:\\.|[^\\)])+)\)\s*Tj")
+_TEXT_TOKEN_PATTERN = re.compile(r"\((?P<token>(?:\\(?:\r\n|[\r\n]|.)|[^\\)])+)\)\s*Tj")
 _TEXT_ARRAY_PATTERN = re.compile(r"\[(?P<array>(?:\\.|[^\]])*)\]\s*TJ", re.DOTALL)
-_STRING_TOKEN_PATTERN = re.compile(r"\((?P<token>(?:\\.|[^\\)])+)\)")
+_STRING_TOKEN_PATTERN = re.compile(r"\((?P<token>(?:\\(?:\r\n|[\r\n]|.)|[^\\)])+)\)")
 _PAGE_MARKER_PATTERN = re.compile(r"(?m)^\s*%%Page:\s*\d+\s+\d+\s*$")
 _TABLE_SPLIT_PATTERN = re.compile(r"\s{2,}|\|")
 _NON_PRINTABLE_PATTERN = re.compile(r"[^\x20-\x7E]")
