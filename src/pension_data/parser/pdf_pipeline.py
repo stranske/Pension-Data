@@ -25,9 +25,9 @@ from pension_data.extract.orchestration.fallback import (
 )
 from pension_data.normalize.financial_units import UnitScale
 
-_TEXT_TOKEN_PATTERN = re.compile(r"\((?P<token>(?:\\.|[^\\)])+)\)\s*Tj")
+_TEXT_TOKEN_PATTERN = re.compile(r"\((?P<token>(?:\\(?:\r\n|[\r\n]|.)|[^\\)])+)\)\s*Tj")
 _TEXT_ARRAY_PATTERN = re.compile(r"\[(?P<array>(?:\\.|[^\]])*)\]\s*TJ", re.DOTALL)
-_STRING_TOKEN_PATTERN = re.compile(r"\((?P<token>(?:\\.|[^\\)])+)\)")
+_STRING_TOKEN_PATTERN = re.compile(r"\((?P<token>(?:\\(?:\r\n|[\r\n]|.)|[^\\)])+)\)")
 _PAGE_MARKER_PATTERN = re.compile(r"(?m)^\s*%%Page:\s*\d+\s+\d+\s*$")
 _TABLE_SPLIT_PATTERN = re.compile(r"\s{2,}|\|")
 _NON_PRINTABLE_PATTERN = re.compile(r"[^\x20-\x7E]")
@@ -51,6 +51,53 @@ _METRIC_HINTS: tuple[str, ...] = (
     "participant count",
     "active participants",
 )
+
+
+def _decode_pdf_string_token(token: str) -> str:
+    decoded_chars: list[str] = []
+    index = 0
+    while index < len(token):
+        char = token[index]
+        if char != "\\":
+            decoded_chars.append(char)
+            index += 1
+            continue
+
+        index += 1
+        if index >= len(token):
+            decoded_chars.append("\\")
+            break
+        escape = token[index]
+        if escape in {"n", "r", "t", "b", "f"}:
+            decoded_chars.append({"n": "\n", "r": "\r", "t": "\t", "b": "\b", "f": "\f"}[escape])
+            index += 1
+            continue
+        if escape in {"\\", "(", ")"}:
+            decoded_chars.append(escape)
+            index += 1
+            continue
+        if escape in {"\n", "\r"}:
+            # PDF line continuation after trailing backslash.
+            if escape == "\r" and index + 1 < len(token) and token[index + 1] == "\n":
+                index += 1
+            index += 1
+            continue
+        if escape in {"0", "1", "2", "3", "4", "5", "6", "7"}:
+            octal_digits = [escape]
+            index += 1
+            for _ in range(2):
+                if index >= len(token):
+                    break
+                digit = token[index]
+                if digit not in {"0", "1", "2", "3", "4", "5", "6", "7"}:
+                    break
+                octal_digits.append(digit)
+                index += 1
+            decoded_chars.append(chr(int("".join(octal_digits), 8)))
+            continue
+        decoded_chars.append(escape)
+        index += 1
+    return "".join(decoded_chars)
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,13 +210,13 @@ def _extract_page_lines(page_text: str) -> list[str]:
         token_lines.append(
             (
                 match.start(),
-                _coerce_printable(match.group("token").replace("\\(", "(").replace("\\)", ")")),
+                _coerce_printable(_decode_pdf_string_token(match.group("token"))),
             )
         )
     for match in _TEXT_ARRAY_PATTERN.finditer(page_text):
         raw_array = match.group("array")
         string_parts = [
-            part.group("token").replace("\\(", "(").replace("\\)", ")")
+            _decode_pdf_string_token(part.group("token"))
             for part in _STRING_TOKEN_PATTERN.finditer(raw_array)
         ]
         if not string_parts:
