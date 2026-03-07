@@ -8,6 +8,12 @@ from dataclasses import dataclass
 from statistics import fmean
 from typing import Literal
 
+from pension_data.quant.contracts import (
+    QuantDataPoint,
+    QuantSeriesContract,
+    normalize_provenance_refs,
+)
+
 MetricUnit = Literal["usd", "ratio", "percent", "count"]
 
 
@@ -195,8 +201,8 @@ def _build_metric_input_index(
 
 def _cash_flow_inputs(
     cash_flow_rows: Sequence[Mapping[str, object]],
-) -> tuple[tuple[str, str, str, dict[str, float], tuple[str, ...]], ...]:
-    entries: list[tuple[str, str, str, dict[str, float], tuple[str, ...]]] = []
+) -> tuple[tuple[str, str, str, dict[str, float], float | None, tuple[str, ...]], ...]:
+    entries: list[tuple[str, str, str, dict[str, float], float | None, tuple[str, ...]]] = []
     for row in cash_flow_rows:
         plan_id = row.get("plan_id")
         plan_period = row.get("plan_period")
@@ -217,12 +223,14 @@ def _cash_flow_inputs(
             parsed = _to_float(row.get(field))
             if parsed is not None:
                 values[field] = parsed
+        confidence = _bounded_confidence(row.get("confidence"))
         entries.append(
             (
                 plan_id.strip(),
                 plan_period.strip(),
                 cash_flow_id,
                 values,
+                confidence,
                 _as_refs(row.get("evidence_refs")),
             )
         )
@@ -282,7 +290,7 @@ def compute_derived_metrics(
                 )
             )
 
-    for plan_id, plan_period, cash_flow_id, cash_values, cash_refs in _cash_flow_inputs(
+    for plan_id, plan_period, cash_flow_id, cash_values, cash_confidence, cash_refs in _cash_flow_inputs(
         cash_flow_rows
     ):
         employer = cash_values.get("employer_contributions_normalized")
@@ -303,7 +311,7 @@ def compute_derived_metrics(
                     value=net_cash_flow,
                     plan_id=plan_id,
                     plan_period=plan_period,
-                    confidence=None,
+                    confidence=cash_confidence,
                     source_fact_ids=(cash_flow_id,),
                     provenance_refs=cash_refs,
                     lineage_formula=(
@@ -320,7 +328,7 @@ def compute_derived_metrics(
                     value=(employer + employee) / abs(benefit),
                     plan_id=plan_id,
                     plan_period=plan_period,
-                    confidence=None,
+                    confidence=cash_confidence,
                     source_fact_ids=(cash_flow_id,),
                     provenance_refs=cash_refs,
                     lineage_formula=(
@@ -365,3 +373,44 @@ def aggregate_metric_series(
         sample_count=len(selected),
         confidence_weight_sum=weight_sum,
     )
+
+
+def _series_label(metric_name: str) -> str:
+    return metric_name.replace("_", " ").title()
+
+
+def build_metric_series_contracts(
+    observations: Sequence[DerivedMetricObservation],
+) -> tuple[QuantSeriesContract, ...]:
+    """Project derived observations into chart-ready quant series contracts."""
+    grouped: dict[tuple[str, str], list[DerivedMetricObservation]] = {}
+    for row in observations:
+        grouped.setdefault((row.plan_id, row.metric_name), []).append(row)
+
+    contracts: list[QuantSeriesContract] = []
+    for plan_id, metric_name in sorted(grouped):
+        ordered_rows = sorted(
+            grouped[(plan_id, metric_name)],
+            key=lambda row: (row.plan_period, row.lineage_formula),
+        )
+        points = tuple(
+            QuantDataPoint(
+                x_label=row.plan_period,
+                y_value=row.value,
+                y_unit=row.unit,
+                confidence=row.confidence,
+                provenance_refs=normalize_provenance_refs(row.provenance_refs),
+            )
+            for row in ordered_rows
+        )
+        contracts.append(
+            QuantSeriesContract(
+                series_id=f"{plan_id}:{metric_name}",
+                metric_name=metric_name,
+                label=f"{plan_id} {_series_label(metric_name)}",
+                chart_kind="line",
+                points=points,
+            )
+        )
+
+    return tuple(contracts)
