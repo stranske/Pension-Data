@@ -99,7 +99,7 @@ console.log(JSON.stringify(result.map((entry) => entry.id)));
     assert json.loads(output) == []
 
 
-def test_keepalive_loop_wires_runbook_section_builder() -> None:
+def test_keepalive_loop_no_longer_wires_runbook_section_builder() -> None:
     text = KEEPALIVE_PATH.read_text(encoding="utf-8")
-    assert "buildIncidentRunbookSection" in text
-    assert "const runbookSectionLines = buildIncidentRunbookSection" in text
+    assert "buildIncidentRunbookSection" not in text
+    assert "const runbookSectionLines = buildIncidentRunbookSection" not in text
