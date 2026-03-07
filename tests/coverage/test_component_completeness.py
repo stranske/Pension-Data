@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from pension_data.coverage.component_completeness import (
     CORE_SCHEMA_COMPONENTS,
+    build_component_coverage_report_from_manifest,
     build_component_datasets,
     validate_component_coverage,
 )
@@ -206,7 +210,48 @@ def test_validator_rejects_mixed_status_rows_for_a_component() -> None:
 
     assert report["is_valid"] is False
     assert any(
-        row["component"] == "metric_observation"
-        and "single status value" in row["message"]
+        row["component"] == "metric_observation" and "single status value" in row["message"]
         for row in report["invalid_state_rows"]
     )
+
+
+def test_build_component_coverage_report_from_manifest_reads_one_pdf_artifacts(
+    tmp_path: Path,
+) -> None:
+    component_dir = tmp_path / "component_datasets"
+    component_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = tmp_path / "component_datasets_manifest.json"
+
+    manifest_payload: dict[str, str] = {}
+    for component in CORE_SCHEMA_COMPONENTS:
+        row = {
+            "component_name": component,
+            "status": "present" if component == "metric_observation" else "not_disclosed",
+            "row_count": 3 if component == "metric_observation" else 0,
+            "plan_id": "CA-PERS",
+            "plan_period": "FY2024",
+            "effective_date": "2024-06-30",
+            "ingestion_date": "2026-03-03",
+            "source_document_id": "doc:1",
+            "confidence": 1.0 if component == "metric_observation" else None,
+            "evidence_refs": ["p.1"] if component == "metric_observation" else [],
+            "notes": "synthetic",
+        }
+        component_path = component_dir / f"{component}.json"
+        component_path.write_text(json.dumps([row], indent=2), encoding="utf-8")
+        manifest_payload[component] = str(component_path.relative_to(tmp_path))
+
+    manifest_path.write_text(json.dumps(manifest_payload, indent=2), encoding="utf-8")
+    report = build_component_coverage_report_from_manifest(
+        component_manifest_path=manifest_path,
+        run_id="pilot-run",
+    )
+
+    assert report["is_valid"] is True
+    assert report["run_id"] == "pilot-run"
+    per_component = report["per_component"]
+    assert isinstance(per_component, list)
+    assert len(per_component) == 19
+    metric_row = [row for row in per_component if row["component_name"] == "metric_observation"][0]
+    assert metric_row["status"] == "present"
+    assert metric_row["row_count"] == 3

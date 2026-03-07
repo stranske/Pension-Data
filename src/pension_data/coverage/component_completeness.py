@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Literal
 
 ComponentDatasetStatus = Literal["present", "partial", "not_disclosed"]
@@ -327,3 +329,99 @@ def validate_component_coverage(
         "status_counts": status_counts,
         "component_status": component_status,
     }
+
+
+def _read_json_object(path: Path) -> dict[str, object]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return payload
+
+
+def _resolve_artifact_path(*, root: Path, value: object) -> Path:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("artifact path value must be a non-empty string")
+    path = Path(value)
+    if not path.is_absolute():
+        path = root / path
+    return path
+
+
+def load_component_datasets_from_manifest(
+    *,
+    component_manifest_path: Path,
+) -> dict[str, list[dict[str, object]]]:
+    """Load component dataset JSON payloads from an extraction-persistence manifest."""
+    manifest = _read_json_object(component_manifest_path)
+    datasets: dict[str, list[dict[str, object]]] = {}
+    for component_name in sorted(manifest.keys()):
+        if not isinstance(component_name, str) or not component_name.strip():
+            raise ValueError("component manifest keys must be non-empty strings")
+        component_path = _resolve_artifact_path(
+            root=component_manifest_path.parent,
+            value=manifest[component_name],
+        )
+        payload = json.loads(component_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, list):
+            raise ValueError(f"{component_path} must contain a JSON array")
+        rows: list[dict[str, object]] = []
+        for index, row in enumerate(payload):
+            if not isinstance(row, dict):
+                raise ValueError(f"{component_path} row {index} must be a JSON object")
+            rows.append(row)
+        datasets[component_name] = rows
+    return datasets
+
+
+def build_component_coverage_report_from_manifest(
+    *,
+    component_manifest_path: Path,
+    run_id: str | None = None,
+) -> dict[str, object]:
+    """Build deterministic core-component coverage report from one-PDF artifact files."""
+    all_datasets = load_component_datasets_from_manifest(
+        component_manifest_path=component_manifest_path
+    )
+    datasets = {
+        component_name: rows
+        for component_name, rows in all_datasets.items()
+        if component_name in CORE_SCHEMA_COMPONENTS
+    }
+    additional_components = sorted(
+        component_name
+        for component_name in all_datasets
+        if component_name not in CORE_SCHEMA_COMPONENTS
+    )
+    validation_report = validate_component_coverage(
+        component_datasets=datasets,
+        expected_components=CORE_SCHEMA_COMPONENTS,
+    )
+    component_status_map = validation_report["component_status"]
+    assert isinstance(component_status_map, dict)
+
+    per_component: list[dict[str, object]] = []
+    for component_name in CORE_SCHEMA_COMPONENTS:
+        rows = datasets.get(component_name, [])
+        row_count = 0
+        for row in rows:
+            value = row.get("row_count")
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, int):
+                row_count += value
+        per_component.append(
+            {
+                "component_name": component_name,
+                "status": component_status_map.get(component_name, "missing"),
+                "row_count": row_count,
+            }
+        )
+
+    report = {
+        **validation_report,
+        "run_id": run_id,
+        "component_manifest_path": str(component_manifest_path),
+        "additional_components": additional_components,
+        "per_component": per_component,
+    }
+    return report
