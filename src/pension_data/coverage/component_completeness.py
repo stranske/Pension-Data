@@ -254,11 +254,13 @@ def validate_component_coverage(
         statuses: list[str] = []
         for index, row in enumerate(rows):
 
-            def _add_metadata_violation(field: str, message: str) -> None:
+            def _add_metadata_violation(
+                field: str, message: str, *, component_name: str = component, row_index: int = index
+            ) -> None:
                 metadata_violations.append(
                     {
-                        "component": component,
-                        "row_index": index,
+                        "component": component_name,
+                        "row_index": row_index,
                         "field": field,
                         "message": message,
                     }
