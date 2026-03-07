@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Literal
 
 ComponentDatasetStatus = Literal["present", "partial", "not_disclosed"]
@@ -231,6 +233,9 @@ def validate_component_coverage(
     """Validate component datasets and return a deterministic machine-readable report."""
     expected = tuple(expected_components)
     observed_components = sorted(component_datasets.keys())
+    unexpected_components = sorted(
+        component for component in observed_components if component not in expected
+    )
     missing_components = sorted(
         component for component in expected if component not in component_datasets
     )
@@ -248,6 +253,19 @@ def validate_component_coverage(
 
         statuses: list[str] = []
         for index, row in enumerate(rows):
+
+            def _add_metadata_violation(
+                field: str, message: str, *, component_name: str = component, row_index: int = index
+            ) -> None:
+                metadata_violations.append(
+                    {
+                        "component": component_name,
+                        "row_index": row_index,
+                        "field": field,
+                        "message": message,
+                    }
+                )
+
             status = row.get("status")
             if status not in ALLOWED_COMPONENT_STATUSES:
                 invalid_state_rows.append(
@@ -264,30 +282,40 @@ def validate_component_coverage(
             statuses.append(status_token)
             status_counts[status_token] += 1
 
+            for key in ("plan_id", "plan_period", "source_document_id"):
+                value = row.get(key)
+                if not isinstance(value, str) or not value.strip():
+                    _add_metadata_violation(key, "required metadata is missing")
+
+            confidence = row.get("confidence")
+            row_count = row.get("row_count")
             evidence_refs = row.get("evidence_refs")
             if status_token in {"present", "partial"}:
-                for key in ("plan_id", "plan_period", "source_document_id"):
-                    value = row.get(key)
-                    if not isinstance(value, str) or not value.strip():
-                        metadata_violations.append(
-                            {
-                                "component": component,
-                                "row_index": index,
-                                "field": key,
-                                "message": "required metadata is missing",
-                            }
-                        )
                 if not isinstance(evidence_refs, list) or not any(
                     isinstance(ref, str) and ref.strip() for ref in evidence_refs
                 ):
-                    metadata_violations.append(
-                        {
-                            "component": component,
-                            "row_index": index,
-                            "field": "evidence_refs",
-                            "message": "present/partial rows require non-empty evidence_refs",
-                        }
+                    _add_metadata_violation(
+                        "evidence_refs", "present/partial rows require non-empty evidence_refs"
                     )
+                expected_confidence = 1.0 if status_token == "present" else 0.5
+                if confidence != expected_confidence:
+                    _add_metadata_violation(
+                        "confidence",
+                        f"{status_token} rows require confidence={expected_confidence}",
+                    )
+            elif status_token == "not_disclosed":
+                if not isinstance(evidence_refs, list) or any(
+                    isinstance(ref, str) and ref.strip() for ref in evidence_refs
+                ):
+                    _add_metadata_violation(
+                        "evidence_refs", "not_disclosed rows require empty evidence_refs"
+                    )
+                if confidence is not None:
+                    _add_metadata_violation(
+                        "confidence", "not_disclosed rows require confidence=null"
+                    )
+                if row_count != 0:
+                    _add_metadata_violation("row_count", "not_disclosed rows require row_count=0")
 
         if not statuses:
             component_status[component] = "missing"
@@ -295,8 +323,21 @@ def validate_component_coverage(
             component_status[component] = statuses[0]
         else:
             component_status[component] = "mixed"
+            invalid_state_rows.append(
+                {
+                    "component": component,
+                    "row_index": None,
+                    "status": statuses,
+                    "message": "component rows must share a single status value",
+                }
+            )
 
-    is_valid = not missing_components and not invalid_state_rows and not metadata_violations
+    is_valid = (
+        not missing_components
+        and not unexpected_components
+        and not invalid_state_rows
+        and not metadata_violations
+    )
 
     return {
         "is_valid": is_valid,
@@ -305,8 +346,105 @@ def validate_component_coverage(
         "observed_component_count": len(observed_components),
         "observed_components": observed_components,
         "missing_components": missing_components,
+        "unexpected_components": unexpected_components,
         "invalid_state_rows": invalid_state_rows,
         "metadata_violations": metadata_violations,
         "status_counts": status_counts,
         "component_status": component_status,
     }
+
+
+def _read_json_object(path: Path) -> dict[str, object]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return payload
+
+
+def _resolve_artifact_path(*, root: Path, value: object) -> Path:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("artifact path value must be a non-empty string")
+    path = Path(value)
+    if not path.is_absolute():
+        path = root / path
+    return path
+
+
+def load_component_datasets_from_manifest(
+    *,
+    component_manifest_path: Path,
+) -> dict[str, list[dict[str, object]]]:
+    """Load component dataset JSON payloads from an extraction-persistence manifest."""
+    manifest = _read_json_object(component_manifest_path)
+    datasets: dict[str, list[dict[str, object]]] = {}
+    for component_name in sorted(manifest.keys()):
+        if not isinstance(component_name, str) or not component_name.strip():
+            raise ValueError("component manifest keys must be non-empty strings")
+        component_path = _resolve_artifact_path(
+            root=component_manifest_path.parent,
+            value=manifest[component_name],
+        )
+        payload = json.loads(component_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, list):
+            raise ValueError(f"{component_path} must contain a JSON array")
+        rows: list[dict[str, object]] = []
+        for index, row in enumerate(payload):
+            if not isinstance(row, dict):
+                raise ValueError(f"{component_path} row {index} must be a JSON object")
+            rows.append(row)
+        datasets[component_name] = rows
+    return datasets
+
+
+def build_component_coverage_report_from_manifest(
+    *,
+    component_manifest_path: Path,
+    run_id: str | None = None,
+) -> dict[str, object]:
+    """Build deterministic core-component coverage report from one-PDF artifact files."""
+    all_datasets = load_component_datasets_from_manifest(
+        component_manifest_path=component_manifest_path
+    )
+    datasets = {
+        component_name: rows
+        for component_name, rows in all_datasets.items()
+        if component_name in CORE_SCHEMA_COMPONENTS
+    }
+    additional_components = sorted(
+        component_name
+        for component_name in all_datasets
+        if component_name not in CORE_SCHEMA_COMPONENTS
+    )
+    validation_report = validate_component_coverage(
+        component_datasets=datasets,
+        expected_components=CORE_SCHEMA_COMPONENTS,
+    )
+    component_status_map = validation_report["component_status"]
+    assert isinstance(component_status_map, dict)
+
+    per_component: list[dict[str, object]] = []
+    for component_name in CORE_SCHEMA_COMPONENTS:
+        rows = datasets.get(component_name, [])
+        row_count = 0
+        for row in rows:
+            value = row.get("row_count")
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, int):
+                row_count += value
+        per_component.append(
+            {
+                "component_name": component_name,
+                "status": component_status_map.get(component_name, "missing"),
+                "row_count": row_count,
+            }
+        )
+
+    report = {
+        **validation_report,
+        "run_id": run_id,
+        "component_manifest_path": component_manifest_path.name,
+        "additional_components": additional_components,
+        "per_component": per_component,
+    }
+    return report

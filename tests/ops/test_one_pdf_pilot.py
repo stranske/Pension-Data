@@ -53,8 +53,10 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
     assert manifest_path.exists()
     parser_path = Path(result["parser_result_json"])
     coverage_path = Path(result["coverage_summary_json"])
+    component_report_path = Path(result["component_coverage_report_json"])
     assert parser_path.exists()
     assert coverage_path.exists()
+    assert component_report_path.exists()
     assert Path(result["persistence_contract_json"]).exists()
     assert Path(result["staging_core_metrics_json"]).exists()
     assert Path(result["staging_manager_fund_vehicle_relationships_json"]).exists()
@@ -66,6 +68,7 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
     expected_keys = {
         "parser_result_json",
         "coverage_summary_json",
+        "component_coverage_report_json",
         "persistence_contract_json",
         "staging_core_metrics_json",
         "staging_manager_fund_vehicle_relationships_json",
@@ -86,6 +89,9 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
     assert coverage["has_required_funded_metrics"] is True
     assert coverage["staging_core_metric_count"] > 0
     assert coverage["missing_required_metrics"] == []
+    component_report = json.loads(component_report_path.read_text(encoding="utf-8"))
+    assert component_report["is_valid"] is True
+    assert component_report["expected_component_count"] == 19
 
 
 def test_one_pdf_pilot_artifacts_follow_deterministic_layout(tmp_path: Path) -> None:
@@ -124,6 +130,9 @@ def test_one_pdf_pilot_artifacts_follow_deterministic_layout(tmp_path: Path) -> 
     assert Path(result["parser_result_json"]) == expected_run_root / "parser_result.json"
     assert Path(result["coverage_summary_json"]) == (
         expected_run_root / "coverage" / "component_coverage_summary.json"
+    )
+    assert Path(result["component_coverage_report_json"]) == (
+        expected_run_root / "coverage" / "component_coverage_report.json"
     )
     assert Path(result["persistence_contract_json"]) == (
         expected_run_root / "extraction_persistence" / "persistence_contract.json"

@@ -325,6 +325,59 @@ def test_domain_failure_is_isolated_and_other_domains_still_publish(
     assert state.processed_artifact_ids == ()
 
 
+def test_component_coverage_validation_failure_blocks_promotion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pension_data.coverage.component_completeness import (
+        build_component_datasets as base_build_component_datasets,
+    )
+
+    document = _job(
+        source_url="https://example.org/ca-2024.pdf",
+        fetched_at="2026-03-03T00:00:00Z",
+        source_document_id="doc:ca:2024:v1",
+        content=b"doc-v1",
+    )
+
+    def _drop_required_component(
+        *args: object, **kwargs: object
+    ) -> dict[str, list[dict[str, object]]]:
+        datasets = base_build_component_datasets(*args, **kwargs)
+        datasets.pop("metric_observation", None)
+        return datasets
+
+    monkeypatch.setattr(
+        document_orchestration_module,
+        "build_component_datasets",
+        _drop_required_component,
+    )
+
+    ledger, state, artifacts = run_document_orchestration(
+        documents=[document],
+        parser=_parser,
+        state=DocumentOrchestrationState(),
+        run_id="run-coverage-failure",
+    )
+
+    assert ledger.status == "failed"
+    outcome = ledger.document_outcomes[0]
+    assert outcome.status == "failed"
+    assert outcome.promoted_fact_count == 0
+    assert "schema component coverage report failed" in outcome.notes
+    assert _artifact_rows(artifacts, "published_rows") == []
+    assert state.processed_artifact_ids == ()
+    coverage_report = _artifact_rows(artifacts, "component_coverage_reports")[0][
+        "component_coverage_report"
+    ]
+    assert coverage_report["is_valid"] is False
+    assert "metric_observation" in coverage_report["missing_components"]
+    assert any(failure.stage == "validation" for failure in ledger.failures)
+    assert any(
+        "schema component coverage validation failed" in failure.message
+        for failure in ledger.failures
+    )
+
+
 def test_revised_document_reprocesses_with_lineage_preserved() -> None:
     first_doc = _job(
         source_url="https://example.org/ca-2024.pdf",
