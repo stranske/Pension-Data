@@ -443,7 +443,7 @@ def build_component_coverage_report_from_manifest(
     report = {
         **validation_report,
         "run_id": run_id,
-        "component_manifest_path": str(component_manifest_path),
+        "component_manifest_path": component_manifest_path.name,
         "additional_components": additional_components,
         "per_component": per_component,
     }

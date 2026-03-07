@@ -328,3 +328,49 @@ def test_build_component_coverage_report_from_manifest_reads_one_pdf_artifacts(
     metric_row = [row for row in per_component if row["component_name"] == "metric_observation"][0]
     assert metric_row["status"] == "present"
     assert metric_row["row_count"] == 3
+
+
+def test_component_coverage_report_is_diffable_across_artifact_roots(tmp_path: Path) -> None:
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_component_dir = first_root / "component_datasets"
+    second_component_dir = second_root / "component_datasets"
+    first_component_dir.mkdir(parents=True, exist_ok=True)
+    second_component_dir.mkdir(parents=True, exist_ok=True)
+    first_manifest_path = first_root / "component_datasets_manifest.json"
+    second_manifest_path = second_root / "component_datasets_manifest.json"
+
+    first_manifest_payload: dict[str, str] = {}
+    second_manifest_payload: dict[str, str] = {}
+    for component in CORE_SCHEMA_COMPONENTS:
+        row = {
+            "component_name": component,
+            "status": "present" if component == "metric_observation" else "not_disclosed",
+            "row_count": 3 if component == "metric_observation" else 0,
+            "plan_id": "CA-PERS",
+            "plan_period": "FY2024",
+            "effective_date": "2024-06-30",
+            "ingestion_date": "2026-03-03",
+            "source_document_id": "doc:1",
+            "confidence": 1.0 if component == "metric_observation" else None,
+            "evidence_refs": ["p.1"] if component == "metric_observation" else [],
+            "notes": "synthetic",
+        }
+        first_component_path = first_component_dir / f"{component}.json"
+        second_component_path = second_component_dir / f"{component}.json"
+        payload = json.dumps([row], indent=2)
+        first_component_path.write_text(payload, encoding="utf-8")
+        second_component_path.write_text(payload, encoding="utf-8")
+        first_manifest_payload[component] = str(first_component_path.relative_to(first_root))
+        second_manifest_payload[component] = str(second_component_path.relative_to(second_root))
+
+    first_manifest_path.write_text(json.dumps(first_manifest_payload, indent=2), encoding="utf-8")
+    second_manifest_path.write_text(json.dumps(second_manifest_payload, indent=2), encoding="utf-8")
+    first_report = build_component_coverage_report_from_manifest(
+        component_manifest_path=first_manifest_path
+    )
+    second_report = build_component_coverage_report_from_manifest(
+        component_manifest_path=second_manifest_path
+    )
+
+    assert first_report == second_report

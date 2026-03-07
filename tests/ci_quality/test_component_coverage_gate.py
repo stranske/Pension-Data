@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from pension_data.coverage.component_completeness import CORE_SCHEMA_COMPONENTS
-from tools.ci_quality.component_coverage_gate import run_gate
+from tools.ci_quality.component_coverage_gate import main, run_gate
 
 
 def _write_component_manifest(
@@ -76,3 +77,24 @@ def test_component_coverage_gate_fails_when_manifest_omits_core_component(tmp_pa
     assert report["is_valid"] is False
     assert "manager_entity" in report["missing_components"]
     assert report["expected_component_count"] == 19
+
+
+def test_component_coverage_gate_cli_writes_default_report_path(tmp_path: Path) -> None:
+    manifest_path = _write_component_manifest(root=tmp_path)
+    default_report_path = manifest_path.parent / "component_coverage_report.json"
+    original_argv = sys.argv
+    sys.argv = [
+        "component_coverage_gate.py",
+        "--manifest",
+        str(manifest_path),
+    ]
+    try:
+        exit_code = main()
+    finally:
+        sys.argv = original_argv
+
+    assert exit_code == 0
+    assert default_report_path.exists()
+    report = json.loads(default_report_path.read_text(encoding="utf-8"))
+    assert report["is_valid"] is True
+    assert len(report["per_component"]) == 19

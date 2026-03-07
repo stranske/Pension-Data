@@ -50,17 +50,21 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--report-out",
         type=Path,
         default=None,
-        help="Optional output path for machine-readable component coverage report",
+        help=(
+            "Output path for machine-readable component coverage report "
+            "(default: <manifest-dir>/component_coverage_report.json)"
+        ),
     )
     return parser
 
 
 def main() -> int:
     args = _build_arg_parser().parse_args()
+    report_path = args.report_out or args.manifest.parent / "component_coverage_report.json"
     passed = run_gate(
         component_manifest_path=args.manifest,
         run_id=args.run_id,
-        report_path=args.report_out,
+        report_path=report_path,
     )
     if passed:
         return 0
