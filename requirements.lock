@@ -109,8 +109,6 @@ orjson==3.11.7
     #   langsmith
 ormsgpack==1.12.2
     # via langgraph-checkpoint
-pandas==2.2.3
-    # via pension-data (pyproject.toml)
 packaging==25.0
     # via
     #   black
@@ -147,8 +145,6 @@ pydantic-core==2.41.5
 pygments==2.19.2
     # via pytest
 pypdf==6.7.5
-    # via pension-data (pyproject.toml)
-openpyxl==3.1.5
     # via pension-data (pyproject.toml)
 pytest==9.0.2
     # via
