@@ -29,6 +29,7 @@ from pension_data.quant.metric_engine import (
     DerivedMetricDefinition,
     DerivedMetricObservation,
     aggregate_metric_series,
+    build_metric_series_contracts,
     compute_derived_metrics,
     default_metric_catalog,
 )
@@ -69,6 +70,7 @@ __all__ = [
     "ScenarioResultRow",
     "ScenarioRunConfig",
     "aggregate_metric_series",
+    "build_metric_series_contracts",
     "compute_attribution",
     "compute_derived_metrics",
     "default_metric_catalog",

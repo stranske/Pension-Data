@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pension_data.quant.metric_engine import (
     aggregate_metric_series,
+    build_metric_series_contracts,
     compute_derived_metrics,
     default_metric_catalog,
 )
@@ -66,6 +69,7 @@ def _cash_flow_rows() -> list[dict[str, object]]:
             "employee_contributions_normalized": 9.0,
             "benefit_payments_normalized": -5.0,
             "refunds_normalized": -1.0,
+            "confidence": 0.72,
             "evidence_refs": ["p.55"],
         }
     ]
@@ -82,6 +86,7 @@ def _cash_flow_rows_multi_plan() -> list[dict[str, object]]:
             "employee_contributions_normalized": 5.0,
             "benefit_payments_normalized": -7.0,
             "refunds_normalized": -0.5,
+            "confidence": 1.4,
             "evidence_refs": ("p.12",),
         },
     ]
@@ -118,6 +123,7 @@ def test_compute_derived_metrics_emits_expected_observations() -> None:
     net_cash_flow = next(item for item in observations if item.metric_name == "net_cash_flow_usd")
     assert net_cash_flow.value == 21.0
     assert net_cash_flow.source_fact_ids == ("flow:2024",)
+    assert net_cash_flow.confidence == 0.72
 
 
 def test_confidence_weighted_aggregation_uses_confidence_when_present() -> None:
@@ -146,4 +152,29 @@ def test_compute_derived_metrics_handles_multiple_plan_groups() -> None:
     assert by_plan_metric[("NY-ERS", "funded_gap_usd")].value == 20.0
     assert by_plan_metric[("NY-ERS", "funded_gap_usd")].confidence == 0.0
     assert by_plan_metric[("NY-ERS", "net_cash_flow_usd")].value == 7.5
+    assert by_plan_metric[("NY-ERS", "net_cash_flow_usd")].confidence == 1.0
     assert by_plan_metric[("NY-ERS", "net_cash_flow_usd")].provenance_refs == ("p.12",)
+
+
+def test_aggregate_metric_series_raises_for_missing_metric_name() -> None:
+    with pytest.raises(ValueError, match="No observations found"):
+        aggregate_metric_series((), metric_name="funded_gap_usd")
+
+
+def test_build_metric_series_contracts_emits_chart_ready_series() -> None:
+    observations = compute_derived_metrics(
+        core_metric_rows=_core_rows_multi_plan(),
+        cash_flow_rows=_cash_flow_rows_multi_plan(),
+    )
+    contracts = build_metric_series_contracts(observations)
+    assert contracts
+
+    by_id = {contract.series_id: contract for contract in contracts}
+    assert "CA-PERS:funded_gap_usd" in by_id
+    assert "NY-ERS:net_cash_flow_usd" in by_id
+
+    funded_gap_contract = by_id["CA-PERS:funded_gap_usd"]
+    assert funded_gap_contract.chart_kind == "line"
+    assert funded_gap_contract.points[0].x_label == "FY2024"
+    assert funded_gap_contract.points[0].y_unit == "usd"
+    assert funded_gap_contract.points[0].provenance_refs == ("p.40",)
