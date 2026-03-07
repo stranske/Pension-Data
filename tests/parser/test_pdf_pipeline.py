@@ -262,3 +262,29 @@ def test_table_primary_decodes_pdf_string_escape_sequences() -> None:
     assert any("funded ratio" in text for text in lowered)
     assert any("ava" in text for text in lowered)
     assert any("participant count" in text for text in lowered)
+
+
+def test_table_primary_decodes_pdf_crlf_line_continuation_escape() -> None:
+    escaped_tj_pdf = (
+        b"%PDF-1.4\r\n%%Page: 1 1\r\n"
+        b"[(Funded ratio ) 10 (83.4%)] TJ\r\n"
+        b"[(AAL ) 10 ($450.0 million)] TJ\r\n"
+        b"[(AVA ) 10 ($377.0 million)] TJ\r\n"
+        b"[(Discount rate ) 10 (6.8%)] TJ\r\n"
+        b"[(Employer contribution rate\\\r\n) 10 (10.9%)] TJ\r\n"
+        b"[(Employee contribution rate ) 10 (7.0%)] TJ\r\n"
+        b"[(Participant count ) 10 (132000)] TJ\r\n"
+    )
+
+    parser_result = parse_pdf_to_funded_input(_base_input(pdf_bytes=escaped_tj_pdf))
+    assert parser_result.stage_name == "table_primary"
+    assert parser_result.raw is not None
+    assert parser_result.missing_metrics == ()
+
+    all_text = list(parser_result.raw.text_blocks) + [
+        row.get("label", "") for row in parser_result.raw.table_rows
+    ]
+    assert all("\\r\\n" not in text for text in all_text)
+    assert all("\\r" not in text for text in all_text)
+    lowered = [text.lower() for text in all_text]
+    assert any("employer contribution rate" in text for text in lowered)
