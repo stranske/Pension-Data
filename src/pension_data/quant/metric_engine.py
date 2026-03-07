@@ -290,9 +290,14 @@ def compute_derived_metrics(
                 )
             )
 
-    for plan_id, plan_period, cash_flow_id, cash_values, cash_confidence, cash_refs in _cash_flow_inputs(
-        cash_flow_rows
-    ):
+    for (
+        plan_id,
+        plan_period,
+        cash_flow_id,
+        cash_values,
+        cash_confidence,
+        cash_refs,
+    ) in _cash_flow_inputs(cash_flow_rows):
         employer = cash_values.get("employer_contributions_normalized")
         employee = cash_values.get("employee_contributions_normalized")
         benefit = cash_values.get("benefit_payments_normalized")
