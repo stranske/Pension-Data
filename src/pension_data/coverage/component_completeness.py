@@ -253,6 +253,17 @@ def validate_component_coverage(
 
         statuses: list[str] = []
         for index, row in enumerate(rows):
+
+            def _add_metadata_violation(field: str, message: str) -> None:
+                metadata_violations.append(
+                    {
+                        "component": component,
+                        "row_index": index,
+                        "field": field,
+                        "message": message,
+                    }
+                )
+
             status = row.get("status")
             if status not in ALLOWED_COMPONENT_STATUSES:
                 invalid_state_rows.append(
@@ -269,30 +280,40 @@ def validate_component_coverage(
             statuses.append(status_token)
             status_counts[status_token] += 1
 
+            for key in ("plan_id", "plan_period", "source_document_id"):
+                value = row.get(key)
+                if not isinstance(value, str) or not value.strip():
+                    _add_metadata_violation(key, "required metadata is missing")
+
+            confidence = row.get("confidence")
+            row_count = row.get("row_count")
             evidence_refs = row.get("evidence_refs")
             if status_token in {"present", "partial"}:
-                for key in ("plan_id", "plan_period", "source_document_id"):
-                    value = row.get(key)
-                    if not isinstance(value, str) or not value.strip():
-                        metadata_violations.append(
-                            {
-                                "component": component,
-                                "row_index": index,
-                                "field": key,
-                                "message": "required metadata is missing",
-                            }
-                        )
                 if not isinstance(evidence_refs, list) or not any(
                     isinstance(ref, str) and ref.strip() for ref in evidence_refs
                 ):
-                    metadata_violations.append(
-                        {
-                            "component": component,
-                            "row_index": index,
-                            "field": "evidence_refs",
-                            "message": "present/partial rows require non-empty evidence_refs",
-                        }
+                    _add_metadata_violation(
+                        "evidence_refs", "present/partial rows require non-empty evidence_refs"
                     )
+                expected_confidence = 1.0 if status_token == "present" else 0.5
+                if confidence != expected_confidence:
+                    _add_metadata_violation(
+                        "confidence",
+                        f"{status_token} rows require confidence={expected_confidence}",
+                    )
+            elif status_token == "not_disclosed":
+                if not isinstance(evidence_refs, list) or any(
+                    isinstance(ref, str) and ref.strip() for ref in evidence_refs
+                ):
+                    _add_metadata_violation(
+                        "evidence_refs", "not_disclosed rows require empty evidence_refs"
+                    )
+                if confidence is not None:
+                    _add_metadata_violation(
+                        "confidence", "not_disclosed rows require confidence=null"
+                    )
+                if row_count != 0:
+                    _add_metadata_violation("row_count", "not_disclosed rows require row_count=0")
 
         if not statuses:
             component_status[component] = "missing"

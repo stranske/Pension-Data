@@ -49,6 +49,79 @@ def test_validator_rejects_present_rows_without_required_evidence_metadata() -> 
     assert any(item["field"] == "evidence_refs" for item in report["metadata_violations"])
 
 
+def test_validator_rejects_invalid_state_specific_metadata() -> None:
+    payload = {
+        component: [
+            {
+                "component_name": component,
+                "status": "not_disclosed",
+                "row_count": 0,
+                "plan_id": "CA-PERS",
+                "plan_period": "FY2024",
+                "effective_date": "2024-06-30",
+                "ingestion_date": "2026-03-03",
+                "source_document_id": "doc:1",
+                "confidence": None,
+                "evidence_refs": [],
+                "notes": "synthetic",
+            }
+        ]
+        for component in CORE_SCHEMA_COMPONENTS
+    }
+    payload["metric_observation"] = [
+        {
+            "component_name": "metric_observation",
+            "status": "partial",
+            "row_count": 1,
+            "plan_id": "CA-PERS",
+            "plan_period": "FY2024",
+            "effective_date": "2024-06-30",
+            "ingestion_date": "2026-03-03",
+            "source_document_id": "doc:1",
+            "confidence": 1.0,
+            "evidence_refs": ["p.1"],
+            "notes": "synthetic",
+        }
+    ]
+    payload["benchmark_definition"] = [
+        {
+            "component_name": "benchmark_definition",
+            "status": "not_disclosed",
+            "row_count": 1,
+            "plan_id": "CA-PERS",
+            "plan_period": "FY2024",
+            "effective_date": "2024-06-30",
+            "ingestion_date": "2026-03-03",
+            "source_document_id": "doc:1",
+            "confidence": 0.0,
+            "evidence_refs": ["p.2"],
+            "notes": "synthetic",
+        }
+    ]
+
+    report = validate_component_coverage(component_datasets=payload)
+
+    assert report["is_valid"] is False
+    assert any(
+        item["component"] == "metric_observation"
+        and item["field"] == "confidence"
+        and "partial rows require confidence=0.5" in item["message"]
+        for item in report["metadata_violations"]
+    )
+    assert any(
+        item["component"] == "benchmark_definition"
+        and item["field"] == "evidence_refs"
+        and "not_disclosed rows require empty evidence_refs" in item["message"]
+        for item in report["metadata_violations"]
+    )
+    assert any(
+        item["component"] == "benchmark_definition"
+        and item["field"] == "row_count"
+        and "not_disclosed rows require row_count=0" in item["message"]
+        for item in report["metadata_violations"]
+    )
+
+
 def test_validator_rejects_unexpected_components() -> None:
     payload = {
         component: [
