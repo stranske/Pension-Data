@@ -18,6 +18,8 @@ cd Pension-Data
 pip install -e ".[dev]"
 # Optional LangChain runtime support:
 pip install -e ".[langchain]"
+# Optional source collection/bootstrap tooling:
+pip install -e ".[source_collection]"
 ```
 
 Run local checks:
@@ -44,7 +46,7 @@ See [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md) and
 .github/workflows/        CI and agent automation workflows
 apps/mac-desktop/         Packaged macOS desktop app scaffold
 src/pension_data/         Application modules
-scripts/source_collection/Source inventory/bootstrap tooling
+scripts/source_collection/ Source inventory/bootstrap tooling
 tests/                    Unit/integration/contract tests
 docs/                     Runbooks, guides, issue formatting, ops notes
 scripts/                  Utility scripts and LangChain-assisted tooling
@@ -56,6 +58,7 @@ scripts/                  Utility scripts and LangChain-assisted tooling
 - Source inventory bootstrap script:
   - `scripts/source_collection/build_pension_sources.py`
   - This script generates local source artifacts under `doc/Sources/`.
+  - `DDG` fallback lookup and PDF downloads are opt-in flags.
 
 ## Workflow Notes
 

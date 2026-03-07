@@ -11,20 +11,44 @@ Territories: manual official links where available.
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import re
 import time
+from datetime import UTC, datetime
 from html import unescape
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 
-import pandas as pd
-import requests
+try:
+    import pandas as pd
+except ImportError as exc:  # pragma: no cover - dependency error path
+    raise SystemExit(
+        "Missing optional dependency 'pandas' (and an Excel engine such as 'openpyxl').\n"
+        "Install source-collection extras, for example:\n"
+        "  pip install -e '.[source_collection]'\n"
+        "or install required packages directly:\n"
+        "  pip install pandas openpyxl"
+    ) from exc
+
+try:
+    import requests
+except ImportError as exc:  # pragma: no cover - dependency error path
+    raise SystemExit(
+        "Missing dependency 'requests'.\n"
+        "Install source-collection extras, for example:\n"
+        "  pip install -e '.[source_collection]'\n"
+        "or install required packages directly:\n"
+        "  pip install requests"
+    ) from exc
 
 PPD_XLSX_URL = "https://publicplansdata.org/wp-content/uploads/2024/09/RetSysData.xlsx"
 PPD_AJAX_URL = "https://publicplansdata.org/wp-admin/admin-ajax.php"
 PPD_ROOT = "https://publicplansdata.org"
+DEFAULT_OUT_DIR = Path("doc/Sources")
+DEFAULT_LOCAL_DOCS_ROOT = Path("doc/Sources/local_docs/annual_reports")
 
 HEADERS = {
     "User-Agent": (
@@ -717,6 +741,7 @@ def build_row(
         "pension_name": pension_name,
         "official_home_url": official_home,
         "annual_report_url": annual_url,
+        "annual_report_url_source": "ppd_report_endpoint" if annual_url else "",
         "latest_annual_pdf_url": annual_url,
         "aum_usd_billions": aum_b,
         "aum_fiscal_year": aum_fy,
@@ -743,13 +768,57 @@ def download_pdf(url: str, path: Path) -> bool:
         return False
 
 
+def _env_flag(name: str, *, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Build pension source inventory and optional local PDF cache."
+    )
+    parser.add_argument(
+        "--out-dir",
+        default=os.getenv("PENSION_DATA_OUT_DIR", str(DEFAULT_OUT_DIR)),
+        help="Output directory for generated CSV/JSON/README artifacts.",
+    )
+    parser.add_argument(
+        "--local-docs-root",
+        default=os.getenv("PENSION_DATA_LOCAL_DOCS_ROOT", str(DEFAULT_LOCAL_DOCS_ROOT)),
+        help="Local root for downloaded annual report PDFs.",
+    )
+    parser.add_argument(
+        "--enable-ddg-lookup",
+        action="store_true",
+        default=_env_flag("PENSION_DATA_ENABLE_DDG_LOOKUP", default=False),
+        help="Enable non-deterministic DDG fallback to fill missing annual report URLs.",
+    )
+    parser.add_argument(
+        "--download-annual-pdfs",
+        action="store_true",
+        default=_env_flag("PENSION_DATA_DOWNLOAD_ANNUAL_PDFS", default=False),
+        help="Download annual PDFs into local docs root. Disabled by default.",
+    )
+    return parser.parse_args()
+
+
 def write_markdown_summary(
-    df_all: pd.DataFrame, out_path: Path, downloads_ok: int, downloads_fail: int
+    df_all: pd.DataFrame,
+    out_path: Path,
+    downloads_ok: int,
+    downloads_fail: int,
+    *,
+    generated_at_utc: str,
+    local_docs_root: Path,
+    download_enabled: bool,
+    ddg_lookup_enabled: bool,
 ) -> None:
     lines = [
         "# Pension Sources (Starter Baseline)",
         "",
-        "Generated: 2026-03-01",
+        f"Generated (UTC): {generated_at_utc}",
         "",
         "## Coverage",
         "- 50 states + DC (state employee system focus)",
@@ -761,6 +830,7 @@ def write_markdown_summary(
         "- Annual report and related document links are sourced from Public Plans Data report endpoints (or manual territory official links).",
         "- Hawaii and New Jersey state-system AUM values are currently blank and require manual extraction from official filings.",
         "- For schema discovery, columns include additional document classes: investment, actuarial/ALM, consultant, and board materials.",
+        f"- DDG fallback lookup enabled: {'yes' if ddg_lookup_enabled else 'no'}",
         "",
         "## Record Counts",
         f"- Total: {len(df_all)}",
@@ -768,9 +838,10 @@ def write_markdown_summary(
         f"- Non-state largest: {len(df_all[df_all['segment'] == 'largest_non_state_public_plan'])}",
         "",
         "## Local Document Download",
+        f"- Download enabled: {'yes' if download_enabled else 'no'}",
         f"- Downloaded annual PDFs (all segments): {downloads_ok}",
         f"- Failed/skipped downloads: {downloads_fail}",
-        "- Local folder: `/Users/teacher/Library/CloudStorage/Dropbox/Learning/Code/Pension-Data-local-docs/annual_reports`",
+        f"- Local folder: `{local_docs_root}`",
         "",
         "## Output Files",
         "- `state_and_territory_pensions.csv`",
@@ -783,13 +854,13 @@ def write_markdown_summary(
 
 
 def main() -> None:
-    out_dir = Path("doc/Sources")
+    args = _parse_args()
+    out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    local_docs_root = Path(
-        "/Users/teacher/Library/CloudStorage/Dropbox/Learning/Code/Pension-Data-local-docs/annual_reports"
-    )
-    local_docs_root.mkdir(parents=True, exist_ok=True)
+    local_docs_root = Path(args.local_docs_root)
+    if args.download_annual_pdfs:
+        local_docs_root.mkdir(parents=True, exist_ok=True)
 
     latest_df = load_latest_ret_sys_data()
 
@@ -842,6 +913,7 @@ def main() -> None:
         "pension_name",
         "official_home_url",
         "annual_report_url",
+        "annual_report_url_source",
         "latest_annual_pdf_url",
         "aum_usd_billions",
         "aum_fiscal_year",
@@ -852,24 +924,34 @@ def main() -> None:
         "board_materials_url",
         "notes",
     ]
+    if "annual_report_url_source" not in df.columns:
+        df["annual_report_url_source"] = ""
+    df.loc[
+        df["annual_report_url_source"].fillna("").eq("") & df["segment"].eq("territory"),
+        "annual_report_url_source",
+    ] = "territory_seed"
     df = df[cols]
 
     # Fill unresolved annual-report URLs with targeted web lookup.
-    missing_idx = df[df["annual_report_url"].fillna("").eq("")].index.tolist()
-    for idx in missing_idx:
-        plan_name = str(df.at[idx, "pension_name"])
-        jurisdiction = str(df.at[idx, "jurisdiction_name"])
-        found = ddg_lookup_annual(plan_name, jurisdiction)
-        if not found:
-            continue
-        df.at[idx, "annual_report_url"] = found
-        if not str(df.at[idx, "latest_annual_pdf_url"] or "") and found.lower().endswith(".pdf"):
-            df.at[idx, "latest_annual_pdf_url"] = found
-        if not str(df.at[idx, "official_home_url"] or ""):
-            df.at[idx, "official_home_url"] = base_site(found)
-        note = str(df.at[idx, "notes"] or "")
-        suffix = "Annual report URL filled by targeted web lookup."
-        df.at[idx, "notes"] = (note + " " + suffix).strip()
+    if args.enable_ddg_lookup:
+        missing_idx = df[df["annual_report_url"].fillna("").eq("")].index.tolist()
+        for idx in missing_idx:
+            plan_name = str(df.at[idx, "pension_name"])
+            jurisdiction = str(df.at[idx, "jurisdiction_name"])
+            found = ddg_lookup_annual(plan_name, jurisdiction)
+            if not found:
+                continue
+            df.at[idx, "annual_report_url"] = found
+            df.at[idx, "annual_report_url_source"] = "ddg_lookup"
+            if not str(df.at[idx, "latest_annual_pdf_url"] or "") and found.lower().endswith(
+                ".pdf"
+            ):
+                df.at[idx, "latest_annual_pdf_url"] = found
+            if not str(df.at[idx, "official_home_url"] or ""):
+                df.at[idx, "official_home_url"] = base_site(found)
+            note = str(df.at[idx, "notes"] or "")
+            suffix = "Annual report URL filled by targeted web lookup."
+            df.at[idx, "notes"] = (note + " " + suffix).strip()
 
     # Deterministic overrides for plans where stable official report pages are known.
     for idx, row in df.iterrows():
@@ -878,6 +960,7 @@ def main() -> None:
             continue
         annual_url = MANUAL_ANNUAL_URL_OVERRIDES[pname]
         df.at[idx, "annual_report_url"] = annual_url
+        df.at[idx, "annual_report_url_source"] = "manual_override"
         df.at[idx, "official_home_url"] = base_site(annual_url)
         if url_looks_like_pdf(annual_url):
             df.at[idx, "latest_annual_pdf_url"] = annual_url
@@ -913,43 +996,44 @@ def main() -> None:
     state_download_log: list[dict[str, Any]] = []
     ok_count = 0
     fail_count = 0
-    for _, r in df.iterrows():
-        pdf_url = str(r["latest_annual_pdf_url"] or "")
-        seg = str(r["segment"])
-        seg_dir = local_docs_root / seg
-        seg_dir.mkdir(parents=True, exist_ok=True)
-        slug = re.sub(r"[^a-z0-9]+", "_", str(r["pension_name"]).lower()).strip("_")
-        out_file = seg_dir / f"{r['jurisdiction_code']}_{slug}.pdf"
-        if not pdf_url:
-            fail_count += 1
+    if args.download_annual_pdfs:
+        for _, r in df.iterrows():
+            pdf_url = str(r["latest_annual_pdf_url"] or "")
+            seg = str(r["segment"])
+            seg_dir = local_docs_root / seg
+            seg_dir.mkdir(parents=True, exist_ok=True)
+            slug = re.sub(r"[^a-z0-9]+", "_", str(r["pension_name"]).lower()).strip("_")
+            out_file = seg_dir / f"{r['jurisdiction_code']}_{slug}.pdf"
+            if not pdf_url:
+                fail_count += 1
+                item = {
+                    "segment": seg,
+                    "jurisdiction_code": r["jurisdiction_code"],
+                    "pension_name": r["pension_name"],
+                    "status": "skipped_no_pdf_url",
+                    "url": "",
+                    "file_path": "",
+                }
+                download_log.append(item)
+                if seg in {"state_employee_or_dc", "territory"}:
+                    state_download_log.append(item)
+                continue
+            ok = download_pdf(pdf_url, out_file)
+            if ok:
+                ok_count += 1
+            else:
+                fail_count += 1
             item = {
                 "segment": seg,
                 "jurisdiction_code": r["jurisdiction_code"],
                 "pension_name": r["pension_name"],
-                "status": "skipped_no_pdf_url",
-                "url": "",
-                "file_path": "",
+                "status": "downloaded" if ok else "failed_download",
+                "url": pdf_url,
+                "file_path": str(out_file) if ok else "",
             }
             download_log.append(item)
             if seg in {"state_employee_or_dc", "territory"}:
                 state_download_log.append(item)
-            continue
-        ok = download_pdf(pdf_url, out_file)
-        if ok:
-            ok_count += 1
-        else:
-            fail_count += 1
-        item = {
-            "segment": seg,
-            "jurisdiction_code": r["jurisdiction_code"],
-            "pension_name": r["pension_name"],
-            "status": "downloaded" if ok else "failed_download",
-            "url": pdf_url,
-            "file_path": str(out_file) if ok else "",
-        }
-        download_log.append(item)
-        if seg in {"state_employee_or_dc", "territory"}:
-            state_download_log.append(item)
 
     (out_dir / "annual_report_download_log.json").write_text(
         json.dumps(download_log, indent=2), encoding="utf-8"
@@ -957,7 +1041,16 @@ def main() -> None:
     (out_dir / "state_download_log.json").write_text(
         json.dumps(state_download_log, indent=2), encoding="utf-8"
     )
-    write_markdown_summary(df, out_dir / "README.md", ok_count, fail_count)
+    write_markdown_summary(
+        df,
+        out_dir / "README.md",
+        ok_count,
+        fail_count,
+        generated_at_utc=datetime.now(UTC).strftime("%Y-%m-%d"),
+        local_docs_root=local_docs_root,
+        download_enabled=args.download_annual_pdfs,
+        ddg_lookup_enabled=args.enable_ddg_lookup,
+    )
 
     print(f"Wrote {out_dir / 'state_and_territory_pensions.csv'} ({len(state_df)} rows)")
     print(f"Wrote {out_dir / 'non_state_largest_public_pensions.csv'} ({len(non_state_df)} rows)")
@@ -966,6 +1059,8 @@ def main() -> None:
     print(f"Wrote {out_dir / 'state_download_log.json'}")
     print(f"Wrote {out_dir / 'README.md'}")
     print(f"Downloaded PDFs: {ok_count}; failed/skipped: {fail_count}")
+    print(f"DDG lookup enabled: {args.enable_ddg_lookup}")
+    print(f"Download enabled: {args.download_annual_pdfs}")
     print(f"Local docs folder: {local_docs_root}")
 
 
