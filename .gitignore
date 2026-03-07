@@ -30,3 +30,7 @@ apps/mac-desktop/src-tauri/target/
 
 # Runtime NL observability logs
 artifacts/langchain/nl_operations.jsonl
+
+# Local source collection artifacts (intentionally untracked)
+doc/Sources/
+uv.lock

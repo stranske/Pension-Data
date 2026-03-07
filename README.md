@@ -18,6 +18,8 @@ cd Pension-Data
 pip install -e ".[dev]"
 # Optional LangChain runtime support:
 pip install -e ".[langchain]"
+# Optional source collection/bootstrap tooling:
+pip install -e ".[source_collection]"
 ```
 
 Run local checks:
@@ -44,10 +46,19 @@ See [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md) and
 .github/workflows/        CI and agent automation workflows
 apps/mac-desktop/         Packaged macOS desktop app scaffold
 src/pension_data/         Application modules
+scripts/source_collection/ Source inventory/bootstrap tooling
 tests/                    Unit/integration/contract tests
 docs/                     Runbooks, guides, issue formatting, ops notes
 scripts/                  Utility scripts and LangChain-assisted tooling
 ```
+
+## Planning + Source Bootstrap
+
+- Planning documents now live under `docs/Planning/`.
+- Source inventory bootstrap script:
+  - `scripts/source_collection/build_pension_sources.py`
+  - This script generates local source artifacts under `doc/Sources/`.
+  - `DDG` fallback lookup and PDF downloads are opt-in flags.
 
 ## Workflow Notes
 
@@ -75,6 +86,8 @@ See [docs/UI_LANGCHAIN_OPTIONS.md](docs/UI_LANGCHAIN_OPTIONS.md) for deployment 
 - [docs/contracts/DOCUMENT_ORCHESTRATION_JOB_CONTRACT.md](docs/contracts/DOCUMENT_ORCHESTRATION_JOB_CONTRACT.md)
 - [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md)
 - [docs/adr/ADR-0001-database-strategy.md](docs/adr/ADR-0001-database-strategy.md)
+- [docs/Planning/ISSUE_DEPENDENCY_RUN_ORDER.md](docs/Planning/ISSUE_DEPENDENCY_RUN_ORDER.md)
+- [docs/Planning/PENSION_DATA_PLAN.md](docs/Planning/PENSION_DATA_PLAN.md)
 
 ## License
 
