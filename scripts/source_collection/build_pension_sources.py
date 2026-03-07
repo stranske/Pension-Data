@@ -589,7 +589,13 @@ def money_k_to_billion(value: float | int | None) -> float | None:
 
 
 def load_latest_ret_sys_data() -> pd.DataFrame:
-    usecols = ["system_id", "RetirementSystemName", "RetirementSystemStateAbbrev", "fy", "MktAssets_net"]
+    usecols = [
+        "system_id",
+        "RetirementSystemName",
+        "RetirementSystemStateAbbrev",
+        "fy",
+        "MktAssets_net",
+    ]
     df = pd.read_excel(PPD_XLSX_URL, usecols=usecols)
     latest = df.sort_values(["system_id", "fy"]).groupby("system_id").tail(1).copy()
     latest["aum_usd_billions"] = latest["MktAssets_net"].apply(money_k_to_billion)
@@ -636,7 +642,9 @@ def fetch_latest_plan_reports(plan_id: int) -> dict[str, Any]:
     return {"report_fy": report_fy, "links": links}
 
 
-def choose_link(links: list[tuple[str, str]], include_terms: list[str], priority_labels: list[str]) -> str:
+def choose_link(
+    links: list[tuple[str, str]], include_terms: list[str], priority_labels: list[str]
+) -> str:
     if not links:
         return ""
     for p in priority_labels:
@@ -735,7 +743,9 @@ def download_pdf(url: str, path: Path) -> bool:
         return False
 
 
-def write_markdown_summary(df_all: pd.DataFrame, out_path: Path, downloads_ok: int, downloads_fail: int) -> None:
+def write_markdown_summary(
+    df_all: pd.DataFrame, out_path: Path, downloads_ok: int, downloads_fail: int
+) -> None:
     lines = [
         "# Pension Sources (Starter Baseline)",
         "",
@@ -853,9 +863,8 @@ def main() -> None:
         if not found:
             continue
         df.at[idx, "annual_report_url"] = found
-        if not str(df.at[idx, "latest_annual_pdf_url"] or ""):
-            if found.lower().endswith(".pdf"):
-                df.at[idx, "latest_annual_pdf_url"] = found
+        if not str(df.at[idx, "latest_annual_pdf_url"] or "") and found.lower().endswith(".pdf"):
+            df.at[idx, "latest_annual_pdf_url"] = found
         if not str(df.at[idx, "official_home_url"] or ""):
             df.at[idx, "official_home_url"] = base_site(found)
         note = str(df.at[idx, "notes"] or "")
