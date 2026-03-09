@@ -45,7 +45,7 @@ jobs:
 
       - name: Upload entity regression report
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: entity-regression-report
           path: artifacts/entity_regression/report.json
