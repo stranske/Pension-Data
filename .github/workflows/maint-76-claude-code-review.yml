@@ -188,7 +188,7 @@ jobs:
       - name: Run Claude Code Review
         id: claude
         continue-on-error: true
-        uses: anthropics/claude-code-action@220272d38887a1caed373da96a9ffdb0919c26cc
+        uses: anthropics/claude-code-action@cd77b50d2b0808657f8e6774085c8bf54484351c
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: '*'
