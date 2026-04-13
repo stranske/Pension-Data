@@ -37,7 +37,7 @@ langchain = [
     "langsmith>=0.4.40",
 ]
 source_collection = [
-    "pandas>=2.2.0",
+    "pandas>=3.0.2",
     "openpyxl>=3.1.0",
     "requests>=2.32.0",
 ]
