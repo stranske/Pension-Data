@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 from urllib.parse import urlparse
 
 from pension_data.coverage.readiness import build_readiness_artifacts
@@ -130,7 +130,7 @@ def _parse_authority_tier(raw: str) -> SourceAuthorityTier:
             "discovered record has invalid source_authority_tier "
             f"'{raw}'; expected one of {', '.join(SOURCE_AUTHORITY_TIERS)}"
         )
-    return cast(SourceAuthorityTier, raw)
+    return raw
 
 
 def _parse_resolution_state(raw: str) -> OfficialResolutionState:
@@ -139,7 +139,7 @@ def _parse_resolution_state(raw: str) -> OfficialResolutionState:
             "discovered record has invalid official_resolution_state "
             f"'{raw}'; expected one of {', '.join(OFFICIAL_RESOLUTION_STATES)}"
         )
-    return cast(OfficialResolutionState, raw)
+    return raw
 
 
 def _parse_mismatch_reason(raw: str | None) -> MismatchReason | None:
@@ -150,7 +150,7 @@ def _parse_mismatch_reason(raw: str | None) -> MismatchReason | None:
             f"discovered record has invalid mismatch_reason '{raw}'; "
             f"expected one of {', '.join(MISMATCH_REASONS)}"
         )
-    return cast(MismatchReason, raw)
+    return raw
 
 
 def categorize_failure(*, stage: StageName, message: str) -> FailureCategory:
