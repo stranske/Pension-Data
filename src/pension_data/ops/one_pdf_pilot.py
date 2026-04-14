@@ -184,7 +184,7 @@ def resolve_one_pdf_pilot_input(
         plan_period=resolved["plan_period"],
         effective_date=resolved["effective_date"],
         ingestion_date=resolved["ingestion_date"],
-        default_money_unit_scale=cast(UnitScale, unit_scale_value),
+        default_money_unit_scale=unit_scale_value,
         source_url=resolved_source_url,
         source_document_id=resolved_source_document_id,
         fetched_at=resolved_fetched_at,
