@@ -6,6 +6,7 @@ import csv
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+
 from pension_data.db.models.registry import JurisdictionType, PensionSystemRecord, SystemType
 
 REQUIRED_COLUMNS: tuple[str, ...] = (
