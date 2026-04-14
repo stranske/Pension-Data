@@ -6,7 +6,6 @@ import csv
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import cast
 
 from pension_data.db.models.registry import JurisdictionType, PensionSystemRecord, SystemType
 
@@ -52,7 +51,7 @@ def parse_system_type(value: str, *, row_number: int) -> SystemType:
         raise RegistryValidationError(
             f"row {row_number} has invalid system_type '{value}'; expected one of: {expected}"
         )
-    return cast(SystemType, normalized)
+    return normalized
 
 
 def parse_jurisdiction_type(value: str, *, row_number: int) -> JurisdictionType:
@@ -64,7 +63,7 @@ def parse_jurisdiction_type(value: str, *, row_number: int) -> JurisdictionType:
             f"row {row_number} has invalid jurisdiction_type '{value}'; "
             f"expected one of: {expected}"
         )
-    return cast(JurisdictionType, normalized)
+    return normalized
 
 
 def _require_columns(row: Mapping[str, str], *, row_number: int) -> None:
