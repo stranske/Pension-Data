@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, fields, is_dataclass
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Literal, TypeVar, cast
+from typing import Literal, cast
 
 from pension_data.coverage.component_completeness import (
     build_component_datasets,
@@ -164,7 +164,6 @@ class DocumentOrchestrationState:
 
 
 ParserCallable = Callable[[SourceDocumentJobItem, RawArtifactRecord], RawFundedActuarialInput]
-T = TypeVar("T")
 
 _NUMBER_PATTERN = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
 _DOMAIN_ORDER: tuple[str, ...] = (
@@ -193,7 +192,7 @@ def _normalize_state(state: DocumentOrchestrationState | None) -> DocumentOrches
     return state or DocumentOrchestrationState()
 
 
-def _retry(func: Callable[[], T], *, max_retries: int) -> tuple[T, int]:
+def _retry[T](func: Callable[[], T], *, max_retries: int) -> tuple[T, int]:
     attempts = 0
     while True:
         attempts += 1

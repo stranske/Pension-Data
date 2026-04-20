@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal, Protocol, TypeVar
+from typing import Literal, Protocol
 
 RelationshipCompleteness = Literal["complete", "partial", "not_disclosed"]
 FeeCategory = Literal["investment_management", "performance", "consulting", "other"]
@@ -58,9 +58,6 @@ class BitemporalFactContext:
 
 class _HasBitemporalContext(Protocol):
     context: BitemporalFactContext
-
-
-TFact = TypeVar("TFact", bound=_HasBitemporalContext)
 
 
 def _parse_iso_temporal(value: str, *, field_name: str) -> datetime:
@@ -182,7 +179,7 @@ class ConsultantEngagementFact:
     evidence_refs: tuple[str, ...]
 
 
-def query_bitemporal_as_of(
+def query_bitemporal_as_of[TFact: _HasBitemporalContext](
     facts: Sequence[TFact],
     *,
     effective_date: str,

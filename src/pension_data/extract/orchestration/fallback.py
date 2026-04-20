@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Generic, TypeVar
-
-TResult = TypeVar("TResult")
 
 PARSER_FALLBACK_ORDER_BY_DOMAIN: dict[str, tuple[str, ...]] = {
     "funded": ("table_primary", "text_fallback", "full_fallback"),
@@ -36,7 +33,7 @@ class EscalationEvent:
 
 
 @dataclass(frozen=True, slots=True)
-class ParserStage(Generic[TResult]):
+class ParserStage[TResult]:
     """One parser stage in a domain fallback chain."""
 
     stage_name: str
@@ -45,7 +42,7 @@ class ParserStage(Generic[TResult]):
 
 
 @dataclass(frozen=True, slots=True)
-class FallbackOutcome(Generic[TResult]):
+class FallbackOutcome[TResult]:
     """Output for fallback orchestration."""
 
     result: TResult | None
@@ -53,7 +50,7 @@ class FallbackOutcome(Generic[TResult]):
     escalation: EscalationEvent | None
 
 
-def run_fallback_chain(
+def run_fallback_chain[TResult](
     *,
     domain: str,
     stages: Sequence[ParserStage[TResult]],
