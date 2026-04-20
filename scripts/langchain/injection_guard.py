@@ -41,9 +41,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Final, Literal, TypedDict, cast
+from typing import Final, Literal, TypeAlias, TypedDict, cast
 
-type ReasonCode = Literal[
+ReasonCode: TypeAlias = Literal[
     "INSTRUCTION_OVERRIDE",
     "SYSTEM_PROMPT_EXFILTRATION",
     "ROLE_CONFUSION",
@@ -51,7 +51,7 @@ type ReasonCode = Literal[
     "TOOL_INJECTION",
 ]
 
-type GuardResult = tuple[bool, str]
+GuardResult: TypeAlias = tuple[bool, str]
 
 
 class GuardCheckResultAllowed(TypedDict):
@@ -70,7 +70,7 @@ class GuardCheckResultBlocked(TypedDict):
     code: ReasonCode | Literal["GUARD_ERROR"] | None
 
 
-type GuardCheckResult = GuardCheckResultAllowed | GuardCheckResultBlocked
+GuardCheckResult: TypeAlias = GuardCheckResultAllowed | GuardCheckResultBlocked
 
 
 @dataclass(frozen=True)
