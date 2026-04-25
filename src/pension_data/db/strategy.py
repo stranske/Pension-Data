@@ -67,10 +67,12 @@ def migration_file_paths(*, dialect: DatabaseDialect) -> tuple[Path, ...]:
         return (
             migrations_root / "20260302_001_core_fact_staging.sql",
             migrations_root / "20260302_002_seed_backfill_compat.sql",
+            migrations_root / "20260307_003_extended_staging.sql",
         )
     return (
         migrations_root / "20260303_101_pg_core_fact_staging.sql",
         migrations_root / "20260303_102_pg_seed_backfill_compat.sql",
+        migrations_root / "20260307_103_pg_extended_staging.sql",
     )
 
 

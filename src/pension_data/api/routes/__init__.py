@@ -16,6 +16,7 @@ from pension_data.api.routes.metric_history import (
     run_metric_history_endpoint,
 )
 from pension_data.api.routes.nl import NLRouteResult, run_nl_query_endpoint
+from pension_data.api.routes.saved_views import SavedViewRouteResult, run_saved_view_endpoint
 from pension_data.api.routes.sql import run_sql_query_endpoint
 
 __all__ = [
@@ -24,11 +25,13 @@ __all__ = [
     "FindingsExplainRouteResult",
     "MetricHistoryRouteResult",
     "NLRouteResult",
+    "SavedViewRouteResult",
     "run_findings_compare_endpoint",
     "run_findings_explain_endpoint",
     "run_metric_history_endpoint",
     "run_metric_history_export_endpoint",
     "run_nl_query_endpoint",
+    "run_saved_view_endpoint",
     "run_sql_export_endpoint",
     "run_sql_query_endpoint",
 ]

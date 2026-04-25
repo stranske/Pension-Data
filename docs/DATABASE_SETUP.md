@@ -1,6 +1,6 @@
 # Database Setup
 
-Last reviewed: 2026-03-03
+Last reviewed: 2026-04-25
 
 This repo uses a split DB strategy:
 
@@ -44,11 +44,13 @@ SQLite migrations:
 
 1. `src/pension_data/db/migrations/20260302_001_core_fact_staging.sql`
 2. `src/pension_data/db/migrations/20260302_002_seed_backfill_compat.sql`
+3. `src/pension_data/db/migrations/20260307_003_extended_staging.sql`
 
 PostgreSQL migrations:
 
 1. `src/pension_data/db/migrations/20260303_101_pg_core_fact_staging.sql`
 2. `src/pension_data/db/migrations/20260303_102_pg_seed_backfill_compat.sql`
+3. `src/pension_data/db/migrations/20260307_103_pg_extended_staging.sql`
 
 ## Runtime Strategy Module
 

@@ -1,32 +1,71 @@
 # Pension-Data Issue Queue
 #
 # Purpose:
-# - Optional intake queue for issue->PR automation workflows.
+# - Local draft queue for the repo-review decision packet.
+# - These entries are issue drafts only; do not create remote issues until a human approves them.
 # - Keep entries aligned with docs/AGENT_ISSUE_FORMAT.md.
-#
-# Status:
-# - Template starter issue removed.
-# - Add new items only when you want automation to ingest them.
 
-# Example skeleton (fill in and duplicate as needed):
-#
-# 1) Title
-# Labels: agent:codex, enhancement
-#
-# Why
-# <why this matters>
-#
-# Scope
-# - <included>
-#
-# Non-Goals
-# - <excluded>
-#
-# Tasks
-# - [ ] <task>
-#
-# Acceptance criteria
-# - [ ] <verifiable outcome>
-#
-# Implementation notes
-# - <technical notes>
+1) Add source authority readiness gates and extraction-blocker reporting
+Labels: agent:codex, enhancement, source-quality
+
+Why
+The project plan requires broad pension-system coverage, source-map authority, restatement handling, and a coverage-gap dashboard. Before deep extraction expands, the system needs machine-readable "ready vs blocked" extraction status per plan-year so automation does not treat stale, mismatched, or unofficial sources as valid inputs.
+
+Scope
+- Extend source-map validation around source authority and plan identity consistency.
+- Add extraction-readiness outputs that classify each plan-year as ready or blocked.
+- Surface unresolved official-source counts, source mismatch rates, and stale-period rates.
+- Keep the output usable by weekly review packets and later issue-generation decisions.
+
+Non-Goals
+- Building a full crawler for every source.
+- Solving all official-source gaps.
+- Implementing manager-level extraction itself.
+
+Tasks
+- [ ] Add or verify source authority tiers: `official`, `official-mirror`, `high-confidence-third-party`.
+- [ ] Validate source-to-plan identity consistency and quarantine reasons such as `wrong_plan`, `stale_period`, and `non_official_only`.
+- [ ] Emit machine-readable extraction-readiness records per plan-year.
+- [ ] Add tests for valid, stale, mismatched, and unofficial-only source rows.
+- [ ] Document the readiness output in the source-map or foundation ingestion docs.
+
+Acceptance criteria
+- [ ] A reviewer can tell which plan-years are safe for extraction and which are blocked.
+- [ ] Source mismatch and stale-period rates are available by cohort or source group.
+- [ ] Tests prevent silently promoting non-official or mismatched sources into extraction-ready status.
+
+Implementation notes
+- See `docs/Planning/ISSUE_DEPENDENCY_RUN_ORDER.md`, especially the evidence-driven amendments for issues #14, #15, #17, and #51.
+- Relevant starting points include `config/sources/source_map_v1.csv`, source validation tests, and coverage/readiness modules.
+
+2) Define the first reviewable UI/LangChain artifact path
+Labels: agent:codex, enhancement, ui, langchain
+
+Why
+The roadmap identifies a higher-quality analyst-facing UI and LangChain interaction layer as intentional gaps. The options doc recommends a static web UI backed by generated artifacts and GitHub Actions before any paid server or full desktop app. The weekly review process needs a concrete first artifact so issue generation does not stay at the vague "build UI" level.
+
+Scope
+- Define the first static review artifact or UI slice that can be generated from repository outputs.
+- Keep LangChain interactions asynchronous and artifact/comment based.
+- Specify the findings JSON contract needed by both UI and LangChain explain/compare flows.
+- Connect the artifact path to provenance, confidence, and citation requirements.
+
+Non-Goals
+- Building a paid always-on backend.
+- Completing the Mac desktop app.
+- Implementing broad conversational memory.
+
+Tasks
+- [ ] Choose the first artifact slice: funding trend, allocation peer compare, holdings overlap, or extraction quality dashboard.
+- [ ] Define the minimal findings JSON schema consumed by the static UI and LangChain explainers.
+- [ ] Add a generation command or documented artifact path under `docs/data/` or a release artifact plan.
+- [ ] Add tests or schema validation for the artifact contract.
+- [ ] Document how a human reviewer should inspect the generated artifact in the weekly review packet.
+
+Acceptance criteria
+- [ ] The first UI/LangChain artifact has a stable machine-readable schema.
+- [ ] The artifact includes provenance references, confidence, metric family, entity, and period fields where applicable.
+- [ ] The path supports a static UI without requiring users to run the repo locally.
+
+Implementation notes
+- See `docs/UI_LANGCHAIN_OPTIONS.md`, `docs/LANGCHAIN_FOUNDATIONS.md`, `docs/contracts/quant-data-model-contract.md`, and `docs/quant/roadmap.md`.

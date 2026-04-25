@@ -16,8 +16,8 @@ def test_sqlite_migrations_apply_and_record_versions_idempotently() -> None:
     finally:
         connection.close()
 
-    assert len(first.applied_versions) == 2
+    assert len(first.applied_versions) == 3
     assert first.skipped_versions == ()
     assert second.applied_versions == ()
-    assert len(second.skipped_versions) == 2
+    assert len(second.skipped_versions) == 3
     assert versions == tuple(sorted(first.applied_versions))
