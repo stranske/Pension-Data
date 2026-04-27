@@ -980,13 +980,20 @@ async function createIssueCommentWithRetry({ github, owner, repo, issueNumber, b
 }
 
 function buildSourceContextResolvedCommentBody(prNumber, sourceContext) {
+  const isIssueBacked = Boolean(
+    sourceContext?.requiresIssue
+      || sourceContext?.issueNumber
+      || sourceContext?.sourceType === SOURCE_TYPES.GITHUB_ISSUE
+  );
   return [
     '<!-- missing-issue-warning -->',
     '### Workflow source detected',
     '',
     `PR #${prNumber} now has valid workflow source context (${formatSourceContextForLog(sourceContext)}).`,
     '',
-    'No linked GitHub issue is required for this PR.',
+    isIssueBacked
+      ? 'A linked GitHub issue is present for this PR.'
+      : 'No linked GitHub issue is required for this PR.',
   ].join('\n');
 }
 
@@ -1023,8 +1030,36 @@ function resolveExplicitNonIssueWorkflowSourceContext(pr = {}) {
   };
 }
 
+function extractExplicitIssueSyncNumbers(pr = {}) {
+  const text = `${pr.title || ''}\n${pr.body || ''}`;
+  const issueNumbers = new Set();
+  const patterns = [
+    /<!--\s*meta:issue\s*:\s*([0-9]+)\s*-->/gi,
+    /\b(?:close[sd]?|closing|fix(?:e[sd])?|fixing|resolve[sd]?|resolving|address(?:e[sd])?|addressing)\s*[:#-]?\s*#([0-9]+)\b/gi,
+    /\b(?:(?:relate[sd]?\s+to|refs?|references?)\s+(?:(?:[a-z-]+\s+)?issue\s+)?|(?:source|github|linked)\s+issue\s*)[:#-]?\s*#([0-9]+)\b/gi,
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      issueNumbers.add(Number(match[1]));
+    }
+  }
+  return issueNumbers;
+}
+
+function hasExplicitIssueSyncReference(pr = {}) {
+  return extractExplicitIssueSyncNumbers(pr).size > 0;
+}
+
 function resolveNonIssueWorkflowSourceContextForBodySync(pr = {}, issueNumber = null) {
-  return issueNumber ? null : resolveExplicitNonIssueWorkflowSourceContext(pr);
+  const explicitNonIssueSourceContext = resolveExplicitNonIssueWorkflowSourceContext(pr);
+  if (!explicitNonIssueSourceContext) {
+    return null;
+  }
+  const explicitIssueNumbers = extractExplicitIssueSyncNumbers(pr);
+  if (issueNumber && explicitIssueNumbers.has(Number(issueNumber))) {
+    return null;
+  }
+  return explicitNonIssueSourceContext;
 }
 
 async function resolveSourceContextRepairComment({
@@ -1362,6 +1397,13 @@ async function run({github: rawGithub, context, core, inputs}) {
 
   const issueNumber = extractIssueNumberFromPull(pr);
   const sourceContext = resolvePrSourceContext(pr);
+  if (sourceContext.noAutomation) {
+    core.info(
+      `PR #${pr.number} has automation disabled (${formatSourceContextForLog(sourceContext)}); skipping PR body update and automation comment management.`,
+    );
+    return;
+  }
+
   const explicitNonIssueSourceContext = resolveNonIssueWorkflowSourceContextForBodySync(pr, issueNumber);
   if (explicitNonIssueSourceContext) {
     core.info(
@@ -1458,6 +1500,13 @@ async function run({github: rawGithub, context, core, inputs}) {
     return;
   }
 
+  core.info(`Fetching content from issue #${issueNumber} for PR #${pr.number}`);
+  const issueResponse = await withRetries(
+    () => github.rest.issues.get({owner, repo, issue_number: issueNumber}),
+    {description: `issues.get #${issueNumber}`, core},
+  );
+  const issueBody = issueResponse.data.body || '';
+
   try {
     const comments = await github.paginate(github.rest.issues.listComments, {
       owner,
@@ -1476,13 +1525,6 @@ async function run({github: rawGithub, context, core, inputs}) {
   } catch (error) {
     core.warning(`Failed to resolve workflow source repair comment: ${error.message}`);
   }
-
-  core.info(`Fetching content from issue #${issueNumber} for PR #${pr.number}`);
-  const issueResponse = await withRetries(
-    () => github.rest.issues.get({owner, repo, issue_number: issueNumber}),
-    {description: `issues.get #${issueNumber}`, core},
-  );
-  const issueBody = issueResponse.data.body || '';
 
   if (!issueBody) {
     core.warning(`Issue #${issueNumber} has no body content`);
@@ -1652,6 +1694,8 @@ module.exports = {
   buildSourceContextRepairCommentBody,
   buildSourceContextResolvedCommentBody,
   resolveExplicitNonIssueWorkflowSourceContext,
+  extractExplicitIssueSyncNumbers,
+  hasExplicitIssueSyncReference,
   resolveNonIssueWorkflowSourceContextForBodySync,
   resolveSourceContextRepairComment,
   isCampaignIssue,
