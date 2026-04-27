@@ -980,13 +980,16 @@ async function createIssueCommentWithRetry({ github, owner, repo, issueNumber, b
 }
 
 function buildSourceContextResolvedCommentBody(prNumber, sourceContext) {
+  const isIssueBacked = sourceContext?.requiresIssue || sourceContext?.issueNumber || sourceContext?.sourceType === SOURCE_TYPES.GITHUB_ISSUE;
   return [
     '<!-- missing-issue-warning -->',
     '### Workflow source detected',
     '',
     `PR #${prNumber} now has valid workflow source context (${formatSourceContextForLog(sourceContext)}).`,
     '',
-    'No linked GitHub issue is required for this PR.',
+    isIssueBacked
+      ? 'A linked GitHub issue is present for this PR.'
+      : 'No linked GitHub issue is required for this PR.',
   ].join('\n');
 }
 
@@ -1023,8 +1026,35 @@ function resolveExplicitNonIssueWorkflowSourceContext(pr = {}) {
   };
 }
 
+function extractExplicitIssueSyncNumbers(pr = {}) {
+  const text = `${pr.title || ''}\n${pr.body || ''}`;
+  const issueNumbers = new Set();
+  const patterns = [
+    /\b(?:close[sd]?|closing|fix(?:e[sd])?|fixing|resolve[sd]?|resolving|address(?:e[sd])?|addressing)\s*[:#-]?\s*#([0-9]+)\b/gi,
+    /\b(?:(?:relate[sd]?\s+to|references?)\s+(?:issue\s+)?|(?:source|github|linked)\s+issue\s*)[:#-]?\s*#([0-9]+)\b/gi,
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      issueNumbers.add(Number(match[1]));
+    }
+  }
+  return issueNumbers;
+}
+
+function hasExplicitIssueSyncReference(pr = {}) {
+  return extractExplicitIssueSyncNumbers(pr).size > 0;
+}
+
 function resolveNonIssueWorkflowSourceContextForBodySync(pr = {}, issueNumber = null) {
-  return issueNumber ? null : resolveExplicitNonIssueWorkflowSourceContext(pr);
+  const explicitNonIssueSourceContext = resolveExplicitNonIssueWorkflowSourceContext(pr);
+  if (!explicitNonIssueSourceContext) {
+    return null;
+  }
+  const explicitIssueNumbers = extractExplicitIssueSyncNumbers(pr);
+  if (issueNumber && explicitIssueNumbers.has(Number(issueNumber))) {
+    return null;
+  }
+  return explicitNonIssueSourceContext;
 }
 
 async function resolveSourceContextRepairComment({
@@ -1652,6 +1682,8 @@ module.exports = {
   buildSourceContextRepairCommentBody,
   buildSourceContextResolvedCommentBody,
   resolveExplicitNonIssueWorkflowSourceContext,
+  extractExplicitIssueSyncNumbers,
+  hasExplicitIssueSyncReference,
   resolveNonIssueWorkflowSourceContextForBodySync,
   resolveSourceContextRepairComment,
   isCampaignIssue,
