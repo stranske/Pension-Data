@@ -980,13 +980,16 @@ async function createIssueCommentWithRetry({ github, owner, repo, issueNumber, b
 }
 
 function buildSourceContextResolvedCommentBody(prNumber, sourceContext) {
+  const isIssueBacked = sourceContext?.requiresIssue || sourceContext?.issueNumber || sourceContext?.sourceType === SOURCE_TYPES.GITHUB_ISSUE;
   return [
     '<!-- missing-issue-warning -->',
     '### Workflow source detected',
     '',
     `PR #${prNumber} now has valid workflow source context (${formatSourceContextForLog(sourceContext)}).`,
     '',
-    'No linked GitHub issue is required for this PR.',
+    isIssueBacked
+      ? 'A linked GitHub issue is present for this PR.'
+      : 'No linked GitHub issue is required for this PR.',
   ].join('\n');
 }
 
@@ -1023,8 +1026,22 @@ function resolveExplicitNonIssueWorkflowSourceContext(pr = {}) {
   };
 }
 
+function hasExplicitIssueSyncReference(pr = {}) {
+  const text = `${pr.title || ''}\n${pr.body || ''}`;
+  const explicitClosingReference = /\b(?:close[sd]?|closing|fix(?:e[sd])?|fixing|resolve[sd]?|resolving|address(?:e[sd])?|addressing)\s*[:#-]?\s*#[0-9]+\b/i;
+  const explicitIssueReference = /\b(?:(?:relate[sd]?\s+to|references?)\s+(?:issue\s+)?|(?:source|github|linked)\s+issue\s*)[:#-]?\s*#[0-9]+\b/i;
+  return explicitClosingReference.test(text) || explicitIssueReference.test(text);
+}
+
 function resolveNonIssueWorkflowSourceContextForBodySync(pr = {}, issueNumber = null) {
-  return issueNumber ? null : resolveExplicitNonIssueWorkflowSourceContext(pr);
+  const explicitNonIssueSourceContext = resolveExplicitNonIssueWorkflowSourceContext(pr);
+  if (!explicitNonIssueSourceContext) {
+    return null;
+  }
+  if (issueNumber && hasExplicitIssueSyncReference(pr)) {
+    return null;
+  }
+  return explicitNonIssueSourceContext;
 }
 
 async function resolveSourceContextRepairComment({
@@ -1652,6 +1669,7 @@ module.exports = {
   buildSourceContextRepairCommentBody,
   buildSourceContextResolvedCommentBody,
   resolveExplicitNonIssueWorkflowSourceContext,
+  hasExplicitIssueSyncReference,
   resolveNonIssueWorkflowSourceContextForBodySync,
   resolveSourceContextRepairComment,
   isCampaignIssue,
