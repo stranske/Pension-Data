@@ -155,7 +155,7 @@ function hasCheckedNoAutomationTemplate(body) {
   if (!sectionLines.length) {
     return false;
   }
-  return checkedLabels(sectionLines).some((label) => NO_AUTOMATION_CHECKBOX_PATTERN.test(label));
+  return checkedLabels(startedFromLines(sectionLines)).some((label) => NO_AUTOMATION_CHECKBOX_PATTERN.test(label));
 }
 
 function hasExplicitIssueReferencePrefix(value) {
@@ -167,7 +167,7 @@ function hasExplicitIssueReferencePrefix(value) {
     return false;
   }
 
-  return /\b(?:close[sd]?|closing|fix(?:e[sd])?|fixing|resolve[sd]?|resolving|address(?:e[sd])?|addressing|relate[sd]?\s+to|refs?|references?|issue|source\s+issue|github\s+issue)\s*[:#-]?\s*$/i.test(
+  return /\b(?:close[sd]?|closing|fix(?:e[sd])?|fixing|resolve[sd]?|resolving|address(?:e[sd])?|addressing|relate[sd]?\s+to(?:\s+(?:issue|source\s+issue|github\s+issue))?|refs?(?:\s+(?:issue|source\s+issue|github\s+issue))?|references?(?:\s+(?:issue|source\s+issue|github\s+issue))?|source\s+issue|github\s+issue)\s*[:#-]?\s*$/i.test(
     prefix
   );
 }
