@@ -26,27 +26,21 @@ def _entity(
 class TestExactMatch:
     def test_exact_match_full_confidence(self) -> None:
         entities = [_entity("e1", "BlackRock")]
-        results = generate_alias_match_candidates(
-            source_name="BlackRock", entities=entities
-        )
+        results = generate_alias_match_candidates(source_name="BlackRock", entities=entities)
         assert len(results) == 1
         assert results[0].strategy == "exact"
         assert results[0].confidence == 1.0
 
     def test_exact_match_case_insensitive(self) -> None:
         entities = [_entity("e1", "BlackRock")]
-        results = generate_alias_match_candidates(
-            source_name="blackrock", entities=entities
-        )
+        results = generate_alias_match_candidates(source_name="blackrock", entities=entities)
         assert len(results) == 1
         assert results[0].strategy == "exact"
         assert results[0].confidence == 1.0
 
     def test_exact_match_via_alias(self) -> None:
         entities = [_entity("e1", "BlackRock Inc.", aliases=("BlackRock",))]
-        results = generate_alias_match_candidates(
-            source_name="blackrock", entities=entities
-        )
+        results = generate_alias_match_candidates(source_name="blackrock", entities=entities)
         assert len(results) == 1
         assert results[0].strategy == "exact"
 
@@ -117,9 +111,7 @@ class TestDeduplication:
         entities = [
             _entity("e1", "BlackRock", aliases=("BLK", "BlackRock Fund")),
         ]
-        results = generate_alias_match_candidates(
-            source_name="BlackRock", entities=entities
-        )
+        results = generate_alias_match_candidates(source_name="BlackRock", entities=entities)
         assert len(results) == 1
         # Exact match (1.0) should win over any fuzzy match
         assert results[0].confidence == 1.0
@@ -129,9 +121,7 @@ class TestDeduplication:
             _entity("e1", "BlackRock"),
             _entity("e2", "Blackstone"),
         ]
-        results = generate_alias_match_candidates(
-            source_name="BlackRock", entities=entities
-        )
+        results = generate_alias_match_candidates(source_name="BlackRock", entities=entities)
         stable_ids = {r.stable_id for r in results}
         assert "e1" in stable_ids
 
@@ -156,9 +146,7 @@ class TestSorting:
             _entity("e2", "Same Name"),
             _entity("e1", "Same Name"),
         ]
-        results = generate_alias_match_candidates(
-            source_name="Same Name", entities=entities
-        )
+        results = generate_alias_match_candidates(source_name="Same Name", entities=entities)
         assert len(results) == 2
         # Both are exact matches; should sort by stable_id ascending
         assert results[0].stable_id == "e1"
@@ -171,27 +159,19 @@ class TestSorting:
 class TestEdgeCases:
     def test_empty_source_name_returns_empty(self) -> None:
         entities = [_entity("e1", "BlackRock")]
-        results = generate_alias_match_candidates(
-            source_name="", entities=entities
-        )
+        results = generate_alias_match_candidates(source_name="", entities=entities)
         assert results == []
 
     def test_whitespace_source_name_returns_empty(self) -> None:
         entities = [_entity("e1", "BlackRock")]
-        results = generate_alias_match_candidates(
-            source_name="   ", entities=entities
-        )
+        results = generate_alias_match_candidates(source_name="   ", entities=entities)
         assert results == []
 
     def test_empty_entities_returns_empty(self) -> None:
-        results = generate_alias_match_candidates(
-            source_name="BlackRock", entities=[]
-        )
+        results = generate_alias_match_candidates(source_name="BlackRock", entities=[])
         assert results == []
 
     def test_entity_with_empty_name_skipped(self) -> None:
         entities = [_entity("e1", "")]
-        results = generate_alias_match_candidates(
-            source_name="BlackRock", entities=entities
-        )
+        results = generate_alias_match_candidates(source_name="BlackRock", entities=entities)
         assert results == []

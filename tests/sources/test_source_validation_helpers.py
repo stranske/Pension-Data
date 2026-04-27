@@ -193,63 +193,79 @@ class TestValidateSourceMapEntries:
         assert findings == []
 
     def test_invalid_url_detected(self) -> None:
-        findings = validate_source_map_entries([
-            _valid_entry(seed_url="not-a-url"),
-        ])
+        findings = validate_source_map_entries(
+            [
+                _valid_entry(seed_url="not-a-url"),
+            ]
+        )
         codes = [f.code for f in findings]
         assert "invalid_url" in codes
 
     def test_missing_allowed_domains_detected(self) -> None:
-        findings = validate_source_map_entries([
-            _valid_entry(allowed_domains=()),
-        ])
+        findings = validate_source_map_entries(
+            [
+                _valid_entry(allowed_domains=()),
+            ]
+        )
         codes = [f.code for f in findings]
         assert "missing_allowed_domains" in codes
 
     def test_invalid_domain_detected(self) -> None:
-        findings = validate_source_map_entries([
-            _valid_entry(allowed_domains=("nodot",)),
-        ])
+        findings = validate_source_map_entries(
+            [
+                _valid_entry(allowed_domains=("nodot",)),
+            ]
+        )
         codes = [f.code for f in findings]
         assert "invalid_allowed_domain" in codes
 
     def test_invalid_authority_tier_detected(self) -> None:
-        findings = validate_source_map_entries([
-            _valid_entry(source_authority_tier="bogus"),
-        ])
+        findings = validate_source_map_entries(
+            [
+                _valid_entry(source_authority_tier="bogus"),
+            ]
+        )
         codes = [f.code for f in findings]
         assert "invalid_authority_tier" in codes
 
     def test_annual_report_requires_authority_tier(self) -> None:
-        findings = validate_source_map_entries([
-            _valid_entry(
-                doc_type_hints=("annual_report",),
-                source_authority_tier="",
-            ),
-        ])
+        findings = validate_source_map_entries(
+            [
+                _valid_entry(
+                    doc_type_hints=("annual_report",),
+                    source_authority_tier="",
+                ),
+            ]
+        )
         codes = [f.code for f in findings]
         assert "missing_authority_tier" in codes
 
     def test_invalid_doc_type_hint(self) -> None:
-        findings = validate_source_map_entries([
-            _valid_entry(doc_type_hints=("unknown_type",)),
-        ])
+        findings = validate_source_map_entries(
+            [
+                _valid_entry(doc_type_hints=("unknown_type",)),
+            ]
+        )
         codes = [f.code for f in findings]
         assert "invalid_doc_type_hint" in codes
 
     def test_invalid_pagination_hint(self) -> None:
-        findings = validate_source_map_entries([
-            _valid_entry(pagination_hints=("unknown_pagination",)),
-        ])
+        findings = validate_source_map_entries(
+            [
+                _valid_entry(pagination_hints=("unknown_pagination",)),
+            ]
+        )
         codes = [f.code for f in findings]
         assert "invalid_pagination_hint" in codes
 
     def test_invalid_crawl_constraints(self) -> None:
-        findings = validate_source_map_entries([
-            _valid_entry(
-                crawl_constraints=CrawlConstraints(max_pages=0, max_depth=2),
-            ),
-        ])
+        findings = validate_source_map_entries(
+            [
+                _valid_entry(
+                    crawl_constraints=CrawlConstraints(max_pages=0, max_depth=2),
+                ),
+            ]
+        )
         codes = [f.code for f in findings]
         assert "invalid_crawl_constraints" in codes
 
@@ -274,29 +290,37 @@ class TestValidateSourceMapEntries:
         assert "duplicate_seed_url" in codes
 
     def test_invalid_override_key_detected(self) -> None:
-        findings = validate_source_map_entries([
-            _valid_entry(overrides=(("bad_key", "value"),)),
-        ])
+        findings = validate_source_map_entries(
+            [
+                _valid_entry(overrides=(("bad_key", "value"),)),
+            ]
+        )
         codes = [f.code for f in findings]
         assert "invalid_override_key" in codes
 
     def test_invalid_override_pagination_mode(self) -> None:
-        findings = validate_source_map_entries([
-            _valid_entry(overrides=(("pagination_mode", "bad_mode"),)),
-        ])
+        findings = validate_source_map_entries(
+            [
+                _valid_entry(overrides=(("pagination_mode", "bad_mode"),)),
+            ]
+        )
         codes = [f.code for f in findings]
         assert "invalid_override_value" in codes
 
     def test_invalid_override_requires_js(self) -> None:
-        findings = validate_source_map_entries([
-            _valid_entry(overrides=(("requires_js", "maybe"),)),
-        ])
+        findings = validate_source_map_entries(
+            [
+                _valid_entry(overrides=(("requires_js", "maybe"),)),
+            ]
+        )
         codes = [f.code for f in findings]
         assert "invalid_override_value" in codes
 
     def test_invalid_override_force_render_wait_ms(self) -> None:
-        findings = validate_source_map_entries([
-            _valid_entry(overrides=(("force_render_wait_ms", "not_a_number"),)),
-        ])
+        findings = validate_source_map_entries(
+            [
+                _valid_entry(overrides=(("force_render_wait_ms", "not_a_number"),)),
+            ]
+        )
         codes = [f.code for f in findings]
         assert "invalid_override_value" in codes

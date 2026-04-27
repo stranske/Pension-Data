@@ -36,9 +36,7 @@ def run_saved_view_endpoint(
     api_key_header: str | None,
     key_store: APIKeyStore,
     view_name: str,
-    view_inputs: (
-        list[FundingTrendInput] | list[AllocationPeerInput] | list[HoldingsOverlapInput]
-    ),
+    view_inputs: list[FundingTrendInput] | list[AllocationPeerInput] | list[HoldingsOverlapInput],
     subject_plan_id: str | None = None,
     plan_period: str | None = None,
     event: Mapping[str, Any] | None = None,
