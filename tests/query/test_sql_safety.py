@@ -99,9 +99,7 @@ class TestValidateReadOnlySql:
 
     def test_rejects_multiple_statements(self) -> None:
         with pytest.raises(SQLSafetyValidationError, match="multiple"):
-            validate_read_only_sql(
-                "SELECT 1; SELECT 2"
-            )
+            validate_read_only_sql("SELECT 1; SELECT 2")
 
     def test_allows_trailing_semicolon(self) -> None:
         result = validate_read_only_sql("SELECT plan_id FROM curated_metric_facts;")
@@ -205,9 +203,7 @@ class TestExtractSelectedColumns:
         assert cols == ("plan_id", "metric_name")
 
     def test_distinct_stripped(self) -> None:
-        cols = extract_selected_columns(
-            "SELECT DISTINCT plan_id FROM curated_metric_facts"
-        )
+        cols = extract_selected_columns("SELECT DISTINCT plan_id FROM curated_metric_facts")
         assert cols == ("plan_id",)
 
     def test_star_rejected(self) -> None:
@@ -215,9 +211,7 @@ class TestExtractSelectedColumns:
             extract_selected_columns("SELECT * FROM curated_metric_facts")
 
     def test_table_qualified_column(self) -> None:
-        cols = extract_selected_columns(
-            "SELECT c.plan_id FROM curated_metric_facts c"
-        )
+        cols = extract_selected_columns("SELECT c.plan_id FROM curated_metric_facts c")
         assert cols == ("plan_id",)
 
 

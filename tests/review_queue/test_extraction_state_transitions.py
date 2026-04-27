@@ -76,21 +76,25 @@ class TestBuildExtractionReviewQueue:
 
     def test_inconsistent_routing_raises(self) -> None:
         with pytest.raises(ValueError, match="inconsistent"):
-            build_extraction_review_queue([
-                _decision(
-                    routing_outcome="publish_with_warning",
-                    review_priority="high",
-                )
-            ])
+            build_extraction_review_queue(
+                [
+                    _decision(
+                        routing_outcome="publish_with_warning",
+                        review_priority="high",
+                    )
+                ]
+            )
 
     def test_inconsistent_high_priority_raises(self) -> None:
         with pytest.raises(ValueError, match="inconsistent"):
-            build_extraction_review_queue([
-                _decision(
-                    routing_outcome="high_priority_review",
-                    review_priority="medium",
-                )
-            ])
+            build_extraction_review_queue(
+                [
+                    _decision(
+                        routing_outcome="high_priority_review",
+                        review_priority="medium",
+                    )
+                ]
+            )
 
     def test_audit_trail_populated(self) -> None:
         rows = build_extraction_review_queue([_decision()])
@@ -147,9 +151,7 @@ class TestTransitionState:
     @pytest.fixture()
     def _base_rows(self) -> list[ExtractionReviewQueueRecord]:
         ts = datetime(2024, 1, 1, tzinfo=UTC)
-        return build_extraction_review_queue(
-            [_decision()], queued_at=ts
-        )
+        return build_extraction_review_queue([_decision()], queued_at=ts)
 
     def test_new_to_in_review(self, _base_rows: list[ExtractionReviewQueueRecord]) -> None:
         result = transition_extraction_review_state(
@@ -200,9 +202,7 @@ class TestTransitionState:
                 reason="reopen",
             )
 
-    def test_deferred_to_in_review(
-        self, _base_rows: list[ExtractionReviewQueueRecord]
-    ) -> None:
+    def test_deferred_to_in_review(self, _base_rows: list[ExtractionReviewQueueRecord]) -> None:
         deferred = transition_extraction_review_state(
             _base_rows,
             queue_id=_base_rows[0].queue_id,
@@ -219,9 +219,7 @@ class TestTransitionState:
         )
         assert result[0].state == "in_review"
 
-    def test_audit_trail_grows(
-        self, _base_rows: list[ExtractionReviewQueueRecord]
-    ) -> None:
+    def test_audit_trail_grows(self, _base_rows: list[ExtractionReviewQueueRecord]) -> None:
         result = transition_extraction_review_state(
             _base_rows,
             queue_id=_base_rows[0].queue_id,
@@ -236,9 +234,7 @@ class TestTransitionState:
         assert latest.next_state == "in_review"
         assert latest.actor == "reviewer"
 
-    def test_unknown_queue_id_raises(
-        self, _base_rows: list[ExtractionReviewQueueRecord]
-    ) -> None:
+    def test_unknown_queue_id_raises(self, _base_rows: list[ExtractionReviewQueueRecord]) -> None:
         with pytest.raises(ValueError, match="not found"):
             transition_extraction_review_state(
                 _base_rows,
@@ -260,9 +256,7 @@ class TestTransitionState:
         )
         assert result[0].audit_trail[-1].actor == "unknown"
 
-    def test_empty_reason_defaults(
-        self, _base_rows: list[ExtractionReviewQueueRecord]
-    ) -> None:
+    def test_empty_reason_defaults(self, _base_rows: list[ExtractionReviewQueueRecord]) -> None:
         result = transition_extraction_review_state(
             _base_rows,
             queue_id=_base_rows[0].queue_id,

@@ -74,6 +74,22 @@ CREATE TABLE IF NOT EXISTS staging_manager_fund_vehicle_relationships (
   source_document_id TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS staging_consultant_engagements (
+  engagement_id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL,
+  plan_period TEXT NOT NULL,
+  consultant_name TEXT NOT NULL,
+  role_description TEXT NOT NULL,
+  recommendation_topic TEXT,
+  recommendation_text TEXT,
+  attribution_outcome TEXT,
+  relationship_completeness TEXT NOT NULL,
+  effective_date TIMESTAMPTZ NOT NULL,
+  ingestion_date TIMESTAMPTZ NOT NULL,
+  benchmark_version TEXT NOT NULL,
+  source_document_id TEXT NOT NULL
+);
+
 CREATE OR REPLACE VIEW curated_metric_facts AS
 SELECT
   plan_id,

@@ -139,6 +139,4 @@ def test_extended_migration_creates_all_domain_tables() -> None:
         "entity_review_queue",
         "discovered_inventory",
     }
-    assert expected_tables.issubset(table_names), (
-        f"Missing tables: {expected_tables - table_names}"
-    )
+    assert expected_tables.issubset(table_names), f"Missing tables: {expected_tables - table_names}"

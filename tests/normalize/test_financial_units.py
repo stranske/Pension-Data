@@ -28,23 +28,47 @@ class TestNormalizeMoneyToUsd:
 
 class TestNormalizeFlowSign:
     def test_inflow_is_positive(self) -> None:
-        assert normalize_flow_sign(100.0, direction="inflow", outflows_reported_as_negative=False) == 100.0
+        assert (
+            normalize_flow_sign(100.0, direction="inflow", outflows_reported_as_negative=False)
+            == 100.0
+        )
 
     def test_inflow_negative_input_becomes_positive(self) -> None:
-        assert normalize_flow_sign(-100.0, direction="inflow", outflows_reported_as_negative=False) == 100.0
+        assert (
+            normalize_flow_sign(-100.0, direction="inflow", outflows_reported_as_negative=False)
+            == 100.0
+        )
 
     def test_outflow_is_negative(self) -> None:
-        assert normalize_flow_sign(100.0, direction="outflow", outflows_reported_as_negative=False) == -100.0
+        assert (
+            normalize_flow_sign(100.0, direction="outflow", outflows_reported_as_negative=False)
+            == -100.0
+        )
 
     def test_outflow_already_negative_when_reported_as_negative(self) -> None:
-        assert normalize_flow_sign(-100.0, direction="outflow", outflows_reported_as_negative=True) == -100.0
+        assert (
+            normalize_flow_sign(-100.0, direction="outflow", outflows_reported_as_negative=True)
+            == -100.0
+        )
 
     def test_outflow_positive_when_reported_as_negative_gets_negated(self) -> None:
-        assert normalize_flow_sign(100.0, direction="outflow", outflows_reported_as_negative=True) == -100.0
+        assert (
+            normalize_flow_sign(100.0, direction="outflow", outflows_reported_as_negative=True)
+            == -100.0
+        )
 
     def test_balance_keeps_raw_sign(self) -> None:
-        assert normalize_flow_sign(-50.0, direction="balance", outflows_reported_as_negative=False) == -50.0
-        assert normalize_flow_sign(50.0, direction="balance", outflows_reported_as_negative=False) == 50.0
+        assert (
+            normalize_flow_sign(-50.0, direction="balance", outflows_reported_as_negative=False)
+            == -50.0
+        )
+        assert (
+            normalize_flow_sign(50.0, direction="balance", outflows_reported_as_negative=False)
+            == 50.0
+        )
 
     def test_none_amount_returns_none(self) -> None:
-        assert normalize_flow_sign(None, direction="inflow", outflows_reported_as_negative=False) is None
+        assert (
+            normalize_flow_sign(None, direction="inflow", outflows_reported_as_negative=False)
+            is None
+        )
