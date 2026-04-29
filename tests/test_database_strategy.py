@@ -171,3 +171,22 @@ def test_migration_dependency_proves_consultant_engagements_table_must_remain() 
     assert create_table_sql in postgres_core_sql
     assert dependent_index_sql in sqlite_extended_sql
     assert dependent_index_sql in postgres_extended_sql
+
+
+def test_pr339_investigation_confirms_staging_consultant_engagements_should_remain() -> None:
+    sqlite_paths = migration_file_paths(dialect="sqlite")
+    postgres_paths = migration_file_paths(dialect="postgresql")
+
+    sqlite_extended_sql = next(
+        path.read_text(encoding="utf-8") for path in sqlite_paths if "extended_staging" in path.name
+    )
+    postgres_extended_sql = next(
+        path.read_text(encoding="utf-8")
+        for path in postgres_paths
+        if "pg_extended_staging" in path.name
+    )
+
+    # The dependent index in the extended migrations requires this table to exist in core.
+    table_name = "staging_consultant_engagements"
+    assert f"ON {table_name}(plan_id, plan_period);" in sqlite_extended_sql
+    assert f"ON {table_name}(plan_id, plan_period);" in postgres_extended_sql
