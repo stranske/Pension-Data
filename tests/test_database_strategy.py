@@ -96,3 +96,26 @@ def test_migrations_create_consultant_engagements_index_dependency() -> None:
         connection.close()
 
     assert row == ("idx_consultant_engagements_plan",)
+
+
+def test_consultant_engagements_table_precedes_dependent_index_for_each_dialect() -> None:
+    sqlite_paths = migration_file_paths(dialect="sqlite")
+    postgres_paths = migration_file_paths(dialect="postgresql")
+
+    sqlite_core_sql = sqlite_paths[0].read_text(encoding="utf-8")
+    sqlite_extended_sql = sqlite_paths[2].read_text(encoding="utf-8")
+    postgres_core_sql = postgres_paths[0].read_text(encoding="utf-8")
+    postgres_extended_sql = postgres_paths[2].read_text(encoding="utf-8")
+
+    create_table = "CREATE TABLE IF NOT EXISTS staging_consultant_engagements"
+    create_index = "CREATE INDEX IF NOT EXISTS idx_consultant_engagements_plan"
+
+    assert create_table in sqlite_core_sql
+    assert create_table not in sqlite_extended_sql
+    assert create_index not in sqlite_core_sql
+    assert create_index in sqlite_extended_sql
+
+    assert create_table in postgres_core_sql
+    assert create_table not in postgres_extended_sql
+    assert create_index not in postgres_core_sql
+    assert create_index in postgres_extended_sql
