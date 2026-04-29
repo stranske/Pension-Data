@@ -141,3 +141,33 @@ def test_sqlite_migration_history_keeps_core_before_extended_consultant_dependen
     assert core_version in versions
     assert extended_version in versions
     assert versions.index(core_version) < versions.index(extended_version)
+
+
+def test_migration_dependency_proves_consultant_engagements_table_must_remain() -> None:
+    sqlite_paths = migration_file_paths(dialect="sqlite")
+    postgres_paths = migration_file_paths(dialect="postgresql")
+
+    create_table_sql = "CREATE TABLE IF NOT EXISTS staging_consultant_engagements"
+    dependent_index_sql = (
+        "CREATE INDEX IF NOT EXISTS idx_consultant_engagements_plan "
+        "ON staging_consultant_engagements(plan_id, plan_period);"
+    )
+
+    sqlite_core_path = next(path for path in sqlite_paths if "core_fact_staging" in path.name)
+    sqlite_extended_path = next(path for path in sqlite_paths if "extended_staging" in path.name)
+    postgres_core_path = next(
+        path for path in postgres_paths if "pg_core_fact_staging" in path.name
+    )
+    postgres_extended_path = next(
+        path for path in postgres_paths if "pg_extended_staging" in path.name
+    )
+
+    sqlite_core_sql = sqlite_core_path.read_text(encoding="utf-8")
+    sqlite_extended_sql = sqlite_extended_path.read_text(encoding="utf-8")
+    postgres_core_sql = postgres_core_path.read_text(encoding="utf-8")
+    postgres_extended_sql = postgres_extended_path.read_text(encoding="utf-8")
+
+    assert create_table_sql in sqlite_core_sql
+    assert create_table_sql in postgres_core_sql
+    assert dependent_index_sql in sqlite_extended_sql
+    assert dependent_index_sql in postgres_extended_sql
