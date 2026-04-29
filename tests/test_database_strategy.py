@@ -79,3 +79,20 @@ def test_migrations_create_staging_consultant_engagements_table() -> None:
         connection.close()
 
     assert row == ("staging_consultant_engagements",)
+
+
+def test_migrations_create_consultant_engagements_index_dependency() -> None:
+    _config, connection = bootstrap_database_connection(
+        environment="local",
+        database_url="sqlite:///:memory:",
+        apply_migrations_on_boot=True,
+    )
+    try:
+        row = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+            ("idx_consultant_engagements_plan",),
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert row == ("idx_consultant_engagements_plan",)
