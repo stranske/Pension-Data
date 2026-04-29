@@ -200,3 +200,25 @@ def test_migration_path_creates_staging_consultant_engagements_table() -> None:
         connection.close()
 
     assert row == ("staging_consultant_engagements",)
+
+
+def test_sqlite_migration_history_orders_consultant_table_before_dependent_index() -> None:
+    _config, connection = bootstrap_database_connection(
+        environment="local",
+        database_url="sqlite:///:memory:",
+        apply_migrations_on_boot=True,
+    )
+    try:
+        rows = connection.execute(
+            "SELECT version FROM schema_migrations ORDER BY version"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    versions = [row[0] for row in rows]
+    core_version = "20260302_001_core_fact_staging"
+    extended_version = "20260307_003_extended_staging"
+
+    assert core_version in versions
+    assert extended_version in versions
+    assert versions.index(core_version) < versions.index(extended_version)

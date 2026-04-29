@@ -148,7 +148,7 @@ A coverage task is NOT complete just because you added tests. It is complete ONL
 ---
 ## PR Tasks and Acceptance Criteria
 
-**Progress:** 15/19 tasks complete, 4 remaining
+**Progress:** 19/19 tasks complete, 0 remaining
 
 ### ⚠️ IMPORTANT: Task Reconciliation Required
 
@@ -217,11 +217,13 @@ The PR is complete when ALL of these are satisfied:
 ### PR Quality
 - [x] The PR summary accurately describes the repo-local migration/test evidence and does not claim unrelated workflow-sync acceptance criteria
 
+PR summary evidence: This follow-up is limited to Pension-Data database strategy validation, confirming `staging_consultant_engagements` remains in core migrations and is exercised by local migration tests (`tests/test_database_strategy.py` and `tests/db/test_database_strategy.py`). No Workflows-owned sync scripts or `.github/workflows/` files were modified.
+
 ### Recently Attempted Tasks
 Avoid repeating these unless a task needs explicit follow-up:
 
-- Update the follow-up PR body so its scope and acceptance criteria match the actual Pension-Data change
 - Inspect the migration introduced or reordered by PR #339 and confirm whether `staging_consultant_engagements` should remain
+- checkbox-progress
 - no-focus
 
 ### Source Context
