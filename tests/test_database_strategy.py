@@ -190,3 +190,17 @@ def test_pr339_investigation_confirms_staging_consultant_engagements_should_rema
     table_name = "staging_consultant_engagements"
     assert f"ON {table_name}(plan_id, plan_period);" in sqlite_extended_sql
     assert f"ON {table_name}(plan_id, plan_period);" in postgres_extended_sql
+
+
+def test_retained_core_migrations_still_define_staging_consultant_engagements() -> None:
+    sqlite_paths = migration_file_paths(dialect="sqlite")
+    postgres_paths = migration_file_paths(dialect="postgresql")
+
+    sqlite_core = next(path for path in sqlite_paths if path.name == "20260302_001_core_fact_staging.sql")
+    postgres_core = next(
+        path for path in postgres_paths if path.name == "20260303_101_pg_core_fact_staging.sql"
+    )
+
+    table_ddl = "CREATE TABLE IF NOT EXISTS staging_consultant_engagements"
+    assert table_ddl in sqlite_core.read_text(encoding="utf-8")
+    assert table_ddl in postgres_core.read_text(encoding="utf-8")
