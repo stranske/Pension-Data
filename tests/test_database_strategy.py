@@ -196,7 +196,9 @@ def test_retained_core_migrations_still_define_staging_consultant_engagements() 
     sqlite_paths = migration_file_paths(dialect="sqlite")
     postgres_paths = migration_file_paths(dialect="postgresql")
 
-    sqlite_core = next(path for path in sqlite_paths if path.name == "20260302_001_core_fact_staging.sql")
+    sqlite_core = next(
+        path for path in sqlite_paths if path.name == "20260302_001_core_fact_staging.sql"
+    )
     postgres_core = next(
         path for path in postgres_paths if path.name == "20260303_101_pg_core_fact_staging.sql"
     )
@@ -204,3 +206,24 @@ def test_retained_core_migrations_still_define_staging_consultant_engagements() 
     table_ddl = "CREATE TABLE IF NOT EXISTS staging_consultant_engagements"
     assert table_ddl in sqlite_core.read_text(encoding="utf-8")
     assert table_ddl in postgres_core.read_text(encoding="utf-8")
+
+
+def test_migration_sequence_keeps_consultant_table_before_index_in_each_dialect() -> None:
+    sqlite_paths = migration_file_paths(dialect="sqlite")
+    postgres_paths = migration_file_paths(dialect="postgresql")
+
+    sqlite_core_index = next(
+        i for i, path in enumerate(sqlite_paths) if "core_fact_staging" in path.name
+    )
+    sqlite_extended_index = next(
+        i for i, path in enumerate(sqlite_paths) if "extended_staging" in path.name
+    )
+    postgres_core_index = next(
+        i for i, path in enumerate(postgres_paths) if "pg_core_fact_staging" in path.name
+    )
+    postgres_extended_index = next(
+        i for i, path in enumerate(postgres_paths) if "pg_extended_staging" in path.name
+    )
+
+    assert sqlite_core_index < sqlite_extended_index
+    assert postgres_core_index < postgres_extended_index
