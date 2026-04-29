@@ -303,6 +303,17 @@ def _select_followup_acceptance_criteria(
     return (filtered or acceptance_criteria)[:10]
 
 
+def _should_emphasize_repo_local_summary(
+    acceptance_criteria: list[str], concerns: list[str]
+) -> bool:
+    acceptance_text = " ".join(acceptance_criteria).lower()
+    concern_text = " ".join(concerns).lower()
+    has_repo_local_acceptance = any(hint in acceptance_text for hint in REPO_LOCAL_HINTS)
+    has_workflow_sync_acceptance = any(hint in acceptance_text for hint in WORKFLOW_SYNC_HINTS)
+    has_repo_local_concern = any(hint in concern_text for hint in REPO_LOCAL_HINTS)
+    return has_repo_local_concern or (has_repo_local_acceptance and has_workflow_sync_acceptance)
+
+
 def _split_concerns(concerns: list[str]) -> tuple[list[str], list[str]]:
     blocking: list[str] = []
     advisory: list[str] = []
@@ -1811,6 +1822,14 @@ def _build_why_section(
 
     if needs_human_reason:
         parts.append(needs_human_reason)
+
+    if _should_emphasize_repo_local_summary(
+        original_issue.acceptance_criteria, verification_data.concerns
+    ):
+        parts.append(
+            "The follow-up scope is repo-local: keep the PR summary centered on "
+            "migration and database-test evidence and avoid unrelated workflow-sync criteria."
+        )
 
     parts.append("This follow-up addresses the remaining gaps with improved task structure.")
 
