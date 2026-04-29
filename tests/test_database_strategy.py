@@ -30,6 +30,24 @@ def test_consultant_engagements_table_must_remain_for_migration_dependency() -> 
     assert dependent_index in postgres_extended_sql
 
 
+def test_consultant_engagements_migration_remains_in_order_for_both_dialects() -> None:
+    sqlite_paths = migration_file_paths(dialect="sqlite")
+    postgres_paths = migration_file_paths(dialect="postgresql")
+
+    assert sqlite_paths[0].name == "20260302_001_core_fact_staging.sql"
+    assert sqlite_paths[2].name == "20260307_003_extended_staging.sql"
+    assert postgres_paths[0].name == "20260303_101_pg_core_fact_staging.sql"
+    assert postgres_paths[2].name == "20260307_103_pg_extended_staging.sql"
+
+    table_ddl = "CREATE TABLE IF NOT EXISTS staging_consultant_engagements"
+    dependent_index = "idx_consultant_engagements_plan"
+
+    assert table_ddl in sqlite_paths[0].read_text(encoding="utf-8")
+    assert table_ddl in postgres_paths[0].read_text(encoding="utf-8")
+    assert dependent_index in sqlite_paths[2].read_text(encoding="utf-8")
+    assert dependent_index in postgres_paths[2].read_text(encoding="utf-8")
+
+
 def test_expected_table_list_includes_staging_consultant_engagements() -> None:
     _config, connection = bootstrap_database_connection(
         environment="local",
