@@ -51,6 +51,16 @@ def test_migration_paths_are_present_for_sqlite_and_postgresql_sequences() -> No
     assert "pg_extended_staging" in postgres_paths[2].name
 
 
+def test_core_staging_migrations_define_staging_consultant_engagements_table() -> None:
+    sqlite_paths = migration_file_paths(dialect="sqlite")
+    postgres_paths = migration_file_paths(dialect="postgresql")
+    sqlite_sql = sqlite_paths[0].read_text(encoding="utf-8")
+    postgres_sql = postgres_paths[0].read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS staging_consultant_engagements" in sqlite_sql
+    assert "CREATE TABLE IF NOT EXISTS staging_consultant_engagements" in postgres_sql
+
+
 def test_sqlite_connection_path_is_created_and_roundtrips_queries(tmp_path: Path) -> None:
     sqlite_path = tmp_path / "local" / "pension_data.db"
     config = resolve_database_config(database_url=f"sqlite:///{sqlite_path}")
