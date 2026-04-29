@@ -5,8 +5,7 @@ These assertions intentionally mirror PR acceptance criteria paths.
 
 from __future__ import annotations
 
-from pension_data.db.strategy import migration_file_paths
-from pension_data.db.strategy import bootstrap_database_connection
+from pension_data.db.strategy import bootstrap_database_connection, migration_file_paths
 
 
 def test_consultant_engagements_table_must_remain_for_migration_dependency() -> None:
