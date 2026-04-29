@@ -119,3 +119,25 @@ def test_consultant_engagements_table_precedes_dependent_index_for_each_dialect(
     assert create_table not in postgres_extended_sql
     assert create_index not in postgres_core_sql
     assert create_index in postgres_extended_sql
+
+
+def test_sqlite_migration_history_keeps_core_before_extended_consultant_dependencies() -> None:
+    _config, connection = bootstrap_database_connection(
+        environment="local",
+        database_url="sqlite:///:memory:",
+        apply_migrations_on_boot=True,
+    )
+    try:
+        rows = connection.execute(
+            "SELECT version FROM schema_migrations ORDER BY version"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    versions = [row[0] for row in rows]
+    core_version = "20260302_001_core_fact_staging"
+    extended_version = "20260307_003_extended_staging"
+
+    assert core_version in versions
+    assert extended_version in versions
+    assert versions.index(core_version) < versions.index(extended_version)
