@@ -150,6 +150,18 @@ A coverage task is NOT complete just because you added tests. It is complete ONL
 
 **Progress:** 18/19 tasks complete, 1 remaining
 
+### ⚠️ IMPORTANT: Task Reconciliation Required
+
+The previous iteration changed **4 file(s)** but did not update task checkboxes.
+
+**Before continuing, you MUST:**
+1. Review the recent commits to understand what was changed
+2. Determine which task checkboxes should be marked complete
+3. Update the PR body to check off completed tasks
+4. Then continue with remaining tasks
+
+_Failure to update checkboxes means progress is not being tracked properly._
+
 ### Scope
 PR #339 fixed Pension-Data CI formatting and added/ordered the `staging_consultant_engagements` PostgreSQL migration, but the post-merge verifier found a completion-evidence mismatch. The PR body and generated acceptance criteria referenced unrelated Workflows sync files, while the actual code change needs repository-local database evidence.
 
@@ -209,8 +221,8 @@ The PR is complete when ALL of these are satisfied:
 Avoid repeating these unless a task needs explicit follow-up:
 
 - Inspect the migration introduced or reordered by PR #339 and confirm whether `staging_consultant_engagements` should remain
-- no-focus
 - checkbox-progress
+- no-focus
 
 ### Source Context
 _For additional background, check these linked issues/PRs:_

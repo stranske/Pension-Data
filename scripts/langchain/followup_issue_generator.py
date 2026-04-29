@@ -286,7 +286,12 @@ def _select_followup_acceptance_criteria(
         return []
 
     concern_text = " ".join(blocking_concerns).lower()
-    repo_local_focus = any(hint in concern_text for hint in REPO_LOCAL_HINTS)
+    acceptance_text = " ".join(acceptance_criteria).lower()
+    has_repo_local_acceptance = any(hint in acceptance_text for hint in REPO_LOCAL_HINTS)
+    has_workflow_sync_acceptance = any(hint in acceptance_text for hint in WORKFLOW_SYNC_HINTS)
+    repo_local_focus = any(hint in concern_text for hint in REPO_LOCAL_HINTS) or (
+        has_repo_local_acceptance and has_workflow_sync_acceptance
+    )
     if not repo_local_focus:
         return acceptance_criteria[:10]
 
