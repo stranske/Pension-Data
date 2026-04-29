@@ -148,7 +148,7 @@ A coverage task is NOT complete just because you added tests. It is complete ONL
 ---
 ## PR Tasks and Acceptance Criteria
 
-**Progress:** 19/19 tasks complete, 0 remaining
+**Progress:** 15/19 tasks complete, 4 remaining
 
 ### ⚠️ IMPORTANT: Task Reconciliation Required
 
@@ -222,9 +222,7 @@ Avoid repeating these unless a task needs explicit follow-up:
 
 - Update the follow-up PR body so its scope and acceptance criteria match the actual Pension-Data change
 - Inspect the migration introduced or reordered by PR #339 and confirm whether `staging_consultant_engagements` should remain
-
-### Suggested Next Task
-- Inspect the migration introduced or reordered by PR #339 and confirm whether `staging_consultant_engagements` should remain
+- no-focus
 
 ### Source Context
 _For additional background, check these linked issues/PRs:_
