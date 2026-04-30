@@ -51,6 +51,32 @@ def test_migration_paths_are_present_for_sqlite_and_postgresql_sequences() -> No
     assert "pg_extended_staging" in postgres_paths[2].name
 
 
+def test_core_staging_migrations_define_staging_consultant_engagements_table() -> None:
+    sqlite_paths = migration_file_paths(dialect="sqlite")
+    postgres_paths = migration_file_paths(dialect="postgresql")
+    sqlite_sql = sqlite_paths[0].read_text(encoding="utf-8")
+    postgres_sql = postgres_paths[0].read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS staging_consultant_engagements" in sqlite_sql
+    assert "CREATE TABLE IF NOT EXISTS staging_consultant_engagements" in postgres_sql
+
+
+def test_extended_migrations_depend_on_staging_consultant_engagements_table() -> None:
+    sqlite_paths = migration_file_paths(dialect="sqlite")
+    postgres_paths = migration_file_paths(dialect="postgresql")
+    sqlite_core_sql = sqlite_paths[0].read_text(encoding="utf-8")
+    sqlite_extended_sql = sqlite_paths[2].read_text(encoding="utf-8")
+    postgres_core_sql = postgres_paths[0].read_text(encoding="utf-8")
+    postgres_extended_sql = postgres_paths[2].read_text(encoding="utf-8")
+
+    # Keep this table: extended staging adds indexes that depend on it.
+    dependency_sql = "CREATE INDEX IF NOT EXISTS idx_consultant_engagements_plan"
+    assert "CREATE TABLE IF NOT EXISTS staging_consultant_engagements" in sqlite_core_sql
+    assert dependency_sql in sqlite_extended_sql
+    assert "CREATE TABLE IF NOT EXISTS staging_consultant_engagements" in postgres_core_sql
+    assert dependency_sql in postgres_extended_sql
+
+
 def test_sqlite_connection_path_is_created_and_roundtrips_queries(tmp_path: Path) -> None:
     sqlite_path = tmp_path / "local" / "pension_data.db"
     config = resolve_database_config(database_url=f"sqlite:///{sqlite_path}")
@@ -140,3 +166,59 @@ def test_extended_migration_creates_all_domain_tables() -> None:
         "discovered_inventory",
     }
     assert expected_tables.issubset(table_names), f"Missing tables: {expected_tables - table_names}"
+
+
+def test_expected_domain_table_list_includes_staging_consultant_engagements() -> None:
+    _config, connection = bootstrap_database_connection(
+        environment="local",
+        database_url="sqlite:///:memory:",
+        apply_migrations_on_boot=True,
+    )
+    try:
+        rows = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
+        ).fetchall()
+        table_names = {row[0] for row in rows}
+    finally:
+        connection.close()
+
+    assert "staging_consultant_engagements" in table_names
+
+
+def test_migration_path_creates_staging_consultant_engagements_table() -> None:
+    _config, connection = bootstrap_database_connection(
+        environment="local",
+        database_url="sqlite:///:memory:",
+        apply_migrations_on_boot=True,
+    )
+    try:
+        row = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            ("staging_consultant_engagements",),
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert row == ("staging_consultant_engagements",)
+
+
+def test_sqlite_migration_history_orders_consultant_table_before_dependent_index() -> None:
+    _config, connection = bootstrap_database_connection(
+        environment="local",
+        database_url="sqlite:///:memory:",
+        apply_migrations_on_boot=True,
+    )
+    try:
+        rows = connection.execute(
+            "SELECT version FROM schema_migrations ORDER BY version"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    versions = [row[0] for row in rows]
+    core_version = "20260302_001_core_fact_staging"
+    extended_version = "20260307_003_extended_staging"
+
+    assert core_version in versions
+    assert extended_version in versions
+    assert versions.index(core_version) < versions.index(extended_version)

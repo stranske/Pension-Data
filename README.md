@@ -36,6 +36,9 @@ pytest -q
 - Local development/tests default to SQLite (no DB server required).
 - Production/shared workloads target PostgreSQL.
 - The strategy/config helpers live in `src/pension_data/db/strategy.py`.
+- `staging_consultant_engagements` stores consultant-role and recommendation attribution records that are extracted from governance sections and staged for downstream use.
+- This table is used by the governance extraction and persistence pipeline components, and by migration/bootstrap checks that verify schema readiness.
+- Data flows from document extraction into staging persistence, then into `staging_consultant_engagements`, where query and review workflows can consume consultant engagement context alongside other staged pension facts.
 
 See [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md) and
 [docs/adr/ADR-0001-database-strategy.md](docs/adr/ADR-0001-database-strategy.md).
