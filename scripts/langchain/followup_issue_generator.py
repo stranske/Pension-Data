@@ -88,6 +88,20 @@ NON_PASS_DETAIL_LIMIT = 10
 
 LOGGER = logging.getLogger(__name__)
 
+_WORKFLOW_SYNC_MARKERS = (
+    "workflows-owned",
+    ".github/workflows",
+    "workflow-sync",
+)
+_REPO_LOCAL_MARKERS = (
+    "migration",
+    "database",
+    "staging_",
+    "test",
+    "src/",
+    "tests/",
+)
+
 
 def _guard_payloads(
     *,
@@ -268,6 +282,43 @@ def _split_concerns(concerns: list[str]) -> tuple[list[str], list[str]]:
         else:
             blocking.append(concern)
     return blocking, advisory
+
+
+def _is_workflow_sync_acceptance_item(item: str) -> bool:
+    text = item.strip().lower()
+    return any(marker in text for marker in _WORKFLOW_SYNC_MARKERS)
+
+
+def _is_repo_local_signal(text: str) -> bool:
+    lowered = text.strip().lower()
+    return any(marker in lowered for marker in _REPO_LOCAL_MARKERS)
+
+
+def _select_followup_acceptance_criteria(
+    acceptance_criteria: list[str],
+    concerns: list[str],
+) -> list[str]:
+    """Keep repo-local criteria for repo-local follow-ups and drop workflow-sync noise."""
+    if not acceptance_criteria:
+        return []
+
+    has_workflow_sync = any(_is_workflow_sync_acceptance_item(item) for item in acceptance_criteria)
+    has_repo_local_acceptance = any(
+        not _is_workflow_sync_acceptance_item(item) for item in acceptance_criteria
+    )
+    has_repo_local_concern = any(_is_repo_local_signal(concern) for concern in concerns)
+
+    if has_workflow_sync and has_repo_local_acceptance and has_repo_local_concern:
+        filtered = [item for item in acceptance_criteria if not _is_workflow_sync_acceptance_item(item)]
+        if filtered:
+            return filtered
+
+    if has_workflow_sync and has_repo_local_acceptance:
+        filtered = [item for item in acceptance_criteria if not _is_workflow_sync_acceptance_item(item)]
+        if filtered:
+            return filtered
+
+    return acceptance_criteria
 
 
 def _resolve_verdict_policy(
@@ -1575,8 +1626,11 @@ def _generate_without_llm(
             task = f"Address: {task}"
         tasks.append(task)
 
-    # Use original unmet acceptance criteria
-    acceptance_criteria = original_issue.acceptance_criteria[:10]
+    # Keep follow-up criteria focused on repo-local gaps when mixed with workflow-sync items.
+    acceptance_criteria = _select_followup_acceptance_criteria(
+        original_issue.acceptance_criteria,
+        verification_data.concerns,
+    )[:10]
 
     # Build body
     body_parts = [
@@ -1765,6 +1819,19 @@ def _build_why_section(
 
     if needs_human_reason:
         parts.append(needs_human_reason)
+
+    has_workflow_sync_criteria = any(
+        _is_workflow_sync_acceptance_item(item) for item in original_issue.acceptance_criteria
+    )
+    has_repo_local_criteria = any(
+        not _is_workflow_sync_acceptance_item(item) for item in original_issue.acceptance_criteria
+    )
+    has_repo_local_concerns = any(_is_repo_local_signal(concern) for concern in verification_data.concerns)
+    if has_workflow_sync_criteria and (has_repo_local_criteria or has_repo_local_concerns):
+        parts.append(
+            "This is primarily a repo-local follow-up focused on migration and database-test evidence, "
+            "while workflow-sync criteria remain secondary context."
+        )
 
     parts.append("This follow-up addresses the remaining gaps with improved task structure.")
 
