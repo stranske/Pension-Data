@@ -1731,6 +1731,40 @@ def _generate_without_llm(
     )
 
 
+def _select_followup_acceptance_criteria(
+    acceptance_criteria: list[str], concerns: list[str]
+) -> list[str]:
+    """Filter workflow-sync acceptance items for repo-local database/test follow-ups."""
+    if not acceptance_criteria:
+        return []
+
+    combined_context = " ".join([*acceptance_criteria, *concerns]).lower()
+    repo_local_signals = (
+        "database",
+        "migration",
+        "staging_",
+        "tests/",
+        "test_",
+        "table",
+        "schema",
+    )
+    workflow_sync_signals = (
+        "workflows-owned",
+        ".github/workflows/",
+        "workflow",
+    )
+    is_repo_local = any(signal in combined_context for signal in repo_local_signals)
+    if not is_repo_local:
+        return acceptance_criteria
+
+    filtered = [
+        item
+        for item in acceptance_criteria
+        if not any(signal in item.lower() for signal in workflow_sync_signals)
+    ]
+    return filtered or acceptance_criteria
+
+
 def _build_why_section(
     verification_data: VerificationData,
     original_issue: OriginalIssueData,
@@ -1766,7 +1800,16 @@ def _build_why_section(
     if needs_human_reason:
         parts.append(needs_human_reason)
 
-    parts.append("This follow-up addresses the remaining gaps with improved task structure.")
+    selected_acceptance = _select_followup_acceptance_criteria(
+        original_issue.acceptance_criteria, verification_data.concerns
+    )
+    if selected_acceptance != original_issue.acceptance_criteria:
+        parts.append(
+            "This follow-up is scoped to repo-local migration and database-test evidence while "
+            "excluding workflow-sync criteria that do not block this code path."
+        )
+    else:
+        parts.append("This follow-up addresses the remaining gaps with improved task structure.")
 
     return " ".join(parts)
 
