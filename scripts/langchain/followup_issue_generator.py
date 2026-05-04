@@ -89,6 +89,32 @@ NON_PASS_DETAIL_LIMIT = 10
 LOGGER = logging.getLogger(__name__)
 
 
+def _is_workflow_sync_acceptance_item(item: str) -> bool:
+    text = (item or "").lower()
+    return "workflows-owned scripts" in text or ".github/workflows/" in text
+
+
+def _select_followup_acceptance_criteria(
+    acceptance_criteria: list[str], concerns: list[str]
+) -> list[str]:
+    """Prefer repo-local acceptance items when workflow-sync and repo-local criteria are mixed."""
+
+    if not acceptance_criteria:
+        return []
+
+    workflow_items = [item for item in acceptance_criteria if _is_workflow_sync_acceptance_item(item)]
+    if not workflow_items:
+        return acceptance_criteria
+
+    non_workflow_items = [
+        item for item in acceptance_criteria if not _is_workflow_sync_acceptance_item(item)
+    ]
+    if not non_workflow_items:
+        return acceptance_criteria
+
+    return non_workflow_items
+
+
 def _guard_payloads(
     *,
     verification_text: str,
@@ -1765,6 +1791,17 @@ def _build_why_section(
 
     if needs_human_reason:
         parts.append(needs_human_reason)
+
+    mixed_surface = bool(original_issue.acceptance_criteria) and any(
+        _is_workflow_sync_acceptance_item(item) for item in original_issue.acceptance_criteria
+    ) and any(
+        not _is_workflow_sync_acceptance_item(item) for item in original_issue.acceptance_criteria
+    )
+    if mixed_surface:
+        parts.append(
+            "This follow-up is scoped to repo-local migration and database-test evidence while "
+            "keeping workflow-sync criteria as guardrails."
+        )
 
     parts.append("This follow-up addresses the remaining gaps with improved task structure.")
 
