@@ -1575,8 +1575,11 @@ def _generate_without_llm(
             task = f"Address: {task}"
         tasks.append(task)
 
-    # Use original unmet acceptance criteria
-    acceptance_criteria = original_issue.acceptance_criteria[:10]
+    # Prefer repo-local criteria when mixed with workflow-sync guardrails.
+    acceptance_criteria = _select_followup_acceptance_criteria(
+        original_issue.acceptance_criteria[:10],
+        blocking_concerns,
+    )
 
     # Build body
     body_parts = [
@@ -1747,6 +1750,11 @@ def _build_why_section(
         f"PR #{pr_number} addressed issue #{original_issue.number} but verification "
         f"identified concerns (verdict: **{verdict}**).",
     ]
+    selected_acceptance = _select_followup_acceptance_criteria(
+        original_issue.acceptance_criteria,
+        verification_data.concerns,
+    )
+    filtered_workflow_sync = len(selected_acceptance) < len(original_issue.acceptance_criteria)
 
     if verification_data.tasks_completed > 0:
         completion_rate = (
@@ -1763,12 +1771,54 @@ def _build_why_section(
     if verification_data.structural_issues:
         parts.append("The original issue had structural problems that may have hindered progress.")
 
+    if filtered_workflow_sync:
+        migration_signal = any(
+            re.search(r"\bmigration\b|\bdatabase\b|\bstaging_", concern.lower())
+            for concern in verification_data.concerns
+        )
+        if migration_signal:
+            parts.append(
+                "This follow-up is scoped to repo-local migration and database-test evidence, "
+                "while workflow-sync criteria remain tracked but are not repeated as blocking work."
+            )
+        else:
+            parts.append(
+                "This follow-up is scoped to repo-local criteria, while workflow-sync criteria "
+                "remain tracked but are not repeated as blocking work."
+            )
+
     if needs_human_reason:
         parts.append(needs_human_reason)
 
     parts.append("This follow-up addresses the remaining gaps with improved task structure.")
 
     return " ".join(parts)
+
+
+def _select_followup_acceptance_criteria(
+    acceptance_criteria: list[str], concerns: list[str]
+) -> list[str]:
+    """Filter workflow-sync guardrails when actionable repo-local criteria are present."""
+    workflow_patterns = (
+        "workflows-owned",
+        ".github/workflows/",
+        "workflow template",
+        "workflow-sync",
+    )
+    workflow_items: list[str] = []
+    repo_local_items: list[str] = []
+
+    for criterion in acceptance_criteria:
+        lowered = criterion.lower()
+        if any(pattern in lowered for pattern in workflow_patterns):
+            workflow_items.append(criterion)
+        else:
+            repo_local_items.append(criterion)
+
+    if workflow_items and repo_local_items:
+        return repo_local_items
+
+    return acceptance_criteria
 
 
 def main() -> int:
