@@ -270,6 +270,44 @@ def _split_concerns(concerns: list[str]) -> tuple[list[str], list[str]]:
     return blocking, advisory
 
 
+def _select_followup_acceptance_criteria(
+    acceptance_criteria: list[str], concerns: list[str]
+) -> list[str]:
+    """Select acceptance criteria to carry into a follow-up issue."""
+    if not acceptance_criteria:
+        return []
+
+    def _is_workflow_guardrail(item: str) -> bool:
+        text = item.lower()
+        return "workflows-owned scripts" in text or ".github/workflows/" in text
+
+    concern_text = " ".join(concerns).lower()
+    repo_local_db_focus = any(
+        token in concern_text
+        for token in ("database", "migration", "staging_", "table", "schema", "sql", "test")
+    )
+    has_non_workflow_items = any(not _is_workflow_guardrail(item) for item in acceptance_criteria)
+
+    # If concerns are clearly repo-local DB/test work and criteria mix includes
+    # workflow-sync guardrails, drop those guardrails from the follow-up checklist.
+    if repo_local_db_focus and has_non_workflow_items:
+        filtered = [
+            item
+            for item in acceptance_criteria
+            if not _is_workflow_guardrail(item)
+        ]
+        if filtered:
+            return filtered
+
+    # Also drop workflow-sync guardrails when mixed criteria exist even without
+    # explicit DB terms; this keeps follow-ups focused on actionable repo-local work.
+    filtered = [item for item in acceptance_criteria if not _is_workflow_guardrail(item)]
+    if filtered and has_non_workflow_items:
+        return filtered
+
+    return acceptance_criteria
+
+
 def _resolve_verdict_policy(
     verification_data: VerificationData,
 ) -> verdict_policy.VerdictPolicyResult:
@@ -1575,8 +1613,10 @@ def _generate_without_llm(
             task = f"Address: {task}"
         tasks.append(task)
 
-    # Use original unmet acceptance criteria
-    acceptance_criteria = original_issue.acceptance_criteria[:10]
+    # Keep follow-up acceptance criteria scoped to actionable repo-local work.
+    acceptance_criteria = _select_followup_acceptance_criteria(
+        original_issue.acceptance_criteria[:10], blocking_concerns
+    )
 
     # Build body
     body_parts = [
@@ -1765,6 +1805,21 @@ def _build_why_section(
 
     if needs_human_reason:
         parts.append(needs_human_reason)
+
+    acceptance_text = " ".join(original_issue.acceptance_criteria).lower()
+    has_workflow_sync_criteria = "workflows-owned scripts" in acceptance_text
+    has_repo_local_criteria = any(
+        "workflows-owned scripts" not in item.lower() for item in original_issue.acceptance_criteria
+    )
+    concern_text = " ".join(verification_data.concerns).lower()
+    has_db_migration_focus = any(
+        token in concern_text for token in ("migration", "database", "staging_", "table", "schema")
+    )
+    if has_workflow_sync_criteria and has_repo_local_criteria and has_db_migration_focus:
+        parts.append(
+            "The remaining work is repo-local and centers on migration and database-test evidence; "
+            "workflow-sync criteria are informational guardrails rather than active blockers."
+        )
 
     parts.append("This follow-up addresses the remaining gaps with improved task structure.")
 
