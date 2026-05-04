@@ -248,6 +248,51 @@ BLOCKING_HINTS = [
 ]
 
 
+def _is_workflow_sync_acceptance_item(item: str) -> bool:
+    text = (item or "").lower()
+    workflow_markers = (
+        "workflows-owned",
+        "workflow-owned",
+        ".github/workflows/",
+        "workflow-sync",
+        "reusable workflow",
+    )
+    return any(marker in text for marker in workflow_markers)
+
+
+def _select_followup_acceptance_criteria(
+    acceptance_criteria: list[str],
+    concerns: list[str],
+) -> list[str]:
+    """Prefer repo-local acceptance items when concerns are repo-local implementation gaps."""
+    if not acceptance_criteria:
+        return []
+
+    workflow_items = [item for item in acceptance_criteria if _is_workflow_sync_acceptance_item(item)]
+    repo_local_items = [item for item in acceptance_criteria if not _is_workflow_sync_acceptance_item(item)]
+    if not workflow_items or not repo_local_items:
+        return acceptance_criteria
+
+    concern_text = " ".join(concerns).lower()
+    repo_local_markers = (
+        "migration",
+        "database",
+        "table",
+        "schema",
+        "test",
+        "staging_",
+    )
+    looks_repo_local = any(marker in concern_text for marker in repo_local_markers)
+    repo_local_acceptance_markers = any(
+        any(marker in item.lower() for marker in repo_local_markers) for item in repo_local_items
+    )
+    if repo_local_acceptance_markers:
+        return repo_local_items
+    if looks_repo_local:
+        return repo_local_items
+    return acceptance_criteria
+
+
 def _is_advisory_concern(concern: str) -> bool:
     text = (concern or "").strip().lower()
     if not text or concern == MISSING_CONCERNS_MESSAGE:
@@ -1762,6 +1807,20 @@ def _build_why_section(
 
     if verification_data.structural_issues:
         parts.append("The original issue had structural problems that may have hindered progress.")
+
+    selected_acceptance = _select_followup_acceptance_criteria(
+        original_issue.acceptance_criteria,
+        verification_data.concerns,
+    )
+    filtered_workflow_sync = (
+        len(selected_acceptance) < len(original_issue.acceptance_criteria)
+        and any(_is_workflow_sync_acceptance_item(item) for item in original_issue.acceptance_criteria)
+    )
+    if filtered_workflow_sync:
+        parts.append(
+            "The follow-up is scoped to repo-local migration and database-test evidence while "
+            "deferring workflow-sync criteria."
+        )
 
     if needs_human_reason:
         parts.append(needs_human_reason)
