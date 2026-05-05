@@ -1770,14 +1770,9 @@ def _build_why_section(
 
     if _has_mixed_repo_and_workflow_acceptance_criteria(original_issue):
         parts.append(
-            "Workflow-sync criteria (workflow-sync criteria) were de-emphasized so this follow-up stays "
+            "Workflow-sync acceptance criteria were de-emphasized so this follow-up stays "
             "focused on the repo-local verifier concerns."
         )
-        concerns_text = " ".join(verification_data.concerns).lower()
-        if any(marker in concerns_text for marker in ("migration", "database", "staging_")):
-            parts.append(
-                "The remaining gap is migration and database-test evidence for repo-local behavior."
-            )
 
     if needs_human_reason:
         parts.append(needs_human_reason)
@@ -1831,12 +1826,7 @@ def _select_followup_acceptance_criteria(
     avoid restating workflow-sync rollout criteria as if they were local tasks.
     """
 
-    raw_criteria = (
-        original_issue.acceptance_criteria
-        if hasattr(original_issue, "acceptance_criteria")
-        else original_issue
-    )
-    criteria = [criterion for criterion in raw_criteria if criterion]
+    criteria = [criterion for criterion in original_issue.acceptance_criteria if criterion]
     if not criteria:
         return []
 
