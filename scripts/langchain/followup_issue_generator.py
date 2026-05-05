@@ -248,6 +248,28 @@ BLOCKING_HINTS = [
 ]
 
 
+def _is_workflow_sync_acceptance_item(item: str) -> bool:
+    text = (item or "").lower()
+    return "workflows-owned" in text or ".github/workflows/" in text
+
+
+def _select_followup_acceptance_criteria(
+    acceptance_criteria: list[str], concerns: list[str] | None = None
+) -> list[str]:
+    """
+    Select acceptance criteria for follow-up output.
+
+    Compatibility note:
+    keep this helper available for tests/importers that rely on it.
+    """
+    _ = concerns  # currently unused; retained for backwards-compatible signature
+    workflow_items = [item for item in acceptance_criteria if _is_workflow_sync_acceptance_item(item)]
+    repo_local_items = [item for item in acceptance_criteria if not _is_workflow_sync_acceptance_item(item)]
+    if workflow_items and repo_local_items:
+        return repo_local_items
+    return acceptance_criteria
+
+
 def _is_advisory_concern(concern: str) -> bool:
     text = (concern or "").strip().lower()
     if not text or concern == MISSING_CONCERNS_MESSAGE:
@@ -1576,7 +1598,10 @@ def _generate_without_llm(
         tasks.append(task)
 
     # Use original unmet acceptance criteria
-    acceptance_criteria = original_issue.acceptance_criteria[:10]
+    acceptance_criteria = _select_followup_acceptance_criteria(
+        original_issue.acceptance_criteria,
+        blocking_concerns,
+    )[:10]
 
     # Build body
     body_parts = [
@@ -1765,6 +1790,18 @@ def _build_why_section(
 
     if needs_human_reason:
         parts.append(needs_human_reason)
+
+    workflow_items = [
+        item for item in original_issue.acceptance_criteria if _is_workflow_sync_acceptance_item(item)
+    ]
+    repo_local_items = [
+        item for item in original_issue.acceptance_criteria if not _is_workflow_sync_acceptance_item(item)
+    ]
+    if workflow_items and repo_local_items:
+        parts.append(
+            "This follow-up is scoped to repo-local implementation gaps, specifically migration "
+            "and database-test evidence, while preserving workflow-sync criteria unchanged."
+        )
 
     parts.append("This follow-up addresses the remaining gaps with improved task structure.")
 
