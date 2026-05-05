@@ -89,6 +89,41 @@ NON_PASS_DETAIL_LIMIT = 10
 LOGGER = logging.getLogger(__name__)
 
 
+def _is_workflow_sync_acceptance_item(item: str) -> bool:
+    text = (item or "").lower()
+    return (
+        "workflows-owned" in text
+        or ".github/workflows/" in text
+        or "workflow-sync" in text
+        or "reusable workflow" in text
+    )
+
+
+def _select_followup_acceptance_criteria(
+    acceptance_criteria: list[str],
+    concerns: list[str],
+) -> list[str]:
+    """Prefer repo-local acceptance criteria when criteria are mixed-surface."""
+    workflow_items = [item for item in acceptance_criteria if _is_workflow_sync_acceptance_item(item)]
+    repo_local_items = [
+        item for item in acceptance_criteria if not _is_workflow_sync_acceptance_item(item)
+    ]
+
+    if not workflow_items or not repo_local_items:
+        return acceptance_criteria
+
+    concern_text = " ".join(concerns).lower()
+    touches_workflow_sync = (
+        "workflow" in concern_text
+        or ".github/workflows" in concern_text
+        or "workflows-owned" in concern_text
+    )
+    if touches_workflow_sync:
+        return acceptance_criteria
+
+    return repo_local_items
+
+
 def _guard_payloads(
     *,
     verification_text: str,
@@ -1765,6 +1800,24 @@ def _build_why_section(
 
     if needs_human_reason:
         parts.append(needs_human_reason)
+
+    selected_acceptance = _select_followup_acceptance_criteria(
+        original_issue.acceptance_criteria,
+        verification_data.concerns,
+    )
+    mixed_surface = len(selected_acceptance) < len(original_issue.acceptance_criteria)
+    concern_text = " ".join(verification_data.concerns).lower()
+    has_migration_db_signal = any(
+        keyword in concern_text
+        for keyword in ("migration", "database", "db", "table", "schema")
+    )
+    if mixed_surface:
+        parts.append(
+            "This follow-up focuses on repo-local implementation gaps while deferring "
+            "workflow-sync criteria."
+        )
+    if mixed_surface and has_migration_db_signal:
+        parts.append("Priority is migration and database-test evidence to close the remaining risk.")
 
     parts.append("This follow-up addresses the remaining gaps with improved task structure.")
 
