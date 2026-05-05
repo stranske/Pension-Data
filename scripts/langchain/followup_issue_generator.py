@@ -1576,7 +1576,10 @@ def _generate_without_llm(
         tasks.append(task)
 
     # Use original unmet acceptance criteria
-    acceptance_criteria = original_issue.acceptance_criteria[:10]
+    acceptance_criteria = _select_followup_acceptance_criteria(
+        original_issue.acceptance_criteria,
+        verification_data.concerns,
+    )[:10]
 
     # Build body
     body_parts = [
@@ -1766,9 +1769,63 @@ def _build_why_section(
     if needs_human_reason:
         parts.append(needs_human_reason)
 
+    selected_acceptance = _select_followup_acceptance_criteria(
+        original_issue.acceptance_criteria,
+        verification_data.concerns,
+    )
+    if len(selected_acceptance) < len(original_issue.acceptance_criteria):
+        parts.append(
+            "This follow-up is scoped to repo-local migration and database-test evidence; "
+            "workflow-sync criteria were de-emphasized to keep the loop focused."
+        )
+
     parts.append("This follow-up addresses the remaining gaps with improved task structure.")
 
     return " ".join(parts)
+
+
+def _is_workflow_sync_criterion(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        "workflows-owned" in lowered
+        or ".github/workflows/" in lowered
+        or "workflow-sync" in lowered
+    )
+
+
+def _has_repo_local_focus(texts: list[str]) -> bool:
+    repo_local_hints = (
+        "migration",
+        "database",
+        "staging_",
+        "table",
+        "sql",
+        "test",
+        "repo-local",
+    )
+    return any(any(hint in text.lower() for hint in repo_local_hints) for text in texts)
+
+
+def _select_followup_acceptance_criteria(
+    acceptance_criteria: list[str],
+    concerns: list[str],
+) -> list[str]:
+    """Select acceptance criteria relevant to the follow-up concern focus."""
+
+    workflow_items = [item for item in acceptance_criteria if _is_workflow_sync_criterion(item)]
+    if not workflow_items:
+        return acceptance_criteria
+
+    concern_mentions_workflow = any(_is_workflow_sync_criterion(concern) for concern in concerns)
+    non_workflow_items = [
+        item for item in acceptance_criteria if not _is_workflow_sync_criterion(item)
+    ]
+    repo_local_focus = _has_repo_local_focus(concerns) or _has_repo_local_focus(non_workflow_items)
+
+    if concern_mentions_workflow or not repo_local_focus:
+        return acceptance_criteria
+
+    return non_workflow_items or acceptance_criteria
 
 
 def main() -> int:
