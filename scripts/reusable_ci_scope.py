@@ -83,6 +83,8 @@ def _restore_matrix(
 ) -> MatrixInput:
     if shape == "list":
         return selected
+    if not isinstance(full_matrix, dict):
+        raise TypeError("matrix object shape requires a dictionary input")
     restored = dict(full_matrix)
     restored["include"] = selected
     return restored
