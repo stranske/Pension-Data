@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import dataclasses
 import datetime as dt
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -18,7 +20,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Protocol
 
-from scripts import reference_packs
 from scripts.state_fingerprint import GitHubApi, _github_context
 
 MARKER_VERSION = "v1"
@@ -26,6 +27,7 @@ MARKER_PREFIX = "runner-dispatch"
 PROVIDERS = {"autofix", "claude", "codex"}
 PROMPT_PROVIDERS = {"claude", "codex"}
 TERMINAL_STATUSES = {"completed", "error"}
+PENDING_STALE_AFTER_SECONDS = 30 * 60
 
 
 @dataclasses.dataclass(frozen=True)
@@ -95,12 +97,40 @@ def _prompt_output_name(provider: str, pr_number: str | int | None) -> str:
     return f"{provider}-prompt{suffix}.md"
 
 
+def _load_reference_packs_module() -> Any:
+    try:
+        return importlib.import_module("scripts.reference_packs")
+    except ModuleNotFoundError as exc:
+        if exc.name == "scripts.reference_packs":
+            raise RuntimeError(
+                "reference packs are not supported in this repository because "
+                "scripts/reference_packs.py was not synced"
+            ) from exc
+        raise
+
+
+def _run_git(args: list[str], env: dict[str, str] | None = None) -> None:
+    try:
+        subprocess.check_call(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=env,
+        )
+    except subprocess.CalledProcessError as exc:
+        redacted = ["<redacted>" if "x-access-token:" in part else part for part in args]
+        raise RuntimeError(
+            f"git command failed with exit code {exc.returncode}: {' '.join(redacted)}"
+        ) from exc
+
+
 def materialize_reference_packs(
     workspace: str | Path = ".",
     reference_pack_name: str | None = None,
     token: str | None = None,
 ) -> Path | None:
     """Validate and materialize configured reference packs into `.reference/`."""
+    reference_packs = _load_reference_packs_module()
     workspace_path = Path(workspace).resolve()
     snapshot = reference_packs.load_reference_packs(workspace_path)
     if not snapshot.exists:
@@ -145,28 +175,16 @@ def materialize_reference_packs(
             clone_cmd.extend(["--branch", plan.ref])
         clone_cmd.extend([clone_url, str(clone_dir)])
         try:
-            subprocess.check_call(
-                clone_cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                env=git_env,
-            )
+            _run_git(clone_cmd, env=git_env)
 
             if is_sha:
-                subprocess.check_call(
+                _run_git(
                     ["git", "-C", str(clone_dir), "fetch", "origin", plan.ref, "--depth=1"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
                     env=git_env,
                 )
-                subprocess.check_call(
-                    ["git", "-C", str(clone_dir), "checkout", plan.ref],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    env=git_env,
-                )
+                _run_git(["git", "-C", str(clone_dir), "checkout", plan.ref], env=git_env)
 
-            subprocess.check_call(
+            _run_git(
                 [
                     "git",
                     "-C",
@@ -176,14 +194,9 @@ def materialize_reference_packs(
                     "--no-cone",
                     *plan.paths,
                 ],
-                stdout=subprocess.DEVNULL,
                 env=git_env,
             )
-            subprocess.check_call(
-                ["git", "-C", str(clone_dir), "sparse-checkout", "reapply"],
-                stdout=subprocess.DEVNULL,
-                env=git_env,
-            )
+            _run_git(["git", "-C", str(clone_dir), "sparse-checkout", "reapply"], env=git_env)
 
             checkout_path = workspace_path / plan.checkout_path
             checkout_path.mkdir(parents=True, exist_ok=True)
@@ -368,17 +381,26 @@ def parse_runner_output(provider: str, raw_output: str) -> RunnerResult:
 
 def _marker_re(pr_number: int, provider: str) -> re.Pattern[str]:
     return re.compile(
-        rf"<!--\s*{MARKER_PREFIX}:{provider}:{pr_number}:{MARKER_VERSION}\s+(\{{.*?\}})\s*-->",
+        rf"<!--\s*{MARKER_PREFIX}:{provider}:{pr_number}:{MARKER_VERSION}\s+([\s\S]*?)\s*-->",
         re.DOTALL,
     )
 
 
 def _build_marker(pr_number: int, provider: str, record: dict[str, Any]) -> str:
-    payload = json.dumps(record, sort_keys=True, separators=(",", ":"))
+    payload = base64.b64encode(
+        json.dumps(record, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
     return (
         f"Runner dispatch state for {provider} on PR #{pr_number}. Do not edit.\n\n"
-        f"<!-- {MARKER_PREFIX}:{provider}:{pr_number}:{MARKER_VERSION} {payload} -->"
+        f"<!-- {MARKER_PREFIX}:{provider}:{pr_number}:{MARKER_VERSION} base64:{payload} -->"
     )
+
+
+def _decode_record_candidate(candidate: str) -> str:
+    value = candidate.strip()
+    if value.startswith("base64:"):
+        return base64.b64decode(value.removeprefix("base64:"), validate=True).decode("utf-8")
+    return value
 
 
 def _extract_record(value: str | None, pr_number: int, provider: str) -> dict[str, Any] | None:
@@ -393,8 +415,8 @@ def _extract_record(value: str | None, pr_number: int, provider: str) -> dict[st
         candidates.append(stripped)
     for candidate in candidates:
         try:
-            payload = json.loads(candidate)
-        except json.JSONDecodeError:
+            payload = json.loads(_decode_record_candidate(candidate))
+        except (binascii.Error, ValueError, json.JSONDecodeError):
             continue
         if isinstance(payload, dict) and payload.get("provider") == provider:
             return payload
@@ -416,6 +438,7 @@ class PrCommentRunnerStorage:
         return cls(GitHubApi(repo, token))
 
     def _iter_comments(self, pr_number: int) -> Iterator[dict[str, Any]]:
+        comments: list[dict[str, Any]] = []
         page = 1
         while True:
             batch = self.api.request(
@@ -426,10 +449,11 @@ class PrCommentRunnerStorage:
                 raise RuntimeError(
                     f"Expected list response from GitHub API comments page for PR {pr_number}"
                 )
-            yield from reversed(batch)
+            comments.extend(batch)
             if len(batch) < 100:
-                return
+                break
             page += 1
+        yield from reversed(comments)
 
     def _find_comment(self, pr_number: int, provider: str) -> dict[str, Any] | None:
         pattern = _marker_re(pr_number, provider)
@@ -556,6 +580,29 @@ def _storage_from_name(name: str) -> RunnerDispatchStorage:
     raise ValueError(f"unsupported storage backend: {name}")
 
 
+def _parse_timestamp(value: Any) -> dt.datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=dt.UTC)
+    return parsed.astimezone(dt.UTC)
+
+
+def _pending_record_is_stale(prior: dict[str, Any], *, now: dt.datetime | None = None) -> bool:
+    started_at = _parse_timestamp(prior.get("started_at"))
+    if started_at is None:
+        return True
+    current = now or dt.datetime.now(dt.UTC)
+    return (current - started_at).total_seconds() > PENDING_STALE_AFTER_SECONDS
+
+
 def should_dispatch(
     pr_number: int,
     head_sha: str,
@@ -570,7 +617,7 @@ def should_dispatch(
 
     if prior and prior.get("head_sha") == head_sha:
         status = str(prior.get("status") or "")
-        if status in {"pending", "completed"}:
+        if status == "completed" or (status == "pending" and not _pending_record_is_stale(prior)):
             return DebounceDecision(
                 False,
                 f"duplicate-{status}",
@@ -579,7 +626,11 @@ def should_dispatch(
                 prior_head_sha=head_sha,
             )
 
-    reason = "first-dispatch" if prior is None else "head-sha-changed"
+    reason = (
+        "first-dispatch"
+        if prior is None
+        else "stale-pending" if prior.get("head_sha") == head_sha else "head-sha-changed"
+    )
     record = {
         "provider": provider,
         "pr_number": pr_number,
@@ -742,7 +793,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     assemble = subparsers.add_parser("assemble-prompt", help="assemble provider prompt")
-    assemble.add_argument("--provider", choices=sorted(PROVIDERS), required=True)
+    assemble.add_argument("--provider", choices=sorted(PROMPT_PROVIDERS), required=True)
     assemble.add_argument("--base-prompt", required=True)
     assemble.add_argument("--workspace", default=".")
     assemble.add_argument("--appendix", default="")
@@ -755,7 +806,7 @@ def build_parser() -> argparse.ArgumentParser:
     assemble.set_defaults(func=_cmd_assemble)
 
     parse = subparsers.add_parser("parse-output", help="parse provider output")
-    parse.add_argument("--provider", choices=sorted(PROVIDERS), required=True)
+    parse.add_argument("--provider", choices=sorted(PROMPT_PROVIDERS), required=True)
     parse.add_argument("--raw-output-file", default="")
     parse.set_defaults(func=_cmd_parse)
 
