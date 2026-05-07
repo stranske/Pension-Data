@@ -83,6 +83,8 @@ def _restore_matrix(
 ) -> MatrixInput:
     if shape == "list":
         return selected
+    if not isinstance(full_matrix, dict):
+        raise TypeError("matrix object shape requires a dictionary input")
     restored = dict(full_matrix)
     restored["include"] = selected
     return restored
@@ -152,7 +154,11 @@ def _path_matches(path: str, pattern: str) -> bool:
             f"{normalized_pattern}/"
         )
 
-    return fnmatch.fnmatchcase(normalized_path, normalized_pattern)
+    if fnmatch.fnmatchcase(normalized_path, normalized_pattern):
+        return True
+    if normalized_pattern.startswith("**/"):
+        return fnmatch.fnmatchcase(normalized_path, normalized_pattern[3:])
+    return False
 
 
 def _changed_roots(changed_files: list[str]) -> str:
