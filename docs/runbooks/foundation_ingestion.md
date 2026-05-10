@@ -52,5 +52,11 @@ Expected signal: tests pass and validate taxonomy + fixture e2e artifact expecta
 
 - `latest_run_ledger.json` reports `status: success`.
 - `run_ledger.jsonl` includes the new run record.
-- `coverage_readiness.json` exists and includes readiness rows.
+- `coverage/readiness_rows.json` and `coverage/readiness_rows.csv` exist and include
+  one row per plan-period with `readiness_state`, `is_extraction_ready`, and
+  `extraction_blocker_reason`.
+- Blocked rows use one of the operator-actionable blocker reasons:
+  `official_source_unresolved`, `non_official_only`, `wrong_plan`, or `stale_period`.
+- `coverage/summary_by_cohort.csv` and `coverage/summary_by_system_type.csv` expose
+  unresolved official-source counts, source mismatch rates, and stale-period rates.
 - CI workflow `Foundation Fixture E2E` completes without errors.

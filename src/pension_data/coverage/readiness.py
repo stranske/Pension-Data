@@ -18,12 +18,18 @@ from pension_data.quality.anomaly_rules import (
 )
 from pension_data.registry.system_type_lookup import load_system_type_by_plan_id
 from pension_data.review_queue.anomalies import route_anomalies_to_review_queue
-from pension_data.sources.schema import SourceMapRecord
+from pension_data.sources.schema import SourceMapRecord, is_official_source_authority_tier
 
 ReadinessState = Literal["ready", "blocked_source", "blocked_quality"]
 CoverageGapState = Literal["full", "partial", "missing"]
+ExtractionBlockerReason = Literal[
+    "",
+    "official_source_unresolved",
+    "non_official_only",
+    "wrong_plan",
+    "stale_period",
+]
 _YEAR_PATTERN = re.compile(r"(?:19|20)\d{2}")
-_OFFICIAL_TIERS = {"official", "official-mirror"}
 _RESOLUTION_PRIORITY = {
     "not_found": 0,
     "available_non_official_only": 1,
@@ -33,11 +39,24 @@ _RESOLUTION_PRIORITY = {
 
 def derive_readiness_state(record: SourceMapRecord) -> ReadinessState:
     """Map source-quality signals to extraction-readiness status."""
+    if record.mismatch_reason == "non_official_only":
+        return "blocked_source"
     if record.official_resolution_state in {"not_found", "available_non_official_only"}:
         return "blocked_source"
     if record.mismatch_reason in {"wrong_plan", "stale_period", "non_official_only"}:
         return "blocked_quality"
     return "ready"
+
+
+def derive_extraction_blocker_reason(record: SourceMapRecord) -> ExtractionBlockerReason:
+    """Return the operator-facing reason a plan-period is not ready for extraction."""
+    if record.mismatch_reason in {"wrong_plan", "stale_period", "non_official_only"}:
+        return record.mismatch_reason
+    if record.official_resolution_state == "available_non_official_only":
+        return "non_official_only"
+    if record.official_resolution_state == "not_found":
+        return "official_source_unresolved"
+    return ""
 
 
 def _parse_year_from_plan_period(plan_period: str) -> int | None:
@@ -59,7 +78,7 @@ def _select_resolution_record(records: list[SourceMapRecord]) -> SourceMapRecord
         records,
         key=lambda row: (
             _RESOLUTION_PRIORITY[row.official_resolution_state],
-            row.source_authority_tier in _OFFICIAL_TIERS,
+            is_official_source_authority_tier(row.source_authority_tier),
             row.source_url,
         ),
         reverse=True,
@@ -132,6 +151,57 @@ def _build_annual_report_gap_rows(
     return gap_rows, ordered_target_years
 
 
+def _build_plan_year_readiness_rows(
+    records: list[SourceMapRecord],
+    *,
+    target_years: tuple[int, ...],
+    system_type_by_plan_id: Mapping[str, str],
+) -> list[dict[str, object]]:
+    coverage_by_plan_year: defaultdict[tuple[str, int], list[SourceMapRecord]] = defaultdict(list)
+    cohort_by_plan: dict[str, str] = {}
+
+    for record in records:
+        parsed_year = _parse_year_from_plan_period(record.plan_period)
+        if parsed_year is None:
+            continue
+        coverage_by_plan_year[(record.plan_id, parsed_year)].append(record)
+        cohort_by_plan.setdefault(record.plan_id, record.cohort)
+
+    readiness_rows: list[dict[str, object]] = []
+    for plan_id in sorted(cohort_by_plan):
+        cohort = cohort_by_plan[plan_id]
+        system_type = _resolve_system_type(
+            plan_id=plan_id,
+            cohort=cohort,
+            system_type_by_plan_id=system_type_by_plan_id,
+        )
+        for plan_year in target_years:
+            plan_year_records = coverage_by_plan_year.get((plan_id, plan_year), [])
+            if plan_year_records:
+                selected = _select_resolution_record(plan_year_records)
+                blocker_reason = derive_extraction_blocker_reason(selected)
+                readiness_state = derive_readiness_state(selected)
+            else:
+                blocker_reason = "official_source_unresolved"
+                readiness_state = "blocked_source"
+            readiness_rows.append(
+                {
+                    "plan_id": plan_id,
+                    "plan_year": plan_year,
+                    "cohort": cohort,
+                    "system_type": system_type,
+                    "extraction_blocker_reason": blocker_reason,
+                    "is_extraction_ready": readiness_state == "ready",
+                    "readiness_state": readiness_state,
+                }
+            )
+
+    readiness_rows.sort(
+        key=lambda row: (row["cohort"], row["system_type"], row["plan_id"], row["plan_year"])
+    )
+    return readiness_rows
+
+
 def build_readiness_artifacts(
     records: list[SourceMapRecord],
     *,
@@ -157,6 +227,8 @@ def build_readiness_artifacts(
             "official_resolution_state": record.official_resolution_state,
             "source_authority_tier": record.source_authority_tier,
             "mismatch_reason": record.mismatch_reason or "",
+            "extraction_blocker_reason": derive_extraction_blocker_reason(record),
+            "is_extraction_ready": derive_readiness_state(record) == "ready",
             "readiness_state": derive_readiness_state(record),
         }
         for record in records
@@ -196,6 +268,11 @@ def build_readiness_artifacts(
     annual_report_gap_rows, ordered_target_years = _build_annual_report_gap_rows(
         records,
         target_years=target_years,
+        system_type_by_plan_id=resolved_system_types,
+    )
+    plan_year_readiness_rows = _build_plan_year_readiness_rows(
+        records,
+        target_years=ordered_target_years,
         system_type_by_plan_id=resolved_system_types,
     )
     gap_totals_by_cohort: defaultdict[str, int] = defaultdict(int)
@@ -290,6 +367,7 @@ def build_readiness_artifacts(
 
     return {
         "readiness_rows": readiness_rows,
+        "plan_year_readiness_rows": plan_year_readiness_rows,
         "annual_report_gap_rows": annual_report_gap_rows,
         "target_year_window": list(ordered_target_years),
         "summary_by_cohort": summary_rows,
@@ -314,11 +392,14 @@ def write_coverage_artifacts(
 ) -> dict[str, str]:
     """Write deterministic machine-readable coverage artifacts under `artifacts/coverage`."""
     readiness_rows = artifacts.get("readiness_rows")
+    plan_year_readiness_rows = artifacts.get("plan_year_readiness_rows")
     annual_report_gap_rows = artifacts.get("annual_report_gap_rows")
     summary_by_cohort = artifacts.get("summary_by_cohort")
     summary_by_system_type = artifacts.get("summary_by_system_type")
     if not isinstance(readiness_rows, list):
         raise ValueError("artifacts['readiness_rows'] must be a list")
+    if not isinstance(plan_year_readiness_rows, list):
+        raise ValueError("artifacts['plan_year_readiness_rows'] must be a list")
     if not isinstance(annual_report_gap_rows, list):
         raise ValueError("artifacts['annual_report_gap_rows'] must be a list")
     if not isinstance(summary_by_cohort, list):
@@ -331,6 +412,8 @@ def write_coverage_artifacts(
 
     readiness_json = coverage_dir / "readiness_rows.json"
     readiness_csv = coverage_dir / "readiness_rows.csv"
+    plan_year_readiness_json = coverage_dir / "plan_year_readiness_rows.json"
+    plan_year_readiness_csv = coverage_dir / "plan_year_readiness_rows.csv"
     annual_gap_json = coverage_dir / "annual_report_gap_rows.json"
     annual_gap_csv = coverage_dir / "annual_report_gap_rows.csv"
     cohort_json = coverage_dir / "summary_by_cohort.json"
@@ -339,6 +422,7 @@ def write_coverage_artifacts(
     system_type_csv = coverage_dir / "summary_by_system_type.csv"
 
     _write_json(readiness_json, readiness_rows)
+    _write_json(plan_year_readiness_json, plan_year_readiness_rows)
     _write_json(annual_gap_json, annual_report_gap_rows)
     _write_json(cohort_json, summary_by_cohort)
     _write_json(system_type_json, summary_by_system_type)
@@ -353,6 +437,21 @@ def write_coverage_artifacts(
             "official_resolution_state",
             "source_authority_tier",
             "mismatch_reason",
+            "extraction_blocker_reason",
+            "is_extraction_ready",
+            "readiness_state",
+        ),
+    )
+    _write_csv(
+        plan_year_readiness_csv,
+        rows=plan_year_readiness_rows,
+        fieldnames=(
+            "plan_id",
+            "plan_year",
+            "cohort",
+            "system_type",
+            "extraction_blocker_reason",
+            "is_extraction_ready",
             "readiness_state",
         ),
     )
@@ -397,6 +496,8 @@ def write_coverage_artifacts(
     return {
         "readiness_rows_json": str(readiness_json),
         "readiness_rows_csv": str(readiness_csv),
+        "plan_year_readiness_rows_json": str(plan_year_readiness_json),
+        "plan_year_readiness_rows_csv": str(plan_year_readiness_csv),
         "annual_report_gap_rows_json": str(annual_gap_json),
         "annual_report_gap_rows_csv": str(annual_gap_csv),
         "summary_by_cohort_json": str(cohort_json),

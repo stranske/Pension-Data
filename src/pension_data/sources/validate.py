@@ -23,6 +23,7 @@ from pension_data.sources.schema import (
     CrawlConstraints,
     SourceMapEntry,
     SourceMapRecord,
+    is_official_source_authority_tier,
 )
 
 
@@ -448,14 +449,14 @@ def _validate_source_map_record(
         )
 
     if record.official_resolution_state == "available_official" and (
-        record.source_authority_tier == "high-confidence-third-party"
+        not is_official_source_authority_tier(record.source_authority_tier)
     ):
         errors.append(
             "available_official requires source_authority_tier of 'official' or 'official-mirror'"
         )
 
     if record.official_resolution_state == "available_non_official_only" and (
-        record.source_authority_tier in {"official", "official-mirror"}
+        is_official_source_authority_tier(record.source_authority_tier)
     ):
         errors.append("available_non_official_only cannot use an official authority tier")
 

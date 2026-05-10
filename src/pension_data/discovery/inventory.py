@@ -17,9 +17,11 @@ from pension_data.db.models.inventory import (
 )
 from pension_data.registry.system_type_lookup import load_system_type_by_plan_id
 from pension_data.sources.schema import (
+    OFFICIAL_SOURCE_AUTHORITY_TIERS,
     OfficialResolutionState,
     SourceAuthorityTier,
     SourceMapRecord,
+    is_official_source_authority_tier,
 )
 
 _YEAR_PATTERN = re.compile(r"(?:19|20)\d{2}")
@@ -35,8 +37,6 @@ _ALM_HINTS = ("asset liability", "asset/liability", "alm study", "asset liabilit
 _CONSULTANT_HINTS = ("consultant report", "consultant", "investment consultant")
 _MANAGER_DISCLOSURE_HINTS = ("manager", "managers", "holding", "holdings")
 _CONSULTANT_DISCLOSURE_HINTS = ("consultant report", "investment consultant")
-_OFFICIAL_TIERS: tuple[SourceAuthorityTier, ...] = ("official", "official-mirror")
-
 _RESOLUTION_PRIORITY: dict[OfficialResolutionState, int] = {
     "not_found": 0,
     "available_non_official_only": 1,
@@ -111,7 +111,7 @@ def _select_resolution_record(records: list[SourceMapRecord]) -> SourceMapRecord
         records,
         key=lambda row: (
             _RESOLUTION_PRIORITY[row.official_resolution_state],
-            row.source_authority_tier in ("official", "official-mirror"),
+            is_official_source_authority_tier(row.source_authority_tier),
             row.source_url,
         ),
         reverse=True,
@@ -130,7 +130,7 @@ def _resolve_system_type(
 def _resolution_from_discovered_document(
     document: DiscoveredInventoryRecord,
 ) -> OfficialResolutionState:
-    if document.source_authority_tier in _OFFICIAL_TIERS:
+    if document.source_authority_tier in OFFICIAL_SOURCE_AUTHORITY_TIERS:
         return "available_official"
     return "available_non_official_only"
 
@@ -260,7 +260,7 @@ def build_inventory_artifacts(
                 selected_document = sorted(
                     discovered_annual_reports_by_plan_year[(plan_id, plan_year)],
                     key=lambda row: (
-                        row.source_authority_tier in _OFFICIAL_TIERS,
+                        is_official_source_authority_tier(row.source_authority_tier),
                         row.source_url,
                     ),
                     reverse=True,
