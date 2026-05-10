@@ -153,5 +153,7 @@ def test_ui_surfaces_fixture_origin_marker() -> None:
     app = (WEB_DIR / "app.js").read_text(encoding="utf-8")
 
     assert 'data-testid="data-origin-badge"' in index
+    assert "Using packaged fixture bundle (demo data)." in index
     assert "Demo data - not live" in app
+    assert "packaged bundle (fixture demo)" in app
     assert "data_origin" in app

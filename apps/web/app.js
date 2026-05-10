@@ -13,6 +13,7 @@ const DATA_ORIGIN_LABELS = {
   generated: "Generated artifact data",
   live: "Live data",
 };
+const FIXTURE_SOURCE_SUFFIX = " (fixture demo)";
 
 const state = {
   config: null,
@@ -157,11 +158,15 @@ function loadOfflineWorkspace() {
 }
 
 function updateWorkspaceSource(sourceLabel, dataOrigin) {
-  state.workspaceSource = sourceLabel;
+  const normalizedSource =
+    dataOrigin === "fixture" && !normalizeLower(sourceLabel).includes("fixture")
+      ? `${sourceLabel}${FIXTURE_SOURCE_SUFFIX}`
+      : sourceLabel;
+  state.workspaceSource = normalizedSource;
   state.dataOrigin = dataOrigin;
   const source = document.getElementById("workspace-source");
   if (source) {
-    source.textContent = sourceLabel;
+    source.textContent = normalizedSource;
   }
   const origin = document.getElementById("data-origin-badge");
   const originValue = document.getElementById("workspace-origin");
@@ -197,7 +202,7 @@ function applyWorkspaceBundle(payload, sourceLabel) {
 async function loadPackagedWorkspaceBundle() {
   const payload = normalizeWorkspaceBundle(await loadJson(WORKSPACE_DATA_PATH));
   state.packagedWorkspace = payload;
-  persistOfflineWorkspace(payload, "packaged bundle");
+  persistOfflineWorkspace(payload, "packaged bundle (fixture demo)");
   return payload;
 }
 

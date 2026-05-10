@@ -128,6 +128,8 @@ def _smoke_local(base_dir: Path, *, require_runtime: bool) -> None:
     app = (base_dir / "app.js").read_text(encoding="utf-8")
     if "Demo data - not live" not in app:
         raise ValueError("app.js missing fixture-origin warning text")
+    if "packaged bundle (fixture demo)" not in app:
+        raise ValueError("app.js missing fixture source label text")
 
     _assert_config(_load_json(base_dir / "config/default.json"), path_label="config/default.json")
     workspace_payload = _load_json(base_dir / "data/workspace.json")
