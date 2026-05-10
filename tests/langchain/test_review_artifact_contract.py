@@ -14,71 +14,20 @@ from pension_data.langchain.review_artifact import (
     REVIEWABLE_FINDINGS_SCHEMA_PATH,
     REVIEWABLE_FINDINGS_SCHEMA_VERSION,
     ReviewableFindingsArtifactError,
+    build_extraction_quality_dashboard_artifact,
     reviewable_findings_schema,
     validate_reviewable_findings_artifact,
+    write_reviewable_findings_artifact,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _valid_artifact() -> dict[str, Any]:
-    return {
-        "artifact_type": REVIEWABLE_FINDINGS_ARTIFACT_TYPE,
-        "schema_version": REVIEWABLE_FINDINGS_SCHEMA_VERSION,
-        "artifact_id": "extraction-quality-dashboard:2026-05-10",
-        "generated_at": "2026-05-10T03:20:00Z",
-        "source_artifact_ids": [
-            "extraction_persistence/persistence_contract.json",
-            "coverage/source_authority_readiness.csv",
-        ],
-        "slice": {
-            "slice_id": "extraction_quality_dashboard",
-            "title": "Extraction Quality Dashboard",
-            "metric_family": "extraction_quality",
-            "description": "Review extraction confidence, blockers, and source-backed citations.",
-        },
-        "findings": [
-            {
-                "finding_id": "finding:ca-pers:fy2024:funded-ratio",
-                "entity": "CA-PERS",
-                "period": "FY2024",
-                "metric_family": "funded_status",
-                "metric": "funded_ratio",
-                "value": 0.81,
-                "confidence": 0.96,
-                "severity": "info",
-                "provenance_refs": ["doc:ca-pers-2024#page=52"],
-                "citations": ["CA-PERS ACFR FY2024 p.52"],
-            },
-            {
-                "finding_id": "finding:ca-pers:fy2023:funded-ratio",
-                "entity": "CA-PERS",
-                "period": "FY2023",
-                "metric_family": "funded_status",
-                "metric": "funded_ratio",
-                "value": 0.79,
-                "confidence": 0.93,
-                "severity": "info",
-                "provenance_refs": ["doc:ca-pers-2023#page=49"],
-                "citations": ["CA-PERS ACFR FY2023 p.49"],
-            },
-        ],
-        "langchain_actions": [
-            {
-                "action": "explain",
-                "question": "Explain the confidence drivers for this finding",
-                "finding_ids": ["finding:ca-pers:fy2024:funded-ratio"],
-            },
-            {
-                "action": "compare",
-                "question": "Compare confidence against the prior period",
-                "finding_ids": [
-                    "finding:ca-pers:fy2024:funded-ratio",
-                    "finding:ca-pers:fy2023:funded-ratio",
-                ],
-            },
-        ],
-    }
+    return build_extraction_quality_dashboard_artifact(
+        generated_at="2026-05-10T03:20:00Z",
+        artifact_date="2026-05-10",
+    )
 
 
 def test_schema_file_matches_python_contract() -> None:
@@ -194,3 +143,25 @@ def test_published_artifact_path_contains_valid_contract_payload() -> None:
     artifact = json.loads(artifact_path.read_text())
 
     validate_reviewable_findings_artifact(artifact)
+
+
+def test_generator_includes_required_acceptance_fields() -> None:
+    artifact = _valid_artifact()
+
+    finding = artifact["findings"][0]
+    assert finding["entity"]
+    assert finding["period"]
+    assert finding["metric_family"]
+    assert finding["confidence"] >= 0
+    assert finding["provenance_refs"]
+
+
+def test_writer_persists_valid_artifact_json(tmp_path: Path) -> None:
+    artifact = _valid_artifact()
+    output = tmp_path / "reviewable-findings.json"
+
+    written = write_reviewable_findings_artifact(artifact, output_path=output)
+
+    assert written == output
+    persisted = json.loads(output.read_text(encoding="utf-8"))
+    validate_reviewable_findings_artifact(persisted)

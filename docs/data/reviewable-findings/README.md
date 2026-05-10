@@ -6,6 +6,7 @@ The first static UI and LangChain artifact slice is `extraction_quality_dashboar
 - Published artifact path: `docs/data/reviewable-findings/extraction-quality-dashboard.json`
 - Python contract helper: `pension_data.langchain.review_artifact.reviewable_findings_schema()`
 - Validator: `pension_data.langchain.review_artifact.validate_reviewable_findings_artifact(...)`
+- Generator command: `python scripts/langchain/build_reviewable_findings_artifact.py`
 
 The artifact is generated from existing extraction persistence and readiness outputs, not from
 hand-authored UI rows. The checked-in artifact at the published path provides a stable machine-

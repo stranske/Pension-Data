@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 
 REVIEWABLE_FINDINGS_SCHEMA_VERSION = 1
@@ -144,8 +146,7 @@ def validate_reviewable_findings_artifact(artifact: Mapping[str, Any]) -> None:
         _require_string(slice_payload[field], path=f"artifact.slice.{field}")
     if slice_payload["slice_id"] != REVIEWABLE_FINDINGS_FIRST_SLICE_ID:
         raise ReviewableFindingsArtifactError(
-            "artifact.slice.slice_id must be "
-            f"{REVIEWABLE_FINDINGS_FIRST_SLICE_ID}"
+            "artifact.slice.slice_id must be " f"{REVIEWABLE_FINDINGS_FIRST_SLICE_ID}"
         )
 
     findings = artifact["findings"]
@@ -228,3 +229,88 @@ def validate_reviewable_findings_artifact(artifact: Mapping[str, Any]) -> None:
         raise ReviewableFindingsArtifactError(
             "artifact.langchain_actions must include explain and compare"
         )
+
+
+def build_extraction_quality_dashboard_artifact(
+    *,
+    generated_at: str | None = None,
+    artifact_date: str | None = None,
+) -> dict[str, Any]:
+    """Build the default extraction-quality dashboard artifact payload."""
+    now = datetime.now(UTC)
+    normalized_generated_at = generated_at or now.replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+    normalized_artifact_date = artifact_date or now.date().isoformat()
+    return {
+        "artifact_type": REVIEWABLE_FINDINGS_ARTIFACT_TYPE,
+        "schema_version": REVIEWABLE_FINDINGS_SCHEMA_VERSION,
+        "artifact_id": f"extraction-quality-dashboard:{normalized_artifact_date}",
+        "generated_at": normalized_generated_at,
+        "source_artifact_ids": [
+            "extraction_persistence/persistence_contract.json",
+            "coverage/source_authority_readiness.csv",
+        ],
+        "slice": {
+            "slice_id": REVIEWABLE_FINDINGS_FIRST_SLICE_ID,
+            "title": "Extraction Quality Dashboard",
+            "metric_family": "extraction_quality",
+            "description": "Review extraction confidence, blockers, and source-backed citations.",
+        },
+        "findings": [
+            {
+                "finding_id": "finding:ca-pers:fy2024:funded-ratio",
+                "entity": "CA-PERS",
+                "period": "FY2024",
+                "metric_family": "funded_status",
+                "metric": "funded_ratio",
+                "value": 0.81,
+                "confidence": 0.96,
+                "severity": "info",
+                "provenance_refs": ["doc:ca-pers-2024#page=52"],
+                "citations": ["CA-PERS ACFR FY2024 p.52"],
+            },
+            {
+                "finding_id": "finding:ca-pers:fy2023:funded-ratio",
+                "entity": "CA-PERS",
+                "period": "FY2023",
+                "metric_family": "funded_status",
+                "metric": "funded_ratio",
+                "value": 0.79,
+                "confidence": 0.93,
+                "severity": "info",
+                "provenance_refs": ["doc:ca-pers-2023#page=49"],
+                "citations": ["CA-PERS ACFR FY2023 p.49"],
+            },
+        ],
+        "langchain_actions": [
+            {
+                "action": "explain",
+                "question": "Explain the confidence drivers for this finding",
+                "finding_ids": ["finding:ca-pers:fy2024:funded-ratio"],
+            },
+            {
+                "action": "compare",
+                "question": "Compare confidence against the prior period",
+                "finding_ids": [
+                    "finding:ca-pers:fy2024:funded-ratio",
+                    "finding:ca-pers:fy2023:funded-ratio",
+                ],
+            },
+        ],
+    }
+
+
+def write_reviewable_findings_artifact(
+    artifact: Mapping[str, Any],
+    *,
+    output_path: str | Path = REVIEWABLE_FINDINGS_ARTIFACT_PATH,
+) -> Path:
+    """Validate and write the artifact JSON to a deterministic output path."""
+    import json
+
+    validate_reviewable_findings_artifact(artifact)
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
+    return path
