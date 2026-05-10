@@ -22,6 +22,13 @@ from pension_data.sources.schema import SourceMapRecord
 
 ReadinessState = Literal["ready", "blocked_source", "blocked_quality"]
 CoverageGapState = Literal["full", "partial", "missing"]
+ExtractionBlockerReason = Literal[
+    "",
+    "official_source_unresolved",
+    "non_official_only",
+    "wrong_plan",
+    "stale_period",
+]
 _YEAR_PATTERN = re.compile(r"(?:19|20)\d{2}")
 _OFFICIAL_TIERS = {"official", "official-mirror"}
 _RESOLUTION_PRIORITY = {
@@ -38,6 +45,17 @@ def derive_readiness_state(record: SourceMapRecord) -> ReadinessState:
     if record.mismatch_reason in {"wrong_plan", "stale_period", "non_official_only"}:
         return "blocked_quality"
     return "ready"
+
+
+def derive_extraction_blocker_reason(record: SourceMapRecord) -> ExtractionBlockerReason:
+    """Return the operator-facing reason a plan-period is not ready for extraction."""
+    if record.mismatch_reason in {"wrong_plan", "stale_period", "non_official_only"}:
+        return record.mismatch_reason
+    if record.official_resolution_state == "available_non_official_only":
+        return "non_official_only"
+    if record.official_resolution_state == "not_found":
+        return "official_source_unresolved"
+    return ""
 
 
 def _parse_year_from_plan_period(plan_period: str) -> int | None:
@@ -157,6 +175,8 @@ def build_readiness_artifacts(
             "official_resolution_state": record.official_resolution_state,
             "source_authority_tier": record.source_authority_tier,
             "mismatch_reason": record.mismatch_reason or "",
+            "extraction_blocker_reason": derive_extraction_blocker_reason(record),
+            "is_extraction_ready": derive_readiness_state(record) == "ready",
             "readiness_state": derive_readiness_state(record),
         }
         for record in records
@@ -353,6 +373,8 @@ def write_coverage_artifacts(
             "official_resolution_state",
             "source_authority_tier",
             "mismatch_reason",
+            "extraction_blocker_reason",
+            "is_extraction_ready",
             "readiness_state",
         ),
     )

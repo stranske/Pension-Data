@@ -10,6 +10,8 @@ from pension_data.coverage.component_completeness import (
 from pension_data.coverage.readiness import (
     build_publication_artifacts,
     build_readiness_artifacts,
+    derive_extraction_blocker_reason,
+    derive_readiness_state,
     write_coverage_artifacts,
 )
 
@@ -19,6 +21,8 @@ __all__ = [
     "build_component_datasets",
     "build_publication_artifacts",
     "build_readiness_artifacts",
+    "derive_extraction_blocker_reason",
+    "derive_readiness_state",
     "load_component_datasets_from_manifest",
     "validate_component_coverage",
     "write_coverage_artifacts",

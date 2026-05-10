@@ -10,6 +10,7 @@ import pytest
 from pension_data.coverage.readiness import (
     build_publication_artifacts,
     build_readiness_artifacts,
+    derive_extraction_blocker_reason,
     write_coverage_artifacts,
 )
 from pension_data.quality.anomaly_rules import TimeSeriesPoint
@@ -140,6 +141,8 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "official_resolution_state": "available_official",
             "source_authority_tier": "official",
             "mismatch_reason": "",
+            "extraction_blocker_reason": "",
+            "is_extraction_ready": True,
             "readiness_state": "ready",
         },
         {
@@ -150,6 +153,8 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "official_resolution_state": "available_official",
             "source_authority_tier": "official",
             "mismatch_reason": "stale_period",
+            "extraction_blocker_reason": "stale_period",
+            "is_extraction_ready": False,
             "readiness_state": "blocked_quality",
         },
         {
@@ -160,6 +165,8 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "official_resolution_state": "available_non_official_only",
             "source_authority_tier": "high-confidence-third-party",
             "mismatch_reason": "non_official_only",
+            "extraction_blocker_reason": "non_official_only",
+            "is_extraction_ready": False,
             "readiness_state": "blocked_source",
         },
         {
@@ -170,6 +177,8 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "official_resolution_state": "available_official",
             "source_authority_tier": "official",
             "mismatch_reason": "wrong_plan",
+            "extraction_blocker_reason": "wrong_plan",
+            "is_extraction_ready": False,
             "readiness_state": "blocked_quality",
         },
         {
@@ -180,6 +189,8 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "official_resolution_state": "not_found",
             "source_authority_tier": "high-confidence-third-party",
             "mismatch_reason": "",
+            "extraction_blocker_reason": "official_source_unresolved",
+            "is_extraction_ready": False,
             "readiness_state": "blocked_source",
         },
     ]
@@ -247,6 +258,21 @@ def test_readiness_outputs_include_expected_states_and_cohort_metrics() -> None:
             "partial_year_rate": 0.0,
         },
     ]
+
+
+def test_extraction_blocker_reason_distinguishes_unresolved_official_sources() -> None:
+    records = _fixture_records()
+    reason_by_plan = {
+        record.plan_id: derive_extraction_blocker_reason(record) for record in records
+    }
+
+    assert reason_by_plan == {
+        "AS-GERF": "official_source_unresolved",
+        "CA-PERS": "",
+        "OR-SERS": "stale_period",
+        "TX-ERS": "non_official_only",
+        "WA-SRS": "wrong_plan",
+    }
 
 
 def test_annual_report_gap_rows_cover_full_partial_and_missing_states() -> None:
@@ -334,5 +360,7 @@ def test_write_coverage_artifacts_is_deterministic_for_json_and_csv(tmp_path: Pa
     }
     assert first_files == second_files
     assert "blocked_source" in first_files["readiness_rows_json"]
+    assert "extraction_blocker_reason" in first_files["readiness_rows_csv"]
+    assert "official_source_unresolved" in first_files["readiness_rows_json"]
     assert "coverage_gap_state" in first_files["annual_report_gap_rows_csv"]
     assert "system_type,total_plan_periods" in first_files["summary_by_system_type_csv"]
