@@ -12,4 +12,7 @@
   - `UV_CACHE_DIR=/private/tmp/uv-cache-pension-320 uv run --extra dev ruff check src/pension_data/coverage/readiness.py src/pension_data/coverage/__init__.py tests/coverage/test_readiness_outputs.py` -> passed.
   - `UV_CACHE_DIR=/private/tmp/uv-cache-pension-320 uv run --extra dev black --check src/pension_data/coverage/readiness.py src/pension_data/coverage/__init__.py tests/coverage/test_readiness_outputs.py` -> passed.
   - `git diff --check` -> passed.
-- Next action: commit, push, open ready-for-review PR with `agent:codex`, `agents:keepalive`, and `autofix`.
+- Pushed commit `5733d90` (`Issue #320: report extraction readiness blockers`) and opened ready-for-review PR `stranske/Pension-Data#411`.
+- PR state verified immediately after creation: `isDraft=false`, branch `codex/issue-320-source-readiness`, labels `agent:codex`, `agents:keepalive`, and `autofix`; initial merge state `BLOCKED` while checks start.
+- Relay emitted: `pr_opened active.source_repo=stranske/Pension-Data active.source_issue=320 active.source_pr=411 active.next_action=wait_for_keepalive`.
+- Next action: keepalive owns PR follow-up; opener should only revisit if cap-health reports this PR as non-drainable.
