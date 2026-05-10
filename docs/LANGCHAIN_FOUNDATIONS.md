@@ -55,3 +55,16 @@ Use shared helpers from `pension_data.langchain.prompts`:
 All findings-explainer outputs should include:
 
 `This is analytical output, not financial advice. Always verify metrics independently.`
+
+## Reviewable Findings Artifact
+
+The first static UI/LangChain artifact slice is `extraction_quality_dashboard`.
+
+- Schema: `docs/data/reviewable-findings/findings.schema.json`
+- Published payload path: `docs/data/reviewable-findings/extraction-quality-dashboard.json`
+- Contract doc: `docs/contracts/reviewable-findings-artifact-contract.md`
+
+Use `reviewable_findings_schema()` to inspect the machine-readable contract and
+`validate_reviewable_findings_artifact(...)` before publishing generated artifacts. Rows must carry
+entity, period, metric family, confidence, provenance refs, and citations so explain/compare outputs
+remain source-bound.

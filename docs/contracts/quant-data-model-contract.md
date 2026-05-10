@@ -42,6 +42,10 @@ Defines the shared quantitative output contract for browser UI, desktop app, and
 - Web and desktop clients should render `QuantSeriesContract` by `chart_kind` without schema translation.
 - `provenance_refs` should be displayed as citations/tooltips where available.
 - Warnings should be surfaced as non-blocking banners with drill-through detail.
+- Static review findings should be published first to
+  `docs/data/reviewable-findings/extraction-quality-dashboard.json` using
+  `docs/data/reviewable-findings/findings.schema.json` so UI and LangChain consumers share one
+  artifact path before broader quant workspace generation.
 
 ## Reproducibility Validation
 

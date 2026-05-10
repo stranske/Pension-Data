@@ -79,6 +79,19 @@ This document compares practical options for adding a higher-quality UI and a La
 2. Add **Option 3** over time by introducing a Mac desktop power-client when UX depth is needed.
 3. Keep LangChain execution in CI first; only move to local embedded inference if latency becomes a hard blocker.
 
+## First Reviewable Artifact
+
+The first static UI/LangChain slice is `extraction_quality_dashboard`.
+
+- Schema contract: `docs/data/reviewable-findings/findings.schema.json`
+- Published payload path: `docs/data/reviewable-findings/extraction-quality-dashboard.json`
+- Contract narrative: `docs/contracts/reviewable-findings-artifact-contract.md`
+- Python validator: `pension_data.langchain.review_artifact.validate_reviewable_findings_artifact(...)`
+
+This slice focuses on extraction quality because it can be generated from existing extraction
+persistence and source-readiness outputs while still carrying the provenance, confidence, metric
+family, entity, and period fields the static UI and LangChain explain/compare flows need.
+
 ## Project Inclusion Status
 
 - Mac desktop packaging track is now included in this repo at `apps/mac-desktop/` as an implementation scaffold.
