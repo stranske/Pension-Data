@@ -7,12 +7,12 @@ const OFFLINE_WORKSPACE_SOURCE_KEY = "pension-data.offline-workspace-source.v1";
 const SERVICE_WORKER_PATH = "./sw.js";
 const RUNTIME_CONTRACT_VERSION = "1.0.0";
 const REQUIRED_CONFIG_KEYS = ["environment", "apiBaseUrl", "artifactBaseUrl"];
-const ALLOWED_DATA_ORIGINS = new Set(["fixture", "generated", "live"]);
 const DATA_ORIGIN_LABELS = {
   fixture: "Demo data - not live",
   generated: "Generated artifact data",
   live: "Live data",
 };
+const ALLOWED_DATA_ORIGINS = Object.freeze(Object.keys(DATA_ORIGIN_LABELS));
 const FIXTURE_SOURCE_SUFFIX = " (fixture demo)";
 
 const state = {
@@ -52,8 +52,8 @@ function numeric(value) {
 
 function normalizeDataOrigin(value) {
   const origin = normalizeLower(value);
-  if (!ALLOWED_DATA_ORIGINS.has(origin)) {
-    throw new Error("workspace bundle requires data_origin of fixture, generated, or live");
+  if (!Object.hasOwn(DATA_ORIGIN_LABELS, origin)) {
+    throw new Error(`workspace bundle requires data_origin of ${ALLOWED_DATA_ORIGINS.join(", ")}`);
   }
   return origin;
 }
