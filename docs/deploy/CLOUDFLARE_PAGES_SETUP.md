@@ -39,6 +39,7 @@ Workflow: `.github/workflows/web-cloudflare-pages.yml`
 - Pull requests run local smoke checks only.
 - Pushes to `main` run smoke checks and deploy to Cloudflare Pages.
 - Deploy job writes `apps/web/config/runtime.json` from repository variables.
+- Runtime-required smoke checks reject `data_origin: fixture`; deploy-time bundles must be generated or live before production review.
 
 ## 5. Rollback Procedure
 
@@ -53,4 +54,5 @@ Workflow: `.github/workflows/web-cloudflare-pages.yml`
 - Open deployed URL and confirm:
   - Environment badge is populated.
   - API and artifact endpoints show expected values.
+  - Data origin badge does not show `Demo data - not live` for runtime-required deployments.
   - Access policy blocks unauthorized users.

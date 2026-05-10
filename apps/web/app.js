@@ -7,10 +7,18 @@ const OFFLINE_WORKSPACE_SOURCE_KEY = "pension-data.offline-workspace-source.v1";
 const SERVICE_WORKER_PATH = "./sw.js";
 const RUNTIME_CONTRACT_VERSION = "1.0.0";
 const REQUIRED_CONFIG_KEYS = ["environment", "apiBaseUrl", "artifactBaseUrl"];
+const DATA_ORIGIN_LABELS = {
+  fixture: "Demo data - not live",
+  generated: "Generated artifact data",
+  live: "Live data",
+};
+const ALLOWED_DATA_ORIGINS = Object.freeze(Object.keys(DATA_ORIGIN_LABELS));
+const FIXTURE_SOURCE_SUFFIX = " (fixture demo)";
 
 const state = {
   config: null,
   datasets: [],
+  dataOrigin: "unknown",
   packagedWorkspace: null,
   workspaceSource: "unknown",
   selectedDatasetId: "",
@@ -40,6 +48,14 @@ function normalizeLower(value) {
 function numeric(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeDataOrigin(value) {
+  const origin = normalizeLower(value);
+  if (!Object.hasOwn(DATA_ORIGIN_LABELS, origin)) {
+    throw new Error(`workspace bundle requires data_origin of ${ALLOWED_DATA_ORIGINS.join(", ")}`);
+  }
+  return origin;
 }
 
 async function loadJson(path) {
@@ -98,6 +114,7 @@ function normalizeWorkspaceBundle(payload) {
       `workspace contractVersion '${contractVersion}' differs from expected '${RUNTIME_CONTRACT_VERSION}'`
     );
   }
+  const dataOrigin = normalizeDataOrigin(payload.data_origin);
   const datasets = payload.datasets;
   if (!Array.isArray(datasets) || !datasets.length) {
     throw new Error("workspace bundle requires a non-empty datasets array");
@@ -113,7 +130,7 @@ function normalizeWorkspaceBundle(payload) {
       throw new Error(`dataset '${dataset.id}' is missing rows array`);
     }
   });
-  return payload;
+  return { ...payload, data_origin: dataOrigin };
 }
 
 function persistOfflineWorkspace(workspace, sourceLabel) {
@@ -140,16 +157,34 @@ function loadOfflineWorkspace() {
   }
 }
 
-function updateWorkspaceSource(sourceLabel) {
-  state.workspaceSource = sourceLabel;
+function updateWorkspaceSource(sourceLabel, dataOrigin) {
+  const normalizedSource =
+    dataOrigin === "fixture" && !normalizeLower(sourceLabel).includes("fixture")
+      ? `${sourceLabel}${FIXTURE_SOURCE_SUFFIX}`
+      : sourceLabel;
+  state.workspaceSource = normalizedSource;
+  state.dataOrigin = dataOrigin;
   const source = document.getElementById("workspace-source");
   if (source) {
-    source.textContent = sourceLabel;
+    source.textContent = normalizedSource;
+  }
+  const origin = document.getElementById("data-origin-badge");
+  const originValue = document.getElementById("workspace-origin");
+  const originLabel = DATA_ORIGIN_LABELS[dataOrigin] ?? "Data origin unknown";
+  if (originValue) {
+    originValue.textContent = originLabel;
+  }
+  if (origin) {
+    if (!originValue) {
+      origin.textContent = originLabel;
+    }
+    origin.dataset.origin = dataOrigin;
   }
 }
 
 function applyWorkspaceBundle(payload, sourceLabel) {
   state.datasets = payload.datasets;
+  state.dataOrigin = payload.data_origin;
   if (!state.datasets.length) {
     throw new Error("workspace dataset inventory is empty");
   }
@@ -157,7 +192,7 @@ function applyWorkspaceBundle(payload, sourceLabel) {
     state.selectedDatasetId = state.datasets[0].id;
   }
   state.selectedRowIndex = null;
-  updateWorkspaceSource(sourceLabel);
+  updateWorkspaceSource(sourceLabel, payload.data_origin);
   renderWorkspace();
   if (window.PensionDataApp) {
     window.PensionDataApp.datasetCount = state.datasets.length;
@@ -167,7 +202,7 @@ function applyWorkspaceBundle(payload, sourceLabel) {
 async function loadPackagedWorkspaceBundle() {
   const payload = normalizeWorkspaceBundle(await loadJson(WORKSPACE_DATA_PATH));
   state.packagedWorkspace = payload;
-  persistOfflineWorkspace(payload, "packaged bundle");
+  persistOfflineWorkspace(payload, "packaged bundle (fixture demo)");
   return payload;
 }
 
@@ -240,11 +275,21 @@ function renderMeta() {
   const api = document.getElementById("api-endpoint");
   const artifact = document.getElementById("artifact-endpoint");
   const source = document.getElementById("workspace-source");
+  const origin = document.getElementById("data-origin-badge");
+  const originValue = document.getElementById("workspace-origin");
+  const originLabel = DATA_ORIGIN_LABELS[state.dataOrigin] ?? "Data origin unknown";
 
   environment.textContent = `Environment: ${state.config.environment}`;
   api.textContent = state.config.apiBaseUrl;
   artifact.textContent = state.config.artifactBaseUrl;
   source.textContent = state.workspaceSource;
+  if (originValue) {
+    originValue.textContent = originLabel;
+  }
+  if (!originValue) {
+    origin.textContent = originLabel;
+  }
+  origin.dataset.origin = state.dataOrigin;
 }
 
 function renderInventory() {

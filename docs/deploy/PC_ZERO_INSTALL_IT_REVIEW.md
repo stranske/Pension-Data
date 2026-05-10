@@ -11,7 +11,7 @@ This guide describes the browser-only mode for Pension-Data in locked-down PC en
 ## Data Flow
 
 1. Browser downloads static assets (`index.html`, `app.js`, `styles.css`, manifest, service worker).
-2. Browser loads workspace data bundle from `apps/web/data/workspace.json` (or user-selected local JSON file).
+2. Browser loads workspace data bundle from `apps/web/data/workspace.json` (or user-selected local JSON file). The checked-in bundle is labeled `data_origin: fixture` and is demo data only.
 3. Analysis/filtering/chart rendering run client-side in the browser session.
 4. Optional exports (CSV, JSON, PNG, SVG, HTML) are generated client-side and downloaded by the user.
 
@@ -44,6 +44,7 @@ Retention behavior:
 
 - User can load a local JSON bundle via file picker in browser session.
 - Loaded local bundle is parsed and validated in browser before use.
+- Every bundle must declare `data_origin` as `fixture`, `generated`, or `live`; the UI surfaces fixture bundles as `Demo data - not live`.
 - Bundle is not uploaded by this feature; it remains local to browser context unless user separately exports/shares it.
 
 ## Security Notes
@@ -59,3 +60,4 @@ Retention behavior:
 - [ ] Confirm handling expectations for downloaded exports (CSV/JSON/PNG/SVG/HTML).
 - [ ] Confirm whether PWA install is allowed or blocked by policy.
 - [ ] Confirm offline usage expectations and local cache clearing policy.
+- [ ] Confirm reviewers understand the packaged bundle is fixture-only until generated artifacts are supplied.

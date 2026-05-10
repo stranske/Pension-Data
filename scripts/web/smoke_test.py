@@ -24,6 +24,7 @@ REQUIRED_LOCAL_FILES = (
     "config/default.json",
     "data/workspace.json",
 )
+CONTRACT_PATH = Path("apps/contracts/runtime-contract.json")
 
 
 def _load_json(path: Path) -> dict[str, object]:
@@ -40,6 +41,73 @@ def _assert_config(payload: dict[str, object], *, path_label: str) -> None:
             raise ValueError(f"missing required config key '{key}' in {path_label}")
 
 
+def _assert_workspace_bundle(
+    payload: dict[str, object], *, path_label: str, reject_fixture: bool
+) -> str:
+    contract = _load_runtime_contract()
+    contract_version = payload.get("contractVersion")
+    if not isinstance(contract_version, str) or not contract_version.strip():
+        raise ValueError(f"workspace bundle missing contractVersion in {path_label}")
+    if contract_version != contract.get("version"):
+        raise ValueError(
+            f"workspace contractVersion '{contract_version}' does not match runtime contract"
+        )
+
+    data_origins = _allowed_data_origins(contract)
+    data_origin = payload.get("data_origin")
+    if not isinstance(data_origin, str) or data_origin not in data_origins:
+        raise ValueError(
+            f"workspace bundle requires data_origin of {', '.join(sorted(data_origins))} in {path_label}"
+        )
+    if reject_fixture and data_origin == "fixture":
+        raise ValueError(f"fixture workspace bundle is not allowed for runtime smoke: {path_label}")
+    datasets = payload.get("datasets")
+    if not isinstance(datasets, list) or not datasets:
+        raise ValueError(f"workspace dataset inventory is empty in {path_label}")
+    return data_origin
+
+
+def _load_runtime_contract() -> dict[str, object]:
+    if not CONTRACT_PATH.exists():
+        raise ValueError(f"runtime contract missing: {CONTRACT_PATH}")
+    payload = _load_json(CONTRACT_PATH)
+    version = payload.get("version")
+    workspace_bundle = payload.get("workspaceBundle")
+    if not isinstance(version, str) or not version.strip():
+        raise ValueError(f"runtime contract missing version in {CONTRACT_PATH}")
+    if not isinstance(workspace_bundle, dict):
+        raise ValueError(f"runtime contract missing workspaceBundle in {CONTRACT_PATH}")
+    required_fields = workspace_bundle.get("requiredTopLevelFields")
+    if not isinstance(required_fields, list) or not required_fields:
+        raise ValueError("runtime contract requiredTopLevelFields must be a non-empty list")
+    normalized_required = {
+        field for field in required_fields if isinstance(field, str) and field.strip()
+    }
+    if len(normalized_required) != len(required_fields):
+        raise ValueError("runtime contract requiredTopLevelFields must contain non-empty strings")
+    required_workspace_fields = {"contractVersion", "data_origin", "datasets"}
+    missing_fields = required_workspace_fields.difference(normalized_required)
+    if missing_fields:
+        raise ValueError(
+            "runtime contract missing required workspace fields: "
+            + ", ".join(sorted(missing_fields))
+        )
+    return payload
+
+
+def _allowed_data_origins(contract: dict[str, object]) -> frozenset[str]:
+    workspace_bundle = contract["workspaceBundle"]
+    if not isinstance(workspace_bundle, dict):
+        raise ValueError("runtime contract workspaceBundle must be an object")
+    origins = workspace_bundle.get("dataOrigins")
+    if not isinstance(origins, list) or not origins:
+        raise ValueError("runtime contract dataOrigins must be a non-empty list")
+    normalized = [origin for origin in origins if isinstance(origin, str) and origin.strip()]
+    if len(normalized) != len(origins):
+        raise ValueError("runtime contract dataOrigins must contain non-empty strings")
+    return frozenset(normalized)
+
+
 def _smoke_local(base_dir: Path, *, require_runtime: bool) -> None:
     for relative_path in REQUIRED_LOCAL_FILES:
         if not (base_dir / relative_path).exists():
@@ -49,6 +117,7 @@ def _smoke_local(base_dir: Path, *, require_runtime: bool) -> None:
     markers = (
         'data-testid="web-foundation-root"',
         'data-testid="environment-badge"',
+        'data-testid="data-origin-badge"',
         "./manifest.webmanifest",
         "./styles.css",
         "./app.js",
@@ -56,15 +125,19 @@ def _smoke_local(base_dir: Path, *, require_runtime: bool) -> None:
     for marker in markers:
         if marker not in index:
             raise ValueError(f"index.html missing marker: {marker}")
+    app = (base_dir / "app.js").read_text(encoding="utf-8")
+    if "Demo data - not live" not in app:
+        raise ValueError("app.js missing fixture-origin warning text")
+    if "packaged bundle (fixture demo)" not in app:
+        raise ValueError("app.js missing fixture source label text")
 
     _assert_config(_load_json(base_dir / "config/default.json"), path_label="config/default.json")
     workspace_payload = _load_json(base_dir / "data/workspace.json")
-    contract_version = workspace_payload.get("contractVersion")
-    if not isinstance(contract_version, str) or not contract_version.strip():
-        raise ValueError("workspace bundle missing contractVersion")
-    datasets = workspace_payload.get("datasets")
-    if not isinstance(datasets, list) or not datasets:
-        raise ValueError("workspace dataset inventory is empty")
+    _assert_workspace_bundle(
+        workspace_payload,
+        path_label="data/workspace.json",
+        reject_fixture=require_runtime,
+    )
 
     runtime_path = base_dir / "config/runtime.json"
     if require_runtime:
@@ -94,6 +167,8 @@ def _smoke_url(base_url: str, *, expect_runtime: bool, headers: dict[str, str] |
         raise ValueError("deployed page missing expected heading marker")
     if 'data-testid="environment-badge"' not in html:
         raise ValueError("deployed page missing environment badge marker")
+    if 'data-testid="data-origin-badge"' not in html:
+        raise ValueError("deployed page missing data origin badge marker")
 
     default_payload = json.loads(_fetch_text(urljoin(root, "config/default.json"), headers=headers))
     if not isinstance(default_payload, dict):
@@ -121,12 +196,11 @@ def _smoke_url(base_url: str, *, expect_runtime: bool, headers: dict[str, str] |
     )
     if not isinstance(workspace_payload, dict):
         raise ValueError("workspace endpoint did not return object JSON")
-    contract_version = workspace_payload.get("contractVersion")
-    if not isinstance(contract_version, str) or not contract_version.strip():
-        raise ValueError("workspace bundle missing contractVersion")
-    datasets = workspace_payload.get("datasets")
-    if not isinstance(datasets, list) or not datasets:
-        raise ValueError("workspace dataset inventory is empty")
+    _assert_workspace_bundle(
+        workspace_payload,
+        path_label="data/workspace.json",
+        reject_fixture=expect_runtime,
+    )
 
     if expect_runtime:
         runtime_payload = json.loads(
