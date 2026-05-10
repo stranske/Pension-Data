@@ -74,6 +74,7 @@ def test_missing_or_unknown_origin_fails_workspace_validation() -> None:
         )
 
     workspace["data_origin"] = "sample"
+    workspace["contractVersion"] = "1.0.0"
     with pytest.raises(ValueError, match="requires data_origin"):
         web_smoke_test._assert_workspace_bundle(
             workspace,
@@ -81,6 +82,16 @@ def test_missing_or_unknown_origin_fails_workspace_validation() -> None:
             reject_fixture=False,
         )
 
+
+def test_workspace_contract_version_must_match_runtime_contract() -> None:
+    workspace = json.loads((WEB_DIR / "data" / "workspace.json").read_text())
+    workspace["contractVersion"] = "0.0.0"
+    with pytest.raises(ValueError, match="does not match runtime contract"):
+        web_smoke_test._assert_workspace_bundle(
+            workspace,
+            path_label="data/workspace.json",
+            reject_fixture=False,
+        )
 
 def test_ui_surfaces_fixture_origin_marker() -> None:
     index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
