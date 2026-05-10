@@ -10,9 +10,7 @@ import pytest
 
 from pension_data.langchain.review_artifact import (
     REVIEWABLE_FINDINGS_ARTIFACT_PATH,
-    REVIEWABLE_FINDINGS_ARTIFACT_TYPE,
     REVIEWABLE_FINDINGS_SCHEMA_PATH,
-    REVIEWABLE_FINDINGS_SCHEMA_VERSION,
     ReviewableFindingsArtifactError,
     build_extraction_quality_dashboard_artifact,
     reviewable_findings_schema,
