@@ -11,6 +11,7 @@ REVIEWABLE_FINDINGS_ARTIFACT_PATH = (
     "docs/data/reviewable-findings/extraction-quality-dashboard.json"
 )
 REVIEWABLE_FINDINGS_SCHEMA_PATH = "docs/data/reviewable-findings/findings.schema.json"
+REVIEWABLE_FINDINGS_FIRST_SLICE_ID = "extraction_quality_dashboard"
 
 ReviewFindingSeverity = Literal["info", "warning", "blocker"]
 
@@ -58,7 +59,7 @@ def reviewable_findings_schema() -> dict[str, object]:
         "required_artifact_fields": list(REQUIRED_ARTIFACT_FIELDS),
         "slice": {
             "required_fields": list(REQUIRED_SLICE_FIELDS),
-            "first_slice": "extraction_quality_dashboard",
+            "first_slice": REVIEWABLE_FINDINGS_FIRST_SLICE_ID,
         },
         "findings": {
             "required_fields": list(REQUIRED_FINDING_FIELDS),
@@ -141,12 +142,18 @@ def validate_reviewable_findings_artifact(artifact: Mapping[str, Any]) -> None:
     )
     for field in REQUIRED_SLICE_FIELDS:
         _require_string(slice_payload[field], path=f"artifact.slice.{field}")
+    if slice_payload["slice_id"] != REVIEWABLE_FINDINGS_FIRST_SLICE_ID:
+        raise ReviewableFindingsArtifactError(
+            "artifact.slice.slice_id must be "
+            f"{REVIEWABLE_FINDINGS_FIRST_SLICE_ID}"
+        )
 
     findings = artifact["findings"]
     if not isinstance(findings, Sequence) or isinstance(findings, (str, bytes, bytearray)):
         raise ReviewableFindingsArtifactError("artifact.findings must be a list")
     if not findings:
         raise ReviewableFindingsArtifactError("artifact.findings must not be empty")
+    finding_ids: set[str] = set()
     for index, item in enumerate(findings):
         finding = _require_mapping(item, path=f"artifact.findings[{index}]")
         _validate_required_fields(
@@ -162,8 +169,13 @@ def validate_reviewable_findings_artifact(artifact: Mapping[str, Any]) -> None:
             "metric",
         ):
             _require_string(finding[field], path=f"artifact.findings[{index}].{field}")
+        finding_ids.add(finding["finding_id"])
         confidence = finding["confidence"]
-        if not isinstance(confidence, int | float) or not 0 <= confidence <= 1:
+        if (
+            isinstance(confidence, bool)
+            or not isinstance(confidence, int | float)
+            or not 0 <= confidence <= 1
+        ):
             raise ReviewableFindingsArtifactError(
                 f"artifact.findings[{index}].confidence must be between 0 and 1"
             )
@@ -196,6 +208,20 @@ def validate_reviewable_findings_artifact(artifact: Mapping[str, Any]) -> None:
             raise ReviewableFindingsArtifactError(
                 f"artifact.langchain_actions[{index}].action must be one of "
                 f"{sorted(ALLOWED_LANGCHAIN_ACTIONS)}"
+            )
+        _require_string(
+            action.get("question"),
+            path=f"artifact.langchain_actions[{index}].question",
+        )
+        action_finding_ids = _require_string_sequence(
+            action.get("finding_ids"),
+            path=f"artifact.langchain_actions[{index}].finding_ids",
+        )
+        unknown_finding_ids = sorted(set(action_finding_ids) - finding_ids)
+        if unknown_finding_ids:
+            raise ReviewableFindingsArtifactError(
+                f"artifact.langchain_actions[{index}].finding_ids reference "
+                f"unknown findings: {', '.join(unknown_finding_ids)}"
             )
         available_actions.add(name)
     if available_actions != ALLOWED_LANGCHAIN_ACTIONS:

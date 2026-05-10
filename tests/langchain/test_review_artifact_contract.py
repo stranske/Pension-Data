@@ -49,6 +49,18 @@ def _valid_artifact() -> dict[str, Any]:
                 "severity": "info",
                 "provenance_refs": ["doc:ca-pers-2024#page=52"],
                 "citations": ["CA-PERS ACFR FY2024 p.52"],
+            },
+            {
+                "finding_id": "finding:ca-pers:fy2023:funded-ratio",
+                "entity": "CA-PERS",
+                "period": "FY2023",
+                "metric_family": "funded_status",
+                "metric": "funded_ratio",
+                "value": 0.79,
+                "confidence": 0.93,
+                "severity": "info",
+                "provenance_refs": ["doc:ca-pers-2023#page=49"],
+                "citations": ["CA-PERS ACFR FY2023 p.49"],
             }
         ],
         "langchain_actions": [
@@ -112,6 +124,57 @@ def test_artifact_rejects_uncited_or_low_quality_finding_rows() -> None:
     artifact["findings"][0]["confidence"] = 1.2
 
     with pytest.raises(ReviewableFindingsArtifactError, match="confidence"):
+        validate_reviewable_findings_artifact(artifact)
+
+
+def test_artifact_rejects_wrong_slice_id_for_published_path() -> None:
+    artifact = _valid_artifact()
+    artifact["slice"]["slice_id"] = "allocation_peer_compare"
+
+    with pytest.raises(ReviewableFindingsArtifactError, match="slice_id"):
+        validate_reviewable_findings_artifact(artifact)
+
+
+def test_artifact_rejects_boolean_confidence_values() -> None:
+    artifact = _valid_artifact()
+    artifact["findings"][0]["confidence"] = True
+
+    with pytest.raises(ReviewableFindingsArtifactError, match="confidence"):
+        validate_reviewable_findings_artifact(artifact)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (
+            lambda action: action.pop("question"),
+            "question",
+        ),
+        (
+            lambda action: action.__setitem__("question", ""),
+            "question",
+        ),
+        (
+            lambda action: action.pop("finding_ids"),
+            "finding_ids",
+        ),
+        (
+            lambda action: action.__setitem__("finding_ids", []),
+            "finding_ids",
+        ),
+        (
+            lambda action: action.__setitem__("finding_ids", ["finding:missing"]),
+            "unknown findings",
+        ),
+    ],
+)
+def test_artifact_rejects_malformed_langchain_actions(
+    mutation: Any, message: str
+) -> None:
+    artifact = _valid_artifact()
+    mutation(artifact["langchain_actions"][0])
+
+    with pytest.raises(ReviewableFindingsArtifactError, match=message):
         validate_reviewable_findings_artifact(artifact)
 
 
