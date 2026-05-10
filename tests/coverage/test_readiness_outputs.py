@@ -11,6 +11,7 @@ from pension_data.coverage.readiness import (
     build_publication_artifacts,
     build_readiness_artifacts,
     derive_extraction_blocker_reason,
+    derive_readiness_state,
     write_coverage_artifacts,
 )
 from pension_data.quality.anomaly_rules import TimeSeriesPoint
@@ -273,6 +274,22 @@ def test_extraction_blocker_reason_distinguishes_unresolved_official_sources() -
         "TX-ERS": "non_official_only",
         "WA-SRS": "wrong_plan",
     }
+
+
+def test_non_official_only_mismatch_is_always_blocked_source() -> None:
+    record = SourceMapRecord(
+        plan_id="TX-ERS",
+        plan_period="FY2024",
+        cohort="state",
+        source_url="https://example.com/tx-third-party.pdf",
+        source_authority_tier="high-confidence-third-party",
+        official_resolution_state="available_official",
+        expected_plan_identity="TX-ERS",
+        mismatch_reason="non_official_only",
+    )
+
+    assert derive_extraction_blocker_reason(record) == "non_official_only"
+    assert derive_readiness_state(record) == "blocked_source"
 
 
 def test_annual_report_gap_rows_cover_full_partial_and_missing_states() -> None:

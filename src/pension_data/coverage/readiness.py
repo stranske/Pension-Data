@@ -39,6 +39,8 @@ _RESOLUTION_PRIORITY = {
 
 def derive_readiness_state(record: SourceMapRecord) -> ReadinessState:
     """Map source-quality signals to extraction-readiness status."""
+    if record.mismatch_reason == "non_official_only":
+        return "blocked_source"
     if record.official_resolution_state in {"not_found", "available_non_official_only"}:
         return "blocked_source"
     if record.mismatch_reason in {"wrong_plan", "stale_period", "non_official_only"}:

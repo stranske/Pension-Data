@@ -23,16 +23,16 @@ Non-Goals
 - Implementing manager-level extraction itself.
 
 Tasks
-- [ ] Add or verify source authority tiers: `official`, `official-mirror`, `high-confidence-third-party`.
-- [ ] Validate source-to-plan identity consistency and quarantine reasons such as `wrong_plan`, `stale_period`, and `non_official_only`.
-- [ ] Emit machine-readable extraction-readiness records per plan-year.
-- [ ] Add tests for valid, stale, mismatched, and unofficial-only source rows.
-- [ ] Document the readiness output in the source-map or foundation ingestion docs.
+- [x] Add or verify source authority tiers: `official`, `official-mirror`, `high-confidence-third-party`.
+- [x] Validate source-to-plan identity consistency and quarantine reasons such as `wrong_plan`, `stale_period`, and `non_official_only`.
+- [x] Emit machine-readable extraction-readiness records per plan-year.
+- [x] Add tests for valid, stale, mismatched, and unofficial-only source rows.
+- [x] Document the readiness output in the source-map or foundation ingestion docs.
 
 Acceptance criteria
-- [ ] A reviewer can tell which plan-years are safe for extraction and which are blocked.
-- [ ] Source mismatch and stale-period rates are available by cohort or source group.
-- [ ] Tests prevent silently promoting non-official or mismatched sources into extraction-ready status.
+- [x] A reviewer can tell which plan-years are safe for extraction and which are blocked.
+- [x] Source mismatch and stale-period rates are available by cohort or source group.
+- [x] Tests prevent silently promoting non-official or mismatched sources into extraction-ready status.
 
 Implementation notes
 - See `docs/Planning/ISSUE_DEPENDENCY_RUN_ORDER.md`, especially the evidence-driven amendments for issues #14, #15, #17, and #51.
