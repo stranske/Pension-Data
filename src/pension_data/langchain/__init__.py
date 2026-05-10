@@ -28,6 +28,15 @@ from pension_data.langchain.prompts import (
     build_findings_explainer_prompt,
     build_nl_query_system_prompt,
 )
+from pension_data.langchain.review_artifact import (
+    REVIEWABLE_FINDINGS_ARTIFACT_PATH,
+    REVIEWABLE_FINDINGS_ARTIFACT_TYPE,
+    REVIEWABLE_FINDINGS_SCHEMA_PATH,
+    REVIEWABLE_FINDINGS_SCHEMA_VERSION,
+    ReviewableFindingsArtifactError,
+    reviewable_findings_schema,
+    validate_reviewable_findings_artifact,
+)
 from pension_data.langchain.tracing import (
     configure_langsmith_env,
     langsmith_tracing_context,
@@ -51,13 +60,20 @@ __all__ = [
     "NLToSQLRequest",
     "NLToSQLResponse",
     "NLToSQLStatus",
+    "REVIEWABLE_FINDINGS_ARTIFACT_PATH",
+    "REVIEWABLE_FINDINGS_ARTIFACT_TYPE",
+    "REVIEWABLE_FINDINGS_SCHEMA_PATH",
+    "REVIEWABLE_FINDINGS_SCHEMA_VERSION",
+    "ReviewableFindingsArtifactError",
     "append_analytics_disclaimer",
     "build_findings_explainer_prompt",
     "build_nl_query_system_prompt",
     "configure_langsmith_env",
     "create_llm",
     "langsmith_tracing_context",
+    "reviewable_findings_schema",
     "resolve_provider_config",
     "resolve_trace_url",
     "run_nl_sql_chain",
+    "validate_reviewable_findings_artifact",
 ]

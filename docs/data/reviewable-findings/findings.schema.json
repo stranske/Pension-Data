@@ -1,0 +1,66 @@
+{
+  "artifact_type": "pension_data.reviewable_findings",
+  "schema_version": 1,
+  "artifact_path": "docs/data/reviewable-findings/extraction-quality-dashboard.json",
+  "required_artifact_fields": [
+    "artifact_type",
+    "schema_version",
+    "artifact_id",
+    "generated_at",
+    "source_artifact_ids",
+    "slice",
+    "findings",
+    "langchain_actions"
+  ],
+  "slice": {
+    "required_fields": [
+      "slice_id",
+      "title",
+      "metric_family",
+      "description"
+    ],
+    "first_slice": "extraction_quality_dashboard"
+  },
+  "findings": {
+    "required_fields": [
+      "finding_id",
+      "entity",
+      "period",
+      "metric_family",
+      "metric",
+      "value",
+      "confidence",
+      "provenance_refs",
+      "citations"
+    ],
+    "allowed_severity": [
+      "blocker",
+      "info",
+      "warning"
+    ],
+    "required_filter_fields": [
+      "entity",
+      "period",
+      "metric_family",
+      "confidence"
+    ]
+  },
+  "langchain_actions": {
+    "allowed_actions": [
+      "compare",
+      "explain"
+    ],
+    "required_request_fields": [
+      "action",
+      "question",
+      "finding_ids"
+    ],
+    "required_output_fields": [
+      "request_id",
+      "generated_at",
+      "summary",
+      "citations",
+      "artifact_path"
+    ]
+  }
+}
