@@ -75,7 +75,10 @@ def test_runtime_required_smoke_rejects_fixture_bundle(tmp_path: Path) -> None:
     base_dir = _copy_web_fixture(tmp_path)
     _write_runtime_config(base_dir)
 
-    with pytest.raises(ValueError, match="fixture workspace bundle is not allowed"):
+    with pytest.raises(
+        ValueError,
+        match=r"fixture workspace bundle is not allowed for runtime smoke: .*data/workspace\.json",
+    ):
         web_smoke_test._smoke_local(base_dir, require_runtime=True)
 
 
