@@ -1,0 +1,67 @@
+{
+  "artifact_type": "pension_data.reviewable_findings",
+  "schema_version": 1,
+  "artifact_id": "extraction-quality-dashboard:2026-05-10",
+  "generated_at": "2026-05-10T03:20:00Z",
+  "source_artifact_ids": [
+    "extraction_persistence/persistence_contract.json",
+    "coverage/source_authority_readiness.csv"
+  ],
+  "slice": {
+    "slice_id": "extraction_quality_dashboard",
+    "title": "Extraction Quality Dashboard",
+    "metric_family": "extraction_quality",
+    "description": "Review extraction confidence, blockers, and source-backed citations."
+  },
+  "findings": [
+    {
+      "finding_id": "finding:ca-pers:fy2024:funded-ratio",
+      "entity": "CA-PERS",
+      "period": "FY2024",
+      "metric_family": "funded_status",
+      "metric": "funded_ratio",
+      "value": 0.81,
+      "confidence": 0.96,
+      "severity": "info",
+      "provenance_refs": [
+        "doc:ca-pers-2024#page=52"
+      ],
+      "citations": [
+        "CA-PERS ACFR FY2024 p.52"
+      ]
+    },
+    {
+      "finding_id": "finding:ca-pers:fy2023:funded-ratio",
+      "entity": "CA-PERS",
+      "period": "FY2023",
+      "metric_family": "funded_status",
+      "metric": "funded_ratio",
+      "value": 0.79,
+      "confidence": 0.93,
+      "severity": "info",
+      "provenance_refs": [
+        "doc:ca-pers-2023#page=49"
+      ],
+      "citations": [
+        "CA-PERS ACFR FY2023 p.49"
+      ]
+    }
+  ],
+  "langchain_actions": [
+    {
+      "action": "explain",
+      "question": "Explain the confidence drivers for this finding",
+      "finding_ids": [
+        "finding:ca-pers:fy2024:funded-ratio"
+      ]
+    },
+    {
+      "action": "compare",
+      "question": "Compare confidence against the prior period",
+      "finding_ids": [
+        "finding:ca-pers:fy2024:funded-ratio",
+        "finding:ca-pers:fy2023:funded-ratio"
+      ]
+    }
+  ]
+}

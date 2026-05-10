@@ -61,7 +61,7 @@ def _valid_artifact() -> dict[str, Any]:
                 "severity": "info",
                 "provenance_refs": ["doc:ca-pers-2023#page=49"],
                 "citations": ["CA-PERS ACFR FY2023 p.49"],
-            }
+            },
         ],
         "langchain_actions": [
             {
@@ -168,9 +168,7 @@ def test_artifact_rejects_boolean_confidence_values() -> None:
         ),
     ],
 )
-def test_artifact_rejects_malformed_langchain_actions(
-    mutation: Any, message: str
-) -> None:
+def test_artifact_rejects_malformed_langchain_actions(mutation: Any, message: str) -> None:
     artifact = _valid_artifact()
     mutation(artifact["langchain_actions"][0])
 
@@ -189,3 +187,10 @@ def test_docs_pin_the_published_artifact_path_and_contract() -> None:
         text = path.read_text()
         assert REVIEWABLE_FINDINGS_ARTIFACT_PATH in text
         assert "extraction_quality_dashboard" in text
+
+
+def test_published_artifact_path_contains_valid_contract_payload() -> None:
+    artifact_path = REPO_ROOT / REVIEWABLE_FINDINGS_ARTIFACT_PATH
+    artifact = json.loads(artifact_path.read_text())
+
+    validate_reviewable_findings_artifact(artifact)
