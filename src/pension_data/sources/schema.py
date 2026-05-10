@@ -20,6 +20,10 @@ SOURCE_AUTHORITY_TIERS: tuple[SourceAuthorityTier, ...] = (
     "official-mirror",
     "high-confidence-third-party",
 )
+OFFICIAL_SOURCE_AUTHORITY_TIERS: tuple[SourceAuthorityTier, ...] = (
+    "official",
+    "official-mirror",
+)
 MISMATCH_REASONS: tuple[MismatchReason, ...] = (
     "wrong_plan",
     "stale_period",
@@ -37,6 +41,12 @@ PAGINATION_MODES: tuple[PaginationMode, ...] = (
     "path_segment",
 )
 DOCUMENT_FORMAT_HINTS: tuple[DocumentFormatHint, ...] = ("html", "pdf", "mixed")
+
+
+def is_official_source_authority_tier(tier: str) -> bool:
+    """Return whether a source authority tier is treated as official."""
+    return tier in OFFICIAL_SOURCE_AUTHORITY_TIERS
+
 
 SYSTEM_OVERRIDE_KEYS: tuple[str, ...] = (
     "requires_javascript",

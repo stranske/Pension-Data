@@ -18,7 +18,7 @@ from pension_data.quality.anomaly_rules import (
 )
 from pension_data.registry.system_type_lookup import load_system_type_by_plan_id
 from pension_data.review_queue.anomalies import route_anomalies_to_review_queue
-from pension_data.sources.schema import SourceMapRecord
+from pension_data.sources.schema import SourceMapRecord, is_official_source_authority_tier
 
 ReadinessState = Literal["ready", "blocked_source", "blocked_quality"]
 CoverageGapState = Literal["full", "partial", "missing"]
@@ -30,7 +30,6 @@ ExtractionBlockerReason = Literal[
     "stale_period",
 ]
 _YEAR_PATTERN = re.compile(r"(?:19|20)\d{2}")
-_OFFICIAL_TIERS = {"official", "official-mirror"}
 _RESOLUTION_PRIORITY = {
     "not_found": 0,
     "available_non_official_only": 1,
@@ -77,7 +76,7 @@ def _select_resolution_record(records: list[SourceMapRecord]) -> SourceMapRecord
         records,
         key=lambda row: (
             _RESOLUTION_PRIORITY[row.official_resolution_state],
-            row.source_authority_tier in _OFFICIAL_TIERS,
+            is_official_source_authority_tier(row.source_authority_tier),
             row.source_url,
         ),
         reverse=True,
