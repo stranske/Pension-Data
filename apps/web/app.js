@@ -164,8 +164,15 @@ function updateWorkspaceSource(sourceLabel, dataOrigin) {
     source.textContent = sourceLabel;
   }
   const origin = document.getElementById("data-origin-badge");
+  const originValue = document.getElementById("workspace-origin");
+  const originLabel = DATA_ORIGIN_LABELS[dataOrigin] ?? "Data origin unknown";
+  if (originValue) {
+    originValue.textContent = originLabel;
+  }
   if (origin) {
-    origin.textContent = DATA_ORIGIN_LABELS[dataOrigin] ?? "Data origin unknown";
+    if (!originValue) {
+      origin.textContent = originLabel;
+    }
     origin.dataset.origin = dataOrigin;
   }
 }
@@ -264,12 +271,19 @@ function renderMeta() {
   const artifact = document.getElementById("artifact-endpoint");
   const source = document.getElementById("workspace-source");
   const origin = document.getElementById("data-origin-badge");
+  const originValue = document.getElementById("workspace-origin");
+  const originLabel = DATA_ORIGIN_LABELS[state.dataOrigin] ?? "Data origin unknown";
 
   environment.textContent = `Environment: ${state.config.environment}`;
   api.textContent = state.config.apiBaseUrl;
   artifact.textContent = state.config.artifactBaseUrl;
   source.textContent = state.workspaceSource;
-  origin.textContent = DATA_ORIGIN_LABELS[state.dataOrigin] ?? "Data origin unknown";
+  if (originValue) {
+    originValue.textContent = originLabel;
+  }
+  if (!originValue) {
+    origin.textContent = originLabel;
+  }
   origin.dataset.origin = state.dataOrigin;
 }
 
