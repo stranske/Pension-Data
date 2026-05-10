@@ -11,6 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = ROOT / "apps" / "web"
 SMOKE_PATH = ROOT / "scripts" / "web" / "smoke_test.py"
+WEB_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "web-cloudflare-pages.yml"
 
 spec = importlib.util.spec_from_file_location("web_smoke_test", SMOKE_PATH)
 assert spec is not None and spec.loader is not None
@@ -157,3 +158,11 @@ def test_ui_surfaces_fixture_origin_marker() -> None:
     assert "Demo data - not live" in app
     assert "packaged bundle (fixture demo)" in app
     assert "data_origin" in app
+
+
+def test_web_workflow_invokes_local_runtime_and_remote_smoke_checks() -> None:
+    workflow = WEB_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "python scripts/web/smoke_test.py --base-dir apps/web" in workflow
+    assert "python scripts/web/smoke_test.py --base-dir apps/web --require-runtime" in workflow
+    assert "--expect-runtime" in workflow
