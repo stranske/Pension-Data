@@ -51,6 +51,21 @@ def test_packaged_workspace_declares_fixture_origin() -> None:
     assert workspace["data_origin"] == "fixture"
 
 
+def test_runtime_contract_requires_data_origin_top_level_field(tmp_path: Path) -> None:
+    contract_path = tmp_path / "runtime-contract.json"
+    contract = json.loads((ROOT / "apps" / "contracts" / "runtime-contract.json").read_text())
+    contract["workspaceBundle"]["requiredTopLevelFields"] = ["contractVersion", "datasets"]
+    contract_path.write_text(json.dumps(contract), encoding="utf-8")
+
+    original_contract_path = web_smoke_test.CONTRACT_PATH
+    try:
+        web_smoke_test.CONTRACT_PATH = contract_path
+        with pytest.raises(ValueError, match="missing required workspace fields: data_origin"):
+            web_smoke_test._load_runtime_contract()
+    finally:
+        web_smoke_test.CONTRACT_PATH = original_contract_path
+
+
 def test_local_smoke_accepts_checked_in_fixture_bundle() -> None:
     web_smoke_test._smoke_local(WEB_DIR, require_runtime=False)
 
@@ -92,6 +107,7 @@ def test_workspace_contract_version_must_match_runtime_contract() -> None:
             path_label="data/workspace.json",
             reject_fixture=False,
         )
+
 
 def test_ui_surfaces_fixture_origin_marker() -> None:
     index = (WEB_DIR / "index.html").read_text(encoding="utf-8")

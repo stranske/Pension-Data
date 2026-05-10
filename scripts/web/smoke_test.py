@@ -77,6 +77,21 @@ def _load_runtime_contract() -> dict[str, object]:
         raise ValueError(f"runtime contract missing version in {CONTRACT_PATH}")
     if not isinstance(workspace_bundle, dict):
         raise ValueError(f"runtime contract missing workspaceBundle in {CONTRACT_PATH}")
+    required_fields = workspace_bundle.get("requiredTopLevelFields")
+    if not isinstance(required_fields, list) or not required_fields:
+        raise ValueError("runtime contract requiredTopLevelFields must be a non-empty list")
+    normalized_required = {
+        field for field in required_fields if isinstance(field, str) and field.strip()
+    }
+    if len(normalized_required) != len(required_fields):
+        raise ValueError("runtime contract requiredTopLevelFields must contain non-empty strings")
+    required_workspace_fields = {"contractVersion", "data_origin", "datasets"}
+    missing_fields = required_workspace_fields.difference(normalized_required)
+    if missing_fields:
+        raise ValueError(
+            "runtime contract missing required workspace fields: "
+            + ", ".join(sorted(missing_fields))
+        )
     return payload
 
 
