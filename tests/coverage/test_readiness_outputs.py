@@ -317,6 +317,29 @@ def test_annual_report_gap_rows_cover_full_partial_and_missing_states() -> None:
     assert ca_2023["coverage_gap_state"] == "missing"
 
 
+def test_plan_year_readiness_rows_expose_ready_vs_blocked_per_year() -> None:
+    artifacts = build_readiness_artifacts(
+        _fixture_records(),
+        target_years=(2023, 2024),
+        system_type_by_plan_id=_system_type_lookup(),
+    )
+    readiness_by_plan_year = {
+        (row["plan_id"], row["plan_year"]): row for row in artifacts["plan_year_readiness_rows"]
+    }
+
+    assert readiness_by_plan_year[("CA-PERS", 2024)]["readiness_state"] == "ready"
+    assert readiness_by_plan_year[("CA-PERS", 2024)]["is_extraction_ready"] is True
+    assert (
+        readiness_by_plan_year[("TX-ERS", 2024)]["extraction_blocker_reason"] == "non_official_only"
+    )
+    assert readiness_by_plan_year[("TX-ERS", 2024)]["readiness_state"] == "blocked_source"
+    assert readiness_by_plan_year[("WA-SRS", 2024)]["readiness_state"] == "blocked_quality"
+    assert (
+        readiness_by_plan_year[("CA-PERS", 2023)]["extraction_blocker_reason"]
+        == "official_source_unresolved"
+    )
+
+
 def test_publication_artifacts_include_prioritized_review_queue_rows() -> None:
     artifacts = build_publication_artifacts(
         _fixture_records(),
@@ -379,5 +402,7 @@ def test_write_coverage_artifacts_is_deterministic_for_json_and_csv(tmp_path: Pa
     assert "blocked_source" in first_files["readiness_rows_json"]
     assert "extraction_blocker_reason" in first_files["readiness_rows_csv"]
     assert "official_source_unresolved" in first_files["readiness_rows_json"]
+    assert "plan_year,cohort,system_type" in first_files["plan_year_readiness_rows_csv"]
+    assert "blocked_quality" in first_files["plan_year_readiness_rows_json"]
     assert "coverage_gap_state" in first_files["annual_report_gap_rows_csv"]
     assert "system_type,total_plan_periods" in first_files["summary_by_system_type_csv"]
