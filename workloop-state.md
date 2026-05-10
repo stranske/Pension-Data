@@ -25,4 +25,13 @@
   - `python -m ruff check scripts/web/smoke_test.py tests/web/test_workspace_contract.py`
   - `python -m black --check scripts/web/smoke_test.py tests/web/test_workspace_contract.py`
   - `git diff --check`
-- Next action: push branch, open a ready-for-review PR labeled `agent:codex`, `agents:keepalive`, and `autofix`, then emit the `pr_opened` relay event.
+- Push/PR:
+  - Pushed commit `1b53f7c` (`Issue #394: label web bundle fixture origin`) to `codex/issue-394-fixture-origin`.
+  - Opened ready-for-review PR `#413` (`https://github.com/stranske/Pension-Data/pull/413`) with labels `agent:codex`, `agents:keepalive`, and `autofix`.
+  - Verified `isDraft=false` and `closingIssuesReferences` includes `#394`.
+  - Emitted relay event `pr_opened active.source_repo=stranske/Pension-Data active.source_issue=394 active.source_pr=413 active.next_action=wait_for_keepalive`.
+- Post-open cap hygiene:
+  - Immediate cap-health classified PR `#413` as `needs-dispatch-evidence` while raw cap reached five.
+  - Ran `opener-repair-infra-stalls.py --json`; it added `agent:retry` and dispatched Gate Followups for PR `#413`.
+  - Direct GitHub evidence after repair showed keepalive and runner-dispatch comments for PR `#413`, a `runner-dispatch:codex:413` pending marker, and fresh Gate/guard/Python CI rows active or pending for the branch.
+- Next action: wait for keepalive/Gate to drain PR `#413`; closer/verifier handles post-merge completion.
