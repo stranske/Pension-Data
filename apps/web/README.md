@@ -14,6 +14,7 @@ Static browser-first data interaction workspace for Cloudflare Pages.
 - PWA install support (where browser policy allows)
 - Local bundle load mode for install-free browser sessions
 - Offline fallback to last successfully loaded workspace bundle
+- Visible data-origin badge; the checked-in packaged bundle is fixture-only demo data until generated review artifacts replace it.
 
 ## Local Preview
 
@@ -26,6 +27,7 @@ Open `apps/web/index.html` in a browser or run a static file server.
 - URL overrides for validation: `?apiBaseUrl=...&artifactBaseUrl=...&environment=...`
   (enabled only for local contexts or when `enableQueryOverrides=true` in config)
 - Workspace bundle contract: `apps/contracts/runtime-contract.json` (versioned contract shared with desktop shell)
+- Workspace bundles must declare `data_origin` as `fixture`, `generated`, or `live`; runtime/deploy smoke checks reject fixture bundles for runtime-required paths.
 
 ## Zero-Install Usage
 
@@ -33,6 +35,7 @@ Open `apps/web/index.html` in a browser or run a static file server.
 - If available, use `Install App` for PWA mode.
 - Use `Load Local Bundle` to open a workspace JSON export directly from disk.
 - If network access is unavailable, the app falls back to the last cached workspace bundle.
+- Treat the packaged `apps/web/data/workspace.json` bundle as demo data, not a live or generated review artifact.
 
 ## Smoke Test
 

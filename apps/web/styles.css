@@ -88,6 +88,27 @@ h2 {
   background: var(--accent-soft);
 }
 
+.origin-chip {
+  display: inline-flex;
+  width: fit-content;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  background: #fff4e5;
+  color: #8a3d13;
+}
+
+.origin-chip[data-origin="generated"] {
+  background: #e8f1ff;
+  color: #174a8b;
+}
+
+.origin-chip[data-origin="live"] {
+  background: #dcfce7;
+  color: #166534;
+}
+
 .meta-line {
   font-size: 0.9rem;
   color: var(--muted);

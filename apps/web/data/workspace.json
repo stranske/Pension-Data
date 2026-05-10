@@ -1,5 +1,6 @@
 {
   "contractVersion": "1.0.0",
+  "data_origin": "fixture",
   "datasets": [
     {
       "id": "core_facts",

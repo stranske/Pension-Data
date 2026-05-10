@@ -15,6 +15,16 @@ if (workspace.contractVersion !== contract.version) {
   );
 }
 
+for (const required of contract.workspaceBundle.requiredTopLevelFields) {
+  if (!(required in workspace)) {
+    throw new Error(`workspace missing required top-level field '${required}'`);
+  }
+}
+
+if (!contract.workspaceBundle.dataOrigins.includes(workspace.data_origin)) {
+  throw new Error(`workspace data_origin '${workspace.data_origin}' is not allowed`);
+}
+
 if (!Array.isArray(workspace.datasets) || workspace.datasets.length === 0) {
   throw new Error("workspace datasets must be a non-empty array");
 }

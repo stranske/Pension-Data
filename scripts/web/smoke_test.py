@@ -12,6 +12,7 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 REQUIRED_CONFIG_KEYS = ("environment", "apiBaseUrl", "artifactBaseUrl")
+ALLOWED_DATA_ORIGINS = frozenset({"fixture", "generated", "live"})
 REQUIRED_LOCAL_FILES = (
     "index.html",
     "styles.css",
@@ -40,6 +41,25 @@ def _assert_config(payload: dict[str, object], *, path_label: str) -> None:
             raise ValueError(f"missing required config key '{key}' in {path_label}")
 
 
+def _assert_workspace_bundle(
+    payload: dict[str, object], *, path_label: str, reject_fixture: bool
+) -> str:
+    contract_version = payload.get("contractVersion")
+    if not isinstance(contract_version, str) or not contract_version.strip():
+        raise ValueError(f"workspace bundle missing contractVersion in {path_label}")
+    data_origin = payload.get("data_origin")
+    if not isinstance(data_origin, str) or data_origin not in ALLOWED_DATA_ORIGINS:
+        raise ValueError(
+            f"workspace bundle requires data_origin of fixture, generated, or live in {path_label}"
+        )
+    if reject_fixture and data_origin == "fixture":
+        raise ValueError(f"fixture workspace bundle is not allowed for runtime smoke: {path_label}")
+    datasets = payload.get("datasets")
+    if not isinstance(datasets, list) or not datasets:
+        raise ValueError(f"workspace dataset inventory is empty in {path_label}")
+    return data_origin
+
+
 def _smoke_local(base_dir: Path, *, require_runtime: bool) -> None:
     for relative_path in REQUIRED_LOCAL_FILES:
         if not (base_dir / relative_path).exists():
@@ -49,6 +69,7 @@ def _smoke_local(base_dir: Path, *, require_runtime: bool) -> None:
     markers = (
         'data-testid="web-foundation-root"',
         'data-testid="environment-badge"',
+        'data-testid="data-origin-badge"',
         "./manifest.webmanifest",
         "./styles.css",
         "./app.js",
@@ -56,15 +77,17 @@ def _smoke_local(base_dir: Path, *, require_runtime: bool) -> None:
     for marker in markers:
         if marker not in index:
             raise ValueError(f"index.html missing marker: {marker}")
+    app = (base_dir / "app.js").read_text(encoding="utf-8")
+    if "Demo data - not live" not in app:
+        raise ValueError("app.js missing fixture-origin warning text")
 
     _assert_config(_load_json(base_dir / "config/default.json"), path_label="config/default.json")
     workspace_payload = _load_json(base_dir / "data/workspace.json")
-    contract_version = workspace_payload.get("contractVersion")
-    if not isinstance(contract_version, str) or not contract_version.strip():
-        raise ValueError("workspace bundle missing contractVersion")
-    datasets = workspace_payload.get("datasets")
-    if not isinstance(datasets, list) or not datasets:
-        raise ValueError("workspace dataset inventory is empty")
+    _assert_workspace_bundle(
+        workspace_payload,
+        path_label="data/workspace.json",
+        reject_fixture=require_runtime,
+    )
 
     runtime_path = base_dir / "config/runtime.json"
     if require_runtime:
@@ -94,6 +117,8 @@ def _smoke_url(base_url: str, *, expect_runtime: bool, headers: dict[str, str] |
         raise ValueError("deployed page missing expected heading marker")
     if 'data-testid="environment-badge"' not in html:
         raise ValueError("deployed page missing environment badge marker")
+    if 'data-testid="data-origin-badge"' not in html:
+        raise ValueError("deployed page missing data origin badge marker")
 
     default_payload = json.loads(_fetch_text(urljoin(root, "config/default.json"), headers=headers))
     if not isinstance(default_payload, dict):
@@ -121,12 +146,11 @@ def _smoke_url(base_url: str, *, expect_runtime: bool, headers: dict[str, str] |
     )
     if not isinstance(workspace_payload, dict):
         raise ValueError("workspace endpoint did not return object JSON")
-    contract_version = workspace_payload.get("contractVersion")
-    if not isinstance(contract_version, str) or not contract_version.strip():
-        raise ValueError("workspace bundle missing contractVersion")
-    datasets = workspace_payload.get("datasets")
-    if not isinstance(datasets, list) or not datasets:
-        raise ValueError("workspace dataset inventory is empty")
+    _assert_workspace_bundle(
+        workspace_payload,
+        path_label="data/workspace.json",
+        reject_fixture=expect_runtime,
+    )
 
     if expect_runtime:
         runtime_payload = json.loads(
