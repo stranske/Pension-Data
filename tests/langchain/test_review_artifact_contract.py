@@ -225,3 +225,104 @@ def test_writer_persists_valid_artifact_json(tmp_path: Path) -> None:
     assert written == output
     persisted = json.loads(output.read_text(encoding="utf-8"))
     validate_reviewable_findings_artifact(persisted)
+
+
+_FIXTURE_FINDING_IDS = frozenset(
+    {
+        "finding:ca-pers:fy2024:funded-ratio",
+        "finding:ca-pers:fy2023:funded-ratio",
+    }
+)
+
+
+def _write_real_sources(tmp_path: Path) -> tuple[Path, Path]:
+    contract_path = tmp_path / "persistence_contract.json"
+    contract_path.write_text(
+        json.dumps(
+            {
+                "staging_core_metrics": ["plan_id", "plan_period", "metric_name"],
+                "extraction_warnings": ["plan_id", "plan_period", "warning_code"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    readiness_path = tmp_path / "source_authority_readiness.csv"
+    readiness_path.write_text(
+        "plan_id,plan_period,cohort,system_type,official_resolution_state,"
+        "source_authority_tier,mismatch_reason,extraction_blocker_reason,"
+        "is_extraction_ready,readiness_state\n"
+        "OR-PERS,FY2024,west,public,resolved,tier_1,,,true,ready\n"
+        "NY-CTRS,FY2024,east,public,unresolved,tier_2,missing_acfr,"
+        "annual_report_unavailable,false,blocked\n",
+        encoding="utf-8",
+    )
+    return contract_path, readiness_path
+
+
+def test_build_from_sources_derives_findings_from_real_data(tmp_path: Path) -> None:
+    contract_path, readiness_path = _write_real_sources(tmp_path)
+
+    artifact = build_extraction_quality_dashboard_artifact(
+        generated_at="2026-05-13T20:00:00Z",
+        artifact_date="2026-05-13",
+        persistence_contract_path=contract_path,
+        readiness_csv_path=readiness_path,
+    )
+
+    validate_reviewable_findings_artifact(artifact)
+    assert artifact["source_artifact_ids"] == [
+        contract_path.as_posix(),
+        readiness_path.as_posix(),
+    ]
+    finding_ids = {finding["finding_id"] for finding in artifact["findings"]}
+    assert finding_ids.isdisjoint(_FIXTURE_FINDING_IDS)
+    assert "finding:OR-PERS:FY2024:extraction-readiness" in finding_ids
+    blocked = next(finding for finding in artifact["findings"] if finding["entity"] == "NY-CTRS")
+    assert blocked["value"] == 0.0
+    assert blocked["severity"] == "warning"
+
+
+@pytest.mark.parametrize(
+    ("contract_arg", "readiness_arg"),
+    [
+        ("/nonexistent/path.json", "/nonexistent/readiness.csv"),
+        ("/nonexistent/path.json", None),
+        (None, "/nonexistent/readiness.csv"),
+    ],
+)
+def test_build_from_sources_raises_when_source_artifacts_missing(
+    contract_arg: str | None, readiness_arg: str | None
+) -> None:
+    with pytest.raises(ReviewableFindingsArtifactError):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_arg,
+            readiness_csv_path=readiness_arg,
+        )
+
+
+def test_build_from_sources_raises_on_malformed_persistence_contract(tmp_path: Path) -> None:
+    contract_path = tmp_path / "persistence_contract.json"
+    contract_path.write_text("not-json", encoding="utf-8")
+    readiness_path = tmp_path / "readiness.csv"
+    readiness_path.write_text("plan_id,plan_period\nOR-PERS,FY2024\n", encoding="utf-8")
+
+    with pytest.raises(ReviewableFindingsArtifactError, match="failed to parse"):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness_path,
+        )
+
+
+def test_build_from_sources_raises_when_readiness_csv_has_no_usable_rows(tmp_path: Path) -> None:
+    contract_path, _ = _write_real_sources(tmp_path)
+    readiness_path = tmp_path / "empty_readiness.csv"
+    readiness_path.write_text(
+        "plan_id,plan_period\n,\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ReviewableFindingsArtifactError, match="no rows"):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness_path,
+        )

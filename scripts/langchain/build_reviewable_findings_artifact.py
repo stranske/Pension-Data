@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from pension_data.langchain.review_artifact import (
     REVIEWABLE_FINDINGS_ARTIFACT_PATH,
+    ReviewableFindingsArtifactError,
     build_extraction_quality_dashboard_artifact,
     write_reviewable_findings_artifact,
 )
+
+DEFAULT_PERSISTENCE_CONTRACT_PATH = "extraction_persistence/persistence_contract.json"
+DEFAULT_READINESS_CSV_PATH = "coverage/source_authority_readiness.csv"
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,16 +35,38 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Override artifact date used in artifact_id (YYYY-MM-DD).",
     )
+    parser.add_argument(
+        "--persistence-contract",
+        default=DEFAULT_PERSISTENCE_CONTRACT_PATH,
+        help=(
+            "Path to the extraction persistence contract JSON written by "
+            "write_extraction_persistence_artifacts()."
+        ),
+    )
+    parser.add_argument(
+        "--readiness-csv",
+        default=DEFAULT_READINESS_CSV_PATH,
+        help=(
+            "Path to the readiness CSV written by write_coverage_artifacts() "
+            "(or equivalent source-authority readiness output)."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    artifact = build_extraction_quality_dashboard_artifact(
-        generated_at=args.generated_at,
-        artifact_date=args.artifact_date,
-    )
-    path = write_reviewable_findings_artifact(artifact, output_path=args.output)
+    try:
+        artifact = build_extraction_quality_dashboard_artifact(
+            generated_at=args.generated_at,
+            artifact_date=args.artifact_date,
+            persistence_contract_path=args.persistence_contract,
+            readiness_csv_path=args.readiness_csv,
+        )
+        path = write_reviewable_findings_artifact(artifact, output_path=args.output)
+    except ReviewableFindingsArtifactError as exc:
+        print(f"ReviewableFindingsArtifactError: {exc}", file=sys.stderr)
+        return 1
     print(path.as_posix())
     return 0
 

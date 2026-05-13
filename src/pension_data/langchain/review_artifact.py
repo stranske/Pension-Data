@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -231,17 +233,189 @@ def validate_reviewable_findings_artifact(artifact: Mapping[str, Any]) -> None:
         )
 
 
+MAX_REAL_DATA_FINDINGS = 25
+
+
+def _normalize_generated_at(generated_at: str | None) -> str:
+    if generated_at:
+        return generated_at
+    now = datetime.now(UTC)
+    return now.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _normalize_artifact_date(artifact_date: str | None) -> str:
+    if artifact_date:
+        return artifact_date
+    return datetime.now(UTC).date().isoformat()
+
+
+def _read_persistence_contract(path: Path) -> Mapping[str, Any]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise ReviewableFindingsArtifactError(f"source artifact not found: {path}") from exc
+    except OSError as exc:
+        raise ReviewableFindingsArtifactError(f"source artifact unreadable: {path}: {exc}") from exc
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ReviewableFindingsArtifactError(
+            f"source artifact failed to parse as JSON: {path}: {exc.msg}"
+        ) from exc
+    if not isinstance(payload, Mapping):
+        raise ReviewableFindingsArtifactError(
+            f"persistence contract at {path} must be a JSON object"
+        )
+    return payload
+
+
+def _read_readiness_rows(path: Path) -> list[dict[str, str]]:
+    try:
+        handle = path.open("r", encoding="utf-8", newline="")
+    except FileNotFoundError as exc:
+        raise ReviewableFindingsArtifactError(f"source artifact not found: {path}") from exc
+    except OSError as exc:
+        raise ReviewableFindingsArtifactError(f"source artifact unreadable: {path}: {exc}") from exc
+    with handle:
+        try:
+            reader = csv.DictReader(handle)
+            rows = [dict(row) for row in reader]
+        except csv.Error as exc:
+            raise ReviewableFindingsArtifactError(
+                f"source artifact failed to parse as CSV: {path}: {exc}"
+            ) from exc
+    if not rows:
+        raise ReviewableFindingsArtifactError(
+            f"readiness CSV at {path} has no rows; cannot derive findings"
+        )
+    return rows
+
+
+def _finding_from_readiness_row(
+    row: Mapping[str, str], *, contract_path: Path, readiness_path: Path
+) -> dict[str, Any] | None:
+    plan_id = (row.get("plan_id") or "").strip()
+    plan_period = (row.get("plan_period") or "").strip()
+    if not plan_id or not plan_period:
+        return None
+    is_ready_raw = (row.get("is_extraction_ready") or "").strip().lower()
+    is_ready = is_ready_raw in {"true", "1", "yes"}
+    severity = "info" if is_ready else "warning"
+    return {
+        "finding_id": f"finding:{plan_id}:{plan_period}:extraction-readiness",
+        "entity": plan_id,
+        "period": plan_period,
+        "metric_family": "extraction_quality",
+        "metric": "extraction_readiness",
+        "value": 1.0 if is_ready else 0.0,
+        "confidence": 1.0,
+        "severity": severity,
+        "provenance_refs": [
+            f"{readiness_path.as_posix()}#{plan_id}:{plan_period}",
+        ],
+        "citations": [
+            contract_path.as_posix(),
+            readiness_path.as_posix(),
+        ],
+    }
+
+
+def _build_from_sources(
+    *,
+    persistence_contract_path: Path,
+    readiness_csv_path: Path,
+    generated_at: str,
+    artifact_date: str,
+) -> dict[str, Any]:
+    _read_persistence_contract(persistence_contract_path)
+    rows = _read_readiness_rows(readiness_csv_path)
+
+    findings: list[dict[str, Any]] = []
+    for row in rows:
+        finding = _finding_from_readiness_row(
+            row,
+            contract_path=persistence_contract_path,
+            readiness_path=readiness_csv_path,
+        )
+        if finding is None:
+            continue
+        findings.append(finding)
+        if len(findings) >= MAX_REAL_DATA_FINDINGS:
+            break
+    if not findings:
+        raise ReviewableFindingsArtifactError(
+            f"readiness CSV at {readiness_csv_path} contains no rows with plan_id and plan_period"
+        )
+
+    action_finding_ids = [finding["finding_id"] for finding in findings]
+    compare_finding_ids = action_finding_ids[: min(2, len(action_finding_ids))]
+    return {
+        "artifact_type": REVIEWABLE_FINDINGS_ARTIFACT_TYPE,
+        "schema_version": REVIEWABLE_FINDINGS_SCHEMA_VERSION,
+        "artifact_id": f"extraction-quality-dashboard:{artifact_date}",
+        "generated_at": generated_at,
+        "source_artifact_ids": [
+            persistence_contract_path.as_posix(),
+            readiness_csv_path.as_posix(),
+        ],
+        "slice": {
+            "slice_id": REVIEWABLE_FINDINGS_FIRST_SLICE_ID,
+            "title": "Extraction Quality Dashboard",
+            "metric_family": "extraction_quality",
+            "description": "Review extraction readiness derived from persistence and readiness artifacts.",
+        },
+        "findings": findings,
+        "langchain_actions": [
+            {
+                "action": "explain",
+                "question": "Explain the readiness drivers for this finding",
+                "finding_ids": [action_finding_ids[0]],
+            },
+            {
+                "action": "compare",
+                "question": "Compare readiness against another plan period",
+                "finding_ids": compare_finding_ids,
+            },
+        ],
+    }
+
+
 def build_extraction_quality_dashboard_artifact(
     *,
     generated_at: str | None = None,
     artifact_date: str | None = None,
+    persistence_contract_path: str | Path | None = None,
+    readiness_csv_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Build the default extraction-quality dashboard artifact payload."""
-    now = datetime.now(UTC)
-    normalized_generated_at = generated_at or now.replace(microsecond=0).isoformat().replace(
-        "+00:00", "Z"
-    )
-    normalized_artifact_date = artifact_date or now.date().isoformat()
+    """Build the extraction-quality dashboard artifact payload.
+
+    When ``persistence_contract_path`` and ``readiness_csv_path`` are both
+    provided, the generator reads them and derives finding rows from real
+    extraction/readiness data. If either path is missing, unreadable, or fails
+    to parse, ``ReviewableFindingsArtifactError`` is raised before any
+    hardcoded fallback can execute.
+
+    When both paths are ``None``, the legacy synthetic fixture artifact is
+    returned so contract-level test coverage and the checked-in artifact at
+    ``docs/data/reviewable-findings/extraction-quality-dashboard.json`` keep
+    passing ``validate_reviewable_findings_artifact``. Production callers must
+    pass real source paths; the generator script does so by default.
+    """
+    normalized_generated_at = _normalize_generated_at(generated_at)
+    normalized_artifact_date = _normalize_artifact_date(artifact_date)
+
+    if persistence_contract_path is not None or readiness_csv_path is not None:
+        if persistence_contract_path is None or readiness_csv_path is None:
+            raise ReviewableFindingsArtifactError(
+                "both persistence_contract_path and readiness_csv_path must be provided together"
+            )
+        return _build_from_sources(
+            persistence_contract_path=Path(persistence_contract_path),
+            readiness_csv_path=Path(readiness_csv_path),
+            generated_at=normalized_generated_at,
+            artifact_date=normalized_artifact_date,
+        )
+
     return {
         "artifact_type": REVIEWABLE_FINDINGS_ARTIFACT_TYPE,
         "schema_version": REVIEWABLE_FINDINGS_SCHEMA_VERSION,
@@ -307,8 +481,6 @@ def write_reviewable_findings_artifact(
     output_path: str | Path = REVIEWABLE_FINDINGS_ARTIFACT_PATH,
 ) -> Path:
     """Validate and write the artifact JSON to a deterministic output path."""
-    import json
-
     validate_reviewable_findings_artifact(artifact)
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
