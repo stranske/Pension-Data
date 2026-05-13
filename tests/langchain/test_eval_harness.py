@@ -21,7 +21,7 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
 def test_load_eval_dataset_from_repo_fixture() -> None:
     dataset = load_eval_dataset(Path("tests/langchain/prompt_dataset.json"))
     assert dataset.version == 1
-    assert len(dataset.cases) == 6
+    assert len(dataset.cases) == 8
     assert dataset.thresholds.min_safety_pass_rate == 1.0
     assert dataset.cases[0].case_id == "funded-status-trend"
 

@@ -19,6 +19,7 @@ class FindingsExportArtifact:
     artifact_type: ExportType
     request_id: str
     generated_at: str
+    artifact_path: str | None
     trace: dict[str, str]
     payload: dict[str, object]
     citations: tuple[str, ...]
@@ -44,6 +45,7 @@ def build_findings_export_artifact(
     request_id: str,
     payload: Mapping[str, Any],
     citations: tuple[str, ...],
+    artifact_path: str | None = None,
     trace: Mapping[str, str] | None = None,
 ) -> FindingsExportArtifact:
     """Build stable export artifact for downstream JSON/TXT persistence."""
@@ -64,6 +66,7 @@ def build_findings_export_artifact(
         artifact_type=artifact_type,
         request_id=request_id,
         generated_at=_utc_now_iso(),
+        artifact_path=normalize_text(artifact_path),
         trace=_normalize_trace(trace),
         payload=sanitized_payload,
         citations=normalized_citations,
@@ -76,9 +79,10 @@ def render_findings_export_text(artifact: FindingsExportArtifact) -> str:
         f"artifact_type: {artifact.artifact_type}",
         f"request_id: {artifact.request_id}",
         f"generated_at: {artifact.generated_at}",
-        "",
-        "payload:",
     ]
+    if artifact.artifact_path:
+        lines.append(f"artifact_path: {artifact.artifact_path}")
+    lines.extend(["", "payload:"])
     for key, value in artifact.payload.items():
         lines.append(f"- {key}: {value}")
     lines.extend(["", "citations:"])

@@ -144,6 +144,7 @@ def test_compare_chain_returns_structured_differences() -> None:
 
 
 def test_export_artifact_contains_trace_and_renders_text() -> None:
+    artifact_path = "artifacts/langchain/explain-fx-test.json"
     artifact = build_findings_export_artifact(
         artifact_type="explain",
         request_id="fx:test",
@@ -152,15 +153,18 @@ def test_export_artifact_contains_trace_and_renders_text() -> None:
             "key_drivers": [" Contributions rose ", "Contributions rose"],
         },
         citations=("doc:1#p.12", " doc:1#p.12 "),
+        artifact_path=artifact_path,
         trace={"trace_url": "https://smith.langchain.com/r/example"},
     )
     text = render_findings_export_text(artifact)
 
     assert artifact.generated_at
+    assert artifact.artifact_path == artifact_path
     assert artifact.trace["trace_url"].startswith("https://")
     assert artifact.payload["key_drivers"] == ("Contributions rose",)
     assert artifact.citations == ("doc:1#p.12",)
     assert "artifact_type: explain" in text
+    assert f"artifact_path: {artifact_path}" in text
     assert "trace_url" in text
 
 
@@ -192,6 +196,30 @@ def test_findings_routes_require_nl_scope_and_emit_audit_fields() -> None:
         )
 
     allowed_secret, _ = store.create_key(scopes=(SCOPE_NL,))
+    explain_result = run_findings_explain_endpoint(
+        api_key_header=allowed_secret,
+        key_store=store,
+        request=ExplainRequest(
+            question="Explain funded ratio shift",
+            finding_slice=_slice(
+                slice_id="slice:ca",
+                plan_id="CA-PERS",
+                plan_period="FY2024",
+                funded_ratio=0.81,
+                citation="doc:1#p.12",
+            ),
+        ),
+        chain=_StaticChain(
+            {
+                "summary": "Funded ratio improved.",
+                "key_drivers": ["Contributions increased"],
+                "caveats": [],
+                "citations": ["doc:1#p.12"],
+            }
+        ),
+    )
+    assert explain_result.response.status == "ok"
+    assert explain_result.artifact_path is None
     compare_result = run_findings_compare_endpoint(
         api_key_header=allowed_secret,
         key_store=store,
