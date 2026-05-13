@@ -275,6 +275,14 @@ def _validate_schema(case: EvalCase, output: Mapping[str, object]) -> list[str]:
         for key in required:
             if key not in output:
                 details.append(f"schema invalid: findings_explain output missing '{key}'")
+        if (
+            not isinstance(output.get("artifact_path"), str)
+            or not str(output.get("artifact_path", "")).strip()
+        ):
+            details.append(
+                "schema invalid: findings_explain output requires non-empty string field "
+                "'artifact_path'"
+            )
     elif case.feature == "findings_compare":
         required = (
             "summary",
@@ -287,6 +295,14 @@ def _validate_schema(case: EvalCase, output: Mapping[str, object]) -> list[str]:
         for key in required:
             if key not in output:
                 details.append(f"schema invalid: findings_compare output missing '{key}'")
+        if (
+            not isinstance(output.get("artifact_path"), str)
+            or not str(output.get("artifact_path", "")).strip()
+        ):
+            details.append(
+                "schema invalid: findings_compare output requires non-empty string field "
+                "'artifact_path'"
+            )
     return details
 
 

@@ -39,6 +39,11 @@ def _normalize_trace(trace: Mapping[str, str] | None) -> dict[str, str]:
     return normalized
 
 
+def _normalize_optional_text(value: str | None) -> str | None:
+    text = normalize_text(value)
+    return text or None
+
+
 def build_findings_export_artifact(
     *,
     artifact_type: ExportType,
@@ -66,7 +71,7 @@ def build_findings_export_artifact(
         artifact_type=artifact_type,
         request_id=request_id,
         generated_at=_utc_now_iso(),
-        artifact_path=normalize_text(artifact_path),
+        artifact_path=_normalize_optional_text(artifact_path),
         trace=_normalize_trace(trace),
         payload=sanitized_payload,
         citations=normalized_citations,

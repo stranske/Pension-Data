@@ -168,6 +168,20 @@ def test_export_artifact_contains_trace_and_renders_text() -> None:
     assert "trace_url" in text
 
 
+def test_export_artifact_keeps_blank_artifact_path_optional() -> None:
+    artifact = build_findings_export_artifact(
+        artifact_type="explain",
+        request_id="fx:test",
+        payload={"summary": "No persisted artifact"},
+        citations=(),
+        artifact_path="   ",
+    )
+    text = render_findings_export_text(artifact)
+
+    assert artifact.artifact_path is None
+    assert "artifact_path:" not in text
+
+
 def test_findings_routes_require_nl_scope_and_emit_audit_fields() -> None:
     store = APIKeyStore()
     denied_secret, _ = store.create_key(scopes=(SCOPE_QUERY,))
