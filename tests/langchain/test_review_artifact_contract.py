@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from pension_data.langchain.findings_compare import CompareMetadata
+from pension_data.langchain.findings_explain import ExplainMetadata
+from pension_data.langchain.findings_export import FindingsExportArtifact
 from pension_data.langchain.review_artifact import (
     REVIEWABLE_FINDINGS_ARTIFACT_PATH,
     REVIEWABLE_FINDINGS_SCHEMA_PATH,
@@ -36,6 +40,21 @@ def test_schema_file_matches_python_contract() -> None:
     assert schema["artifact_path"] == REVIEWABLE_FINDINGS_ARTIFACT_PATH
     assert schema["slice"]["first_slice"] == "extraction_quality_dashboard"
     assert "confidence" in schema["findings"]["required_filter_fields"]
+
+
+def test_langchain_required_output_fields_are_non_empty_and_exposed() -> None:
+    required_output_fields = reviewable_findings_schema()["langchain_actions"][
+        "required_output_fields"
+    ]
+    assert required_output_fields
+
+    metadata_fields = {field.name for field in fields(ExplainMetadata)} | {
+        field.name for field in fields(CompareMetadata)
+    }
+    export_fields = {field.name for field in fields(FindingsExportArtifact)}
+    exposed_fields = metadata_fields | export_fields | {"summary", "citations"}
+
+    assert set(required_output_fields) <= exposed_fields
 
 
 def test_valid_artifact_includes_static_ui_and_langchain_contract_fields() -> None:
