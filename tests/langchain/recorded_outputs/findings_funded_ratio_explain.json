@@ -1,4 +1,6 @@
 {
+  "request_id": "fx:recorded-funded-ratio-explain",
+  "generated_at": "2026-05-10T03:20:00Z",
   "artifact_path": "artifacts/langchain/findings-funded-ratio-explain.json",
   "caveats": [
     "Single-period funded-ratio movements should be reviewed with contribution and assumption notes."

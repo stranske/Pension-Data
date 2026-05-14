@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from pension_data.langchain.findings_compare import CompareMetadata
+from pension_data.langchain.findings_explain import ExplainMetadata
+from pension_data.langchain.findings_export import FindingsExportArtifact
 from pension_data.langchain.review_artifact import (
     REVIEWABLE_FINDINGS_ARTIFACT_PATH,
     REVIEWABLE_FINDINGS_SCHEMA_PATH,
@@ -36,6 +40,55 @@ def test_schema_file_matches_python_contract() -> None:
     assert schema["artifact_path"] == REVIEWABLE_FINDINGS_ARTIFACT_PATH
     assert schema["slice"]["first_slice"] == "extraction_quality_dashboard"
     assert "confidence" in schema["findings"]["required_filter_fields"]
+
+
+def test_langchain_required_output_fields_are_non_empty_and_exposed() -> None:
+    required_output_fields = reviewable_findings_schema()["langchain_actions"][
+        "required_output_fields"
+    ]
+    assert required_output_fields
+    assert set(required_output_fields) == {
+        "request_id",
+        "generated_at",
+        "summary",
+        "citations",
+        "artifact_path",
+    }
+
+    metadata_fields = {field.name for field in fields(ExplainMetadata)} | {
+        field.name for field in fields(CompareMetadata)
+    }
+    export_fields = {field.name for field in fields(FindingsExportArtifact)}
+    exposed_fields = metadata_fields | export_fields | {"summary", "citations"}
+
+    assert set(required_output_fields) <= exposed_fields
+
+
+@pytest.mark.parametrize(
+    "recorded_output_path",
+    [
+        REPO_ROOT / "tests/langchain/recorded_outputs/findings_funded_ratio_explain.json",
+        REPO_ROOT / "tests/langchain/recorded_outputs/findings_period_compare.json",
+    ],
+)
+def test_langchain_required_output_fields_are_non_empty_in_recorded_outputs(
+    recorded_output_path: Path,
+) -> None:
+    required_output_fields = reviewable_findings_schema()["langchain_actions"][
+        "required_output_fields"
+    ]
+    payload = json.loads(recorded_output_path.read_text(encoding="utf-8"))
+
+    for field in required_output_fields:
+        assert field in payload
+        value = payload[field]
+        if field == "citations":
+            assert isinstance(value, list)
+            assert value
+            assert all(isinstance(citation, str) and citation.strip() for citation in value)
+            continue
+        assert isinstance(value, str)
+        assert value.strip()
 
 
 def test_valid_artifact_includes_static_ui_and_langchain_contract_fields() -> None:
@@ -141,6 +194,15 @@ def test_published_artifact_path_contains_valid_contract_payload() -> None:
     artifact = json.loads(artifact_path.read_text())
 
     validate_reviewable_findings_artifact(artifact)
+
+
+def test_contract_audit_followup_dispositions_include_github_issue_links() -> None:
+    audit_path = REPO_ROOT / "docs/reports/reviewable-findings-contract-audit.md"
+    lines = audit_path.read_text(encoding="utf-8").splitlines()
+    needs_followup_lines = [line for line in lines if "needs-follow-up-issue" in line]
+
+    for line in needs_followup_lines:
+        assert "github.com/" in line, line
 
 
 def test_generator_includes_required_acceptance_fields() -> None:
