@@ -57,6 +57,33 @@ def test_langchain_required_output_fields_are_non_empty_and_exposed() -> None:
     assert set(required_output_fields) <= exposed_fields
 
 
+@pytest.mark.parametrize(
+    "recorded_output_path",
+    [
+        REPO_ROOT / "tests/langchain/recorded_outputs/findings_funded_ratio_explain.json",
+        REPO_ROOT / "tests/langchain/recorded_outputs/findings_period_compare.json",
+    ],
+)
+def test_langchain_required_output_fields_are_non_empty_in_recorded_outputs(
+    recorded_output_path: Path,
+) -> None:
+    required_output_fields = reviewable_findings_schema()["langchain_actions"][
+        "required_output_fields"
+    ]
+    payload = json.loads(recorded_output_path.read_text(encoding="utf-8"))
+
+    for field in required_output_fields:
+        assert field in payload
+        value = payload[field]
+        if field == "citations":
+            assert isinstance(value, list)
+            assert value
+            assert all(isinstance(citation, str) and citation.strip() for citation in value)
+            continue
+        assert isinstance(value, str)
+        assert value.strip()
+
+
 def test_valid_artifact_includes_static_ui_and_langchain_contract_fields() -> None:
     artifact = _valid_artifact()
 

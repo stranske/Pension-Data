@@ -1,4 +1,6 @@
 {
+  "request_id": "fc:recorded-period-compare",
+  "generated_at": "2026-05-10T03:20:00Z",
   "artifact_path": "artifacts/langchain/findings-period-compare.json",
   "caveats": [
     "The comparison uses only the two reviewable finding slices in the fixture."
