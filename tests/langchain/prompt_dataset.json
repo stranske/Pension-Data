@@ -66,6 +66,22 @@
       "expected_sql_contains": ["from manager_lifecycle", "event_type", "effective_date"],
       "expected_citations": ["doc:lifecycle#p.81"],
       "allowed_relations": ["manager_lifecycle"]
+    },
+    {
+      "id": "findings-funded-ratio-explain",
+      "domain": "reviewable_findings",
+      "feature": "findings_explain",
+      "question": "Explain the funded ratio improvement and cite the source finding.",
+      "recorded_output": "recorded_outputs/findings_funded_ratio_explain.json",
+      "expected_citations": ["doc:funded#p.52"]
+    },
+    {
+      "id": "findings-period-compare",
+      "domain": "reviewable_findings",
+      "feature": "findings_compare",
+      "question": "Compare the funded status findings between FY2023 and FY2024.",
+      "recorded_output": "recorded_outputs/findings_period_compare.json",
+      "expected_citations": ["doc:funded#p.48", "doc:funded#p.52"]
     }
   ]
 }

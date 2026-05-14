@@ -265,15 +265,44 @@ def _validate_schema(case: EvalCase, output: Mapping[str, object]) -> list[str]:
         if not isinstance(output.get("sql"), str) or not str(output.get("sql", "")).strip():
             details.append("schema invalid: nl_sql output requires non-empty string field 'sql'")
     elif case.feature == "findings_explain":
-        required: tuple[str, ...] = ("summary", "key_drivers", "caveats", "citations")
+        required: tuple[str, ...] = (
+            "summary",
+            "key_drivers",
+            "caveats",
+            "citations",
+            "artifact_path",
+        )
         for key in required:
             if key not in output:
                 details.append(f"schema invalid: findings_explain output missing '{key}'")
+        if (
+            not isinstance(output.get("artifact_path"), str)
+            or not str(output.get("artifact_path", "")).strip()
+        ):
+            details.append(
+                "schema invalid: findings_explain output requires non-empty string field "
+                "'artifact_path'"
+            )
     elif case.feature == "findings_compare":
-        required = ("summary", "key_differences", "key_drivers", "caveats", "citations")
+        required = (
+            "summary",
+            "key_differences",
+            "key_drivers",
+            "caveats",
+            "citations",
+            "artifact_path",
+        )
         for key in required:
             if key not in output:
                 details.append(f"schema invalid: findings_compare output missing '{key}'")
+        if (
+            not isinstance(output.get("artifact_path"), str)
+            or not str(output.get("artifact_path", "")).strip()
+        ):
+            details.append(
+                "schema invalid: findings_compare output requires non-empty string field "
+                "'artifact_path'"
+            )
     return details
 
 

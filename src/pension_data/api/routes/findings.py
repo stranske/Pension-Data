@@ -27,6 +27,7 @@ class FindingsExplainRouteResult:
     """Explain endpoint result bundle with audit metadata."""
 
     response: ExplainResponse
+    artifact_path: str | None
     audit_event: dict[str, Any]
 
 
@@ -35,6 +36,7 @@ class FindingsCompareRouteResult:
     """Compare endpoint result bundle with audit metadata."""
 
     response: CompareResponse
+    artifact_path: str | None
     audit_event: dict[str, Any]
 
 
@@ -70,6 +72,7 @@ def run_findings_explain_endpoint(
     )
     return FindingsExplainRouteResult(
         response=response,
+        artifact_path=response.metadata.artifact_path,
         audit_event=build_audit_event(
             operation="nl.findings.explain",
             auth_context=auth_context,
@@ -103,6 +106,7 @@ def run_findings_compare_endpoint(
     )
     return FindingsCompareRouteResult(
         response=response,
+        artifact_path=response.metadata.artifact_path,
         audit_event=build_audit_event(
             operation="nl.findings.compare",
             auth_context=auth_context,

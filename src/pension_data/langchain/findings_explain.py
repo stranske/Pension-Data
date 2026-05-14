@@ -46,6 +46,7 @@ class ExplainMetadata:
     request_id: str
     generated_at: str
     chain_name: str
+    artifact_path: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +78,7 @@ def run_findings_explain_chain(
         request_id=trace_id,
         generated_at=utc_now_iso(),
         chain_name="findings_explain",
+        artifact_path=None,
     )
     try:
         question = ensure_question(request.question)
