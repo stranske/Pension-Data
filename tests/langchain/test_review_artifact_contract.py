@@ -47,6 +47,13 @@ def test_langchain_required_output_fields_are_non_empty_and_exposed() -> None:
         "required_output_fields"
     ]
     assert required_output_fields
+    assert set(required_output_fields) == {
+        "request_id",
+        "generated_at",
+        "summary",
+        "citations",
+        "artifact_path",
+    }
 
     metadata_fields = {field.name for field in fields(ExplainMetadata)} | {
         field.name for field in fields(CompareMetadata)
