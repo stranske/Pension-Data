@@ -1,0 +1,19 @@
+{
+  "request_id": "fc:recorded-period-compare",
+  "generated_at": "2026-05-10T03:20:00Z",
+  "artifact_path": "artifacts/langchain/findings-period-compare.json",
+  "caveats": [
+    "The comparison uses only the two reviewable finding slices in the fixture."
+  ],
+  "citations": [
+    "doc:funded#p.48",
+    "doc:funded#p.52"
+  ],
+  "key_differences": [
+    "FY2024 shows a higher funded ratio than FY2023"
+  ],
+  "key_drivers": [
+    "Higher actuarial asset values"
+  ],
+  "summary": "FY2024 improved relative to FY2023, with the recorded finding attributing the change to stronger asset growth."
+}

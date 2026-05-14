@@ -34,3 +34,8 @@ artifacts/langchain/nl_operations.jsonl
 # Local source collection artifacts (intentionally untracked)
 doc/Sources/
 uv.lock
+
+
+# Closer/opener automation transient state — never commit.
+# This file is written by ~/.codex/automations/* lane runs.
+workloop-state.md

@@ -1,0 +1,15 @@
+{
+  "request_id": "fx:recorded-funded-ratio-explain",
+  "generated_at": "2026-05-10T03:20:00Z",
+  "artifact_path": "artifacts/langchain/findings-funded-ratio-explain.json",
+  "caveats": [
+    "Single-period funded-ratio movements should be reviewed with contribution and assumption notes."
+  ],
+  "citations": [
+    "doc:funded#p.52"
+  ],
+  "key_drivers": [
+    "Actuarial assets rose faster than liabilities"
+  ],
+  "summary": "The funded ratio improved because asset growth outpaced liability growth in the recorded FY2024 finding."
+}
