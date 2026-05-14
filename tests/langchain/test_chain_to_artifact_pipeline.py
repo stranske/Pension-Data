@@ -221,9 +221,9 @@ def test_eval_harness_flags_artifact_path_when_export_step_is_skipped(
 def test_contract_doc_documents_chain_output_vs_published_artifact() -> None:
     """The contract doc must carry the layering subsection this test backs up."""
     repo_root = Path(__file__).resolve().parents[2]
-    contract = (
-        repo_root / "docs/contracts/reviewable-findings-artifact-contract.md"
-    ).read_text(encoding="utf-8")
+    contract = (repo_root / "docs/contracts/reviewable-findings-artifact-contract.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "Chain Output vs Published Artifact" in contract
     assert "build_findings_export_artifact" in contract
