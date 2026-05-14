@@ -196,6 +196,15 @@ def test_published_artifact_path_contains_valid_contract_payload() -> None:
     validate_reviewable_findings_artifact(artifact)
 
 
+def test_contract_audit_followup_dispositions_include_github_issue_links() -> None:
+    audit_path = REPO_ROOT / "docs/reports/reviewable-findings-contract-audit.md"
+    lines = audit_path.read_text(encoding="utf-8").splitlines()
+    needs_followup_lines = [line for line in lines if "needs-follow-up-issue" in line]
+
+    for line in needs_followup_lines:
+        assert "github.com/" in line, line
+
+
 def test_generator_includes_required_acceptance_fields() -> None:
     artifact = _valid_artifact()
 
