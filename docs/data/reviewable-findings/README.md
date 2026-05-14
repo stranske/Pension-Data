@@ -20,6 +20,14 @@ When either source artifact is missing, unreadable, or fails to parse the genera
 `ReviewableFindingsArtifactError` and exits non-zero; it does not silently fall back to a
 hand-authored fixture. The checked-in artifact at the published path remains a stable contract
 sample for static UI hosting and reviewer workflows, but it is not the production data path.
+In-process callers must also provide both source paths; calling the builder without source artifacts
+is treated as a contract error.
+
+The persistence contract is used to validate that the source data describes required readiness
+columns before findings are derived from the readiness CSV. Real-data generation includes
+`total_candidate_findings` and `truncated` metadata; if more than 25 usable findings are present,
+the generator emits a runtime warning and marks the artifact as truncated. The `compare` LangChain
+action is emitted only when at least two findings are available.
 
 Required finding rows include `entity`, `period`, `metric_family`, `metric`, `value`, `confidence`,
 `provenance_refs`, and `citations`. These are the minimum fields the static UI can filter/render and

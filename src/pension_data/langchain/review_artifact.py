@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import warnings
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -226,14 +227,24 @@ def validate_reviewable_findings_artifact(artifact: Mapping[str, Any]) -> None:
                 f"artifact.langchain_actions[{index}].finding_ids reference "
                 f"unknown findings: {', '.join(unknown_finding_ids)}"
             )
+        if name == "compare" and len(action_finding_ids) < 2:
+            raise ReviewableFindingsArtifactError(
+                f"artifact.langchain_actions[{index}].finding_ids must include "
+                "at least two findings for compare"
+            )
         available_actions.add(name)
-    if available_actions != ALLOWED_LANGCHAIN_ACTIONS:
-        raise ReviewableFindingsArtifactError(
-            "artifact.langchain_actions must include explain and compare"
-        )
+    required_actions = {"explain"}
+    if len(findings) >= 2:
+        required_actions.add("compare")
+    if available_actions != required_actions:
+        joined = " and ".join(sorted(required_actions))
+        raise ReviewableFindingsArtifactError(f"artifact.langchain_actions must include {joined}")
 
 
 MAX_REAL_DATA_FINDINGS = 25
+REQUIRED_READINESS_COLUMNS: frozenset[str] = frozenset(
+    {"plan_id", "plan_period", "is_extraction_ready"}
+)
 
 
 def _normalize_generated_at(generated_at: str | None) -> str:
@@ -269,6 +280,36 @@ def _read_persistence_contract(path: Path) -> Mapping[str, Any]:
     return payload
 
 
+def _require_string_column_sequence(
+    value: object, *, path: str, required_columns: frozenset[str]
+) -> frozenset[str]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        raise ReviewableFindingsArtifactError(f"{path} must be a list of column names")
+    columns = {item.strip() for item in value if isinstance(item, str) and item.strip()}
+    missing = sorted(required_columns - columns)
+    if missing:
+        raise ReviewableFindingsArtifactError(
+            f"{path} missing required columns: {', '.join(missing)}"
+        )
+    return frozenset(columns)
+
+
+def _readiness_contract_columns(
+    contract: Mapping[str, Any], *, contract_path: Path
+) -> frozenset[str]:
+    for key in ("source_authority_readiness", "readiness", "staging_core_metrics"):
+        if key in contract:
+            return _require_string_column_sequence(
+                contract[key],
+                path=f"{contract_path}.{key}",
+                required_columns=frozenset({"plan_id", "plan_period"}),
+            )
+    raise ReviewableFindingsArtifactError(
+        f"persistence contract at {contract_path} must define source_authority_readiness, "
+        "readiness, or staging_core_metrics columns"
+    )
+
+
 def _read_readiness_rows(path: Path) -> list[dict[str, str]]:
     try:
         handle = path.open("r", encoding="utf-8", newline="")
@@ -279,6 +320,13 @@ def _read_readiness_rows(path: Path) -> list[dict[str, str]]:
     with handle:
         try:
             reader = csv.DictReader(handle)
+            if reader.fieldnames is None:
+                raise ReviewableFindingsArtifactError(f"readiness CSV at {path} has no header row")
+            missing = sorted(REQUIRED_READINESS_COLUMNS - set(reader.fieldnames))
+            if missing:
+                raise ReviewableFindingsArtifactError(
+                    f"readiness CSV at {path} missing required columns: {', '.join(missing)}"
+                )
             rows = [dict(row) for row in reader]
         except csv.Error as exc:
             raise ReviewableFindingsArtifactError(
@@ -327,10 +375,23 @@ def _build_from_sources(
     generated_at: str,
     artifact_date: str,
 ) -> dict[str, Any]:
-    _read_persistence_contract(persistence_contract_path)
+    persistence_contract = _read_persistence_contract(persistence_contract_path)
+    contract_columns = _readiness_contract_columns(
+        persistence_contract,
+        contract_path=persistence_contract_path,
+    )
+    missing_contract_columns = sorted(
+        REQUIRED_READINESS_COLUMNS - contract_columns - frozenset({"is_extraction_ready"})
+    )
+    if missing_contract_columns:
+        raise ReviewableFindingsArtifactError(
+            f"persistence contract at {persistence_contract_path} does not describe "
+            f"required readiness columns: {', '.join(missing_contract_columns)}"
+        )
     rows = _read_readiness_rows(readiness_csv_path)
 
     findings: list[dict[str, Any]] = []
+    candidate_count = 0
     for row in rows:
         finding = _finding_from_readiness_row(
             row,
@@ -339,21 +400,47 @@ def _build_from_sources(
         )
         if finding is None:
             continue
-        findings.append(finding)
-        if len(findings) >= MAX_REAL_DATA_FINDINGS:
-            break
+        candidate_count += 1
+        if len(findings) < MAX_REAL_DATA_FINDINGS:
+            findings.append(finding)
     if not findings:
         raise ReviewableFindingsArtifactError(
             f"readiness CSV at {readiness_csv_path} contains no rows with plan_id and plan_period"
         )
 
+    truncated = candidate_count > len(findings)
+    if truncated:
+        warnings.warn(
+            "reviewable findings artifact truncated real-data findings at "
+            f"{MAX_REAL_DATA_FINDINGS} rows",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
     action_finding_ids = [finding["finding_id"] for finding in findings]
-    compare_finding_ids = action_finding_ids[: min(2, len(action_finding_ids))]
+    langchain_actions: list[dict[str, Any]] = [
+        {
+            "action": "explain",
+            "question": "Explain the readiness drivers for this finding",
+            "finding_ids": [action_finding_ids[0]],
+        },
+    ]
+    if len(action_finding_ids) >= 2:
+        langchain_actions.append(
+            {
+                "action": "compare",
+                "question": "Compare readiness against another plan period",
+                "finding_ids": action_finding_ids[:2],
+            }
+        )
+
     return {
         "artifact_type": REVIEWABLE_FINDINGS_ARTIFACT_TYPE,
         "schema_version": REVIEWABLE_FINDINGS_SCHEMA_VERSION,
         "artifact_id": f"extraction-quality-dashboard:{artifact_date}",
         "generated_at": generated_at,
+        "total_candidate_findings": candidate_count,
+        "truncated": truncated,
         "source_artifact_ids": [
             persistence_contract_path.as_posix(),
             readiness_csv_path.as_posix(),
@@ -365,18 +452,7 @@ def _build_from_sources(
             "description": "Review extraction readiness derived from persistence and readiness artifacts.",
         },
         "findings": findings,
-        "langchain_actions": [
-            {
-                "action": "explain",
-                "question": "Explain the readiness drivers for this finding",
-                "finding_ids": [action_finding_ids[0]],
-            },
-            {
-                "action": "compare",
-                "question": "Compare readiness against another plan period",
-                "finding_ids": compare_finding_ids,
-            },
-        ],
+        "langchain_actions": langchain_actions,
     }
 
 
@@ -395,84 +471,24 @@ def build_extraction_quality_dashboard_artifact(
     to parse, ``ReviewableFindingsArtifactError`` is raised before any
     hardcoded fallback can execute.
 
-    When both paths are ``None``, the legacy synthetic fixture artifact is
-    returned so contract-level test coverage and the checked-in artifact at
-    ``docs/data/reviewable-findings/extraction-quality-dashboard.json`` keep
-    passing ``validate_reviewable_findings_artifact``. Production callers must
-    pass real source paths; the generator script does so by default.
+    Both source paths are required. The checked-in artifact at
+    ``docs/data/reviewable-findings/extraction-quality-dashboard.json`` remains
+    a stable contract sample, but runtime generation must use source artifacts
+    instead of silently falling back to fixture data.
     """
     normalized_generated_at = _normalize_generated_at(generated_at)
     normalized_artifact_date = _normalize_artifact_date(artifact_date)
 
-    if persistence_contract_path is not None or readiness_csv_path is not None:
-        if persistence_contract_path is None or readiness_csv_path is None:
-            raise ReviewableFindingsArtifactError(
-                "both persistence_contract_path and readiness_csv_path must be provided together"
-            )
-        return _build_from_sources(
-            persistence_contract_path=Path(persistence_contract_path),
-            readiness_csv_path=Path(readiness_csv_path),
-            generated_at=normalized_generated_at,
-            artifact_date=normalized_artifact_date,
+    if persistence_contract_path is None or readiness_csv_path is None:
+        raise ReviewableFindingsArtifactError(
+            "both persistence_contract_path and readiness_csv_path must be provided"
         )
-
-    return {
-        "artifact_type": REVIEWABLE_FINDINGS_ARTIFACT_TYPE,
-        "schema_version": REVIEWABLE_FINDINGS_SCHEMA_VERSION,
-        "artifact_id": f"extraction-quality-dashboard:{normalized_artifact_date}",
-        "generated_at": normalized_generated_at,
-        "source_artifact_ids": [
-            "extraction_persistence/persistence_contract.json",
-            "coverage/source_authority_readiness.csv",
-        ],
-        "slice": {
-            "slice_id": REVIEWABLE_FINDINGS_FIRST_SLICE_ID,
-            "title": "Extraction Quality Dashboard",
-            "metric_family": "extraction_quality",
-            "description": "Review extraction confidence, blockers, and source-backed citations.",
-        },
-        "findings": [
-            {
-                "finding_id": "finding:ca-pers:fy2024:funded-ratio",
-                "entity": "CA-PERS",
-                "period": "FY2024",
-                "metric_family": "funded_status",
-                "metric": "funded_ratio",
-                "value": 0.81,
-                "confidence": 0.96,
-                "severity": "info",
-                "provenance_refs": ["doc:ca-pers-2024#page=52"],
-                "citations": ["CA-PERS ACFR FY2024 p.52"],
-            },
-            {
-                "finding_id": "finding:ca-pers:fy2023:funded-ratio",
-                "entity": "CA-PERS",
-                "period": "FY2023",
-                "metric_family": "funded_status",
-                "metric": "funded_ratio",
-                "value": 0.79,
-                "confidence": 0.93,
-                "severity": "info",
-                "provenance_refs": ["doc:ca-pers-2023#page=49"],
-                "citations": ["CA-PERS ACFR FY2023 p.49"],
-            },
-        ],
-        "langchain_actions": [
-            {
-                "action": "explain",
-                "question": "Explain the confidence drivers for this finding",
-                "finding_ids": ["finding:ca-pers:fy2024:funded-ratio"],
-            },
-            {
-                "action": "compare",
-                "question": "Compare confidence against the prior period",
-                "finding_ids": [
-                    "finding:ca-pers:fy2024:funded-ratio",
-                    "finding:ca-pers:fy2023:funded-ratio",
-                ],
-            },
-        ],
-    }
+    return _build_from_sources(
+        persistence_contract_path=Path(persistence_contract_path),
+        readiness_csv_path=Path(readiness_csv_path),
+        generated_at=normalized_generated_at,
+        artifact_date=normalized_artifact_date,
+    )
 
 
 def write_reviewable_findings_artifact(

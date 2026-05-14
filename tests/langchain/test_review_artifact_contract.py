@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
@@ -26,10 +27,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _valid_artifact() -> dict[str, Any]:
-    return build_extraction_quality_dashboard_artifact(
-        generated_at="2026-05-10T03:20:00Z",
-        artifact_date="2026-05-10",
-    )
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        contract_path, readiness_path = _write_real_sources(Path(tmp_dir))
+        return build_extraction_quality_dashboard_artifact(
+            generated_at="2026-05-10T03:20:00Z",
+            artifact_date="2026-05-10",
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness_path,
+        )
 
 
 def test_schema_file_matches_python_contract() -> None:
@@ -259,6 +264,11 @@ def _write_real_sources(tmp_path: Path) -> tuple[Path, Path]:
     return contract_path, readiness_path
 
 
+def test_build_without_source_paths_raises_before_fixture_fallback() -> None:
+    with pytest.raises(ReviewableFindingsArtifactError, match="must be provided"):
+        build_extraction_quality_dashboard_artifact()
+
+
 def test_build_from_sources_derives_findings_from_real_data(tmp_path: Path) -> None:
     contract_path, readiness_path = _write_real_sources(tmp_path)
 
@@ -280,6 +290,8 @@ def test_build_from_sources_derives_findings_from_real_data(tmp_path: Path) -> N
     blocked = next(finding for finding in artifact["findings"] if finding["entity"] == "NY-CTRS")
     assert blocked["value"] == 0.0
     assert blocked["severity"] == "warning"
+    assert artifact["total_candidate_findings"] == 2
+    assert artifact["truncated"] is False
 
 
 @pytest.mark.parametrize(
@@ -313,11 +325,77 @@ def test_build_from_sources_raises_on_malformed_persistence_contract(tmp_path: P
         )
 
 
+def test_build_from_sources_raises_when_contract_omits_required_columns(
+    tmp_path: Path,
+) -> None:
+    contract_path = tmp_path / "persistence_contract.json"
+    contract_path.write_text(
+        json.dumps({"staging_core_metrics": ["plan_id", "metric_name"]}),
+        encoding="utf-8",
+    )
+    readiness_path = tmp_path / "readiness.csv"
+    readiness_path.write_text(
+        "plan_id,plan_period,is_extraction_ready\nOR-PERS,FY2024,true\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ReviewableFindingsArtifactError, match="plan_period"):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness_path,
+        )
+
+
+def test_build_from_sources_skips_compare_action_for_single_finding(tmp_path: Path) -> None:
+    contract_path, readiness_path = _write_real_sources(tmp_path)
+    readiness_path.write_text(
+        "plan_id,plan_period,cohort,system_type,official_resolution_state,"
+        "source_authority_tier,mismatch_reason,extraction_blocker_reason,"
+        "is_extraction_ready,readiness_state\n"
+        "OR-PERS,FY2024,west,public,resolved,tier_1,,,true,ready\n",
+        encoding="utf-8",
+    )
+
+    artifact = build_extraction_quality_dashboard_artifact(
+        persistence_contract_path=contract_path,
+        readiness_csv_path=readiness_path,
+    )
+
+    validate_reviewable_findings_artifact(artifact)
+    assert [action["action"] for action in artifact["langchain_actions"]] == ["explain"]
+
+
+def test_build_from_sources_marks_and_warns_when_findings_are_truncated(
+    tmp_path: Path,
+) -> None:
+    contract_path, readiness_path = _write_real_sources(tmp_path)
+    rows = [
+        "plan_id,plan_period,cohort,system_type,official_resolution_state,"
+        "source_authority_tier,mismatch_reason,extraction_blocker_reason,"
+        "is_extraction_ready,readiness_state"
+    ]
+    rows.extend(
+        f"PLAN-{index},FY2024,west,public,resolved,tier_1,,,true,ready" for index in range(30)
+    )
+    readiness_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    with pytest.warns(RuntimeWarning, match="truncated"):
+        artifact = build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness_path,
+        )
+
+    validate_reviewable_findings_artifact(artifact)
+    assert artifact["total_candidate_findings"] == 30
+    assert artifact["truncated"] is True
+    assert len(artifact["findings"]) == 25
+
+
 def test_build_from_sources_raises_when_readiness_csv_has_no_usable_rows(tmp_path: Path) -> None:
     contract_path, _ = _write_real_sources(tmp_path)
     readiness_path = tmp_path / "empty_readiness.csv"
     readiness_path.write_text(
-        "plan_id,plan_period\n,\n",
+        "plan_id,plan_period,is_extraction_ready\n,,\n",
         encoding="utf-8",
     )
 
