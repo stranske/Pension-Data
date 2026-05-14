@@ -231,9 +231,9 @@ def test_contract_doc_documents_chain_output_vs_published_artifact() -> None:
 
     audit_report_path = "docs/reports/reviewable-findings-contract-audit.md"
     occurrences = contract.count(audit_report_path)
-    assert occurrences == 1, (
-        f"audit report path must be cross-referenced exactly once, found {occurrences}"
-    )
+    assert (
+        occurrences == 1
+    ), f"audit report path must be cross-referenced exactly once, found {occurrences}"
 
     section_start = contract.index("### Chain Output vs Published Artifact")
     next_section_marker = "\n## "
@@ -241,6 +241,6 @@ def test_contract_doc_documents_chain_output_vs_published_artifact() -> None:
     if section_end_idx == -1:
         section_end_idx = len(contract)
     layering_section = contract[section_start:section_end_idx]
-    assert audit_report_path in layering_section, (
-        "audit report cross-reference must live inside the layering subsection"
-    )
+    assert (
+        audit_report_path in layering_section
+    ), "audit report cross-reference must live inside the layering subsection"
