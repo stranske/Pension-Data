@@ -183,6 +183,14 @@ def build_fleet_records(
         "row_count": sanitized_row_count,
         "evidence_availability": evidence_availability or "unknown",
     }
+    if replay_dataset_id:
+        shared_domain["replay_dataset_id"] = replay_dataset_id
+    if replay_run_id:
+        shared_domain["replay_run_id"] = replay_run_id
+    if replay_match_status:
+        shared_domain["replay_match_status"] = replay_match_status
+    if golden_corpus_outcome:
+        shared_domain["golden_corpus_outcome"] = golden_corpus_outcome
     if sanitized_max_rows is not None:
         shared_domain["max_rows"] = sanitized_max_rows
     if context.latency_ms is not None:
@@ -251,14 +259,6 @@ def build_fleet_records(
     ]
 
     replay_domain: dict[str, Any] = {**shared_domain, "stage": "replay"}
-    if replay_dataset_id:
-        replay_domain["replay_dataset_id"] = replay_dataset_id
-    if replay_run_id:
-        replay_domain["replay_run_id"] = replay_run_id
-    if replay_match_status:
-        replay_domain["replay_match_status"] = replay_match_status
-    if golden_corpus_outcome:
-        replay_domain["golden_corpus_outcome"] = golden_corpus_outcome
     records.append(
         _record(
             context=context,

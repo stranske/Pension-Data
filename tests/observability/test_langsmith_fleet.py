@@ -149,10 +149,11 @@ def test_build_fleet_records_enables_langsmith_defaults_when_key_present(
     assert records[0]["trace_url"] == "https://smith.langchain.com/r/trace-123"
     assert records[0]["provider"] == "openai"
     assert records[0]["model"] == "gpt-4o"
-    assert records[3]["domain"]["replay_dataset_id"] == "ds:funded_ratio"
-    assert records[3]["domain"]["replay_run_id"] == "run:001"
-    assert records[3]["domain"]["replay_match_status"] == "match"
-    assert records[3]["domain"]["golden_corpus_outcome"] == "match"
+    for record in records:
+        assert record["domain"]["replay_dataset_id"] == "ds:funded_ratio"
+        assert record["domain"]["replay_run_id"] == "run:001"
+        assert record["domain"]["replay_match_status"] == "match"
+        assert record["domain"]["golden_corpus_outcome"] == "match"
     assert records[0]["domain"]["query_intent"] == "benchmark_lookup"
     import os
 
@@ -495,6 +496,10 @@ def test_run_nl_query_endpoint_emits_fleet_artifact_when_category_set(
         assert record["trace_id"] == "trace-xyz"
         assert record["trace_url"] == "https://smith.langchain.com/r/trace-xyz"
         assert record["github_pr"] == "stranske/Pension-Data#999"
+        assert record["domain"]["replay_dataset_id"] == "golden:nl-sql:v1"
+        assert record["domain"]["replay_run_id"] == "run-4242"
+        assert record["domain"]["replay_match_status"] == "match"
+        assert record["domain"]["golden_corpus_outcome"] == "match"
     assert records[3]["status"] == "no_secret"
     assert records[3]["domain"]["replay_dataset_id"] == "golden:nl-sql:v1"
     assert records[3]["domain"]["replay_run_id"] == "run-4242"
