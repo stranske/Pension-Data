@@ -11,8 +11,8 @@ import pytest
 from pension_data.api.auth import SCOPE_NL, SCOPE_QUERY, APIKeyStore, ScopeDeniedError
 from pension_data.api.routes.nl import run_nl_query_endpoint
 from pension_data.langchain.nl_sql_chain import (
-    InMemoryLangSmithTraceSink,
     NL_TO_SQL_TRACE_ENTRYPOINTS,
+    InMemoryLangSmithTraceSink,
     NLToSQLRequest,
     nl_to_sql_trace_stages,
     run_nl_sql_chain,
