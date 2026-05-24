@@ -94,14 +94,18 @@ def test_build_fleet_records_uses_no_secret_status_when_key_missing(
     assert {record["status"] for record in records[:3]} == {"no_secret"}
     assert records[3]["status"] == "skipped"
     for record in records:
+        assert record["domain"]["query_intent"] == "funded_ratio_lookup"
         assert record["request_id"] == "nlq:abc"
         assert record["schema_version"] == langsmith_fleet.SCHEMA_VERSION
         assert record["repo"] == "stranske/Pension-Data"
         assert record["surface"] == "nl-to-sql"
         assert record["github_issue"] == "stranske/Pension-Data#445"
         assert record["domain"]["query_category"] == "funded_ratio_lookup"
+        assert record["domain"]["query_category_or_intent"] == "funded_ratio_lookup"
         assert record["domain"]["sql_validation_status"] == "pass"
+        assert record["domain"]["sql_validation"] == "pass"
         assert record["domain"]["read_only_status"] == "read_only"
+        assert record["domain"]["read_only_safety_status"] == "read_only"
         assert record["domain"]["row_count"] == 2
         assert record["domain"]["max_rows"] == 10
         serialized = json.dumps(record)
@@ -150,6 +154,7 @@ def test_build_fleet_records_enables_langsmith_defaults_when_key_present(
     assert records[3]["domain"]["replay_dataset_id"] == "ds:funded_ratio"
     assert records[3]["domain"]["replay_run_id"] == "run:001"
     assert records[3]["domain"]["replay_match_status"] == "match"
+    assert records[3]["domain"]["golden_corpus_outcome"] == "match"
     import os
 
     assert os.environ[langsmith_fleet.ENV_LANGCHAIN_PROJECT] == langsmith_fleet.DEFAULT_PROJECT
@@ -322,6 +327,7 @@ def test_build_fleet_records_from_response_round_trip(
         assert record["domain"]["sql_validation_status"] == "pass"
         assert record["domain"]["read_only_status"] == "read_only"
         assert record["domain"]["row_count"] == 2
+        assert record["domain"]["evidence_available"] is False
         assert record["domain"]["max_rows"] == 10
         assert record["domain"]["trace_event_count"] == len(traces.events)
         assert record["domain"]["latency_ms"] >= 0
@@ -364,6 +370,37 @@ def test_build_fleet_records_from_response_unsafe_sql_blocked() -> None:
         assert record["domain"]["sql_validation_status"] == "unsafe"
         assert record["domain"]["read_only_status"] == "blocked"
         assert record["domain"]["row_count"] == 0
+
+
+def test_build_fleet_records_from_response_sets_evidence_available_true() -> None:
+    connection = _seed_connection()
+    traces = InMemoryLangSmithTraceSink(events=[])
+    try:
+        request = NLToSQLRequest(question="Show funded ratio evidence", max_rows=10)
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=request,
+            chain=_StaticChain(
+                "SELECT id, source_document_id, evidence_refs FROM sample_metrics "
+                "WHERE metric = 'funded_ratio'"
+            ),
+            trace_sink=traces,
+            policy=_policy(),
+        )
+    finally:
+        connection.close()
+
+    context = langsmith_fleet.FleetRunContext(
+        run_id=response.metadata.request_id,
+        query_category="funded_ratio_lookup",
+    )
+    records = langsmith_fleet.build_fleet_records_from_response(
+        context=context,
+        response=response,
+        request=request,
+    )
+    for record in records[:3]:
+        assert record["domain"]["evidence_available"] is True
 
 
 def test_write_fleet_records_emits_deterministic_ndjson(tmp_path: Path) -> None:
@@ -491,7 +528,9 @@ def test_run_nl_query_endpoint_emits_fleet_artifact_when_category_set(
         assert record["request_id"] == result.response.metadata.request_id
         assert record["session_id"] == result.audit_event["correlation_id"]
         assert record["domain"]["query_category"] == "funded_ratio_lookup"
+        assert record["domain"]["query_intent"] == "funded_ratio_lookup"
         assert record["domain"]["sql_validation_status"] == "pass"
+        assert record["domain"]["evidence_available"] is False
         assert record["domain"]["row_count"] == 2
         assert record["trace_id"] == "trace-xyz"
         assert record["trace_url"] == "https://smith.langchain.com/r/trace-xyz"
