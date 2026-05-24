@@ -23,6 +23,12 @@ from pension_data.langchain.observability import (
     build_nl_operation_log_entry,
     default_nl_log_path,
 )
+from pension_data.observability.langsmith_fleet import (
+    FleetRunContext,
+    append_fleet_records,
+    build_fleet_records_from_response,
+    default_fleet_artifact_path,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +54,12 @@ def run_nl_query_endpoint(
     log_path: Path | None = None,
     log_retention_limit: int = 2_000,
     event: Mapping[str, Any] | None = None,
+    query_category: str | None = None,
+    fleet_artifact_path: Path | None = None,
+    fleet_retention_limit: int = 2_000,
+    fleet_trace_id: str | None = None,
+    fleet_trace_url: str | None = None,
+    fleet_github_pr: str | None = None,
 ) -> NLRouteResult:
     """Authenticate and execute one NL-to-SQL request with audit metadata."""
     auth_context = authenticate_request(
@@ -75,6 +87,32 @@ def run_nl_query_endpoint(
             entry=entry,
             retention_limit=log_retention_limit,
         )
+    fleet_artifact_target: Path | None = None
+    normalized_category = query_category.strip() if query_category else ""
+    if normalized_category:
+        fleet_artifact_target = fleet_artifact_path or default_fleet_artifact_path()
+    elif fleet_artifact_path is not None:
+        fleet_artifact_target = fleet_artifact_path
+    if fleet_artifact_target is not None:
+        fleet_records = build_fleet_records_from_response(
+            context=FleetRunContext(
+                run_id=response.metadata.request_id,
+                query_category=normalized_category or "unspecified",
+                provider=provider if provider != "unknown" else None,
+                model=model if model != "unknown" else None,
+                trace_id=fleet_trace_id,
+                trace_url=fleet_trace_url,
+                github_pr=fleet_github_pr,
+            ),
+            response=response,
+            request=request,
+        )
+        with suppress(Exception):
+            append_fleet_records(
+                fleet_artifact_target,
+                fleet_records,
+                retention_limit=fleet_retention_limit,
+            )
     event_payload = dict(event or {})
     event_payload.update(
         {
@@ -86,6 +124,11 @@ def run_nl_query_endpoint(
             "error_code": response.error.code if response.error is not None else None,
             "provider": entry.provider,
             "model": entry.model,
+            "langsmith_trace_id": fleet_trace_id,
+            "langsmith_trace_url": fleet_trace_url,
+            "langsmith_query_category": (
+                query_category.strip() if query_category and query_category.strip() else None
+            ),
         }
     )
     return NLRouteResult(
