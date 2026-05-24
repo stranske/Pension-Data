@@ -12,7 +12,9 @@ from pension_data.api.auth import SCOPE_NL, SCOPE_QUERY, APIKeyStore, ScopeDenie
 from pension_data.api.routes.nl import run_nl_query_endpoint
 from pension_data.langchain.nl_sql_chain import (
     InMemoryLangSmithTraceSink,
+    NL_TO_SQL_TRACE_ENTRYPOINTS,
     NLToSQLRequest,
+    nl_to_sql_trace_stages,
     run_nl_sql_chain,
 )
 from pension_data.query.sql_safety import (
@@ -132,11 +134,7 @@ def test_nl_sql_chain_executes_read_only_sql_and_emits_langsmith_traces() -> Non
     assert response.provenance[0].source_document_id is None
     assert response.provenance[0].evidence_refs == ()
     assert response.provenance[0].confidence is None
-    assert [event.stage for event in traces.events] == [
-        "nl.prompt.received",
-        "nl.sql.generated",
-        "nl.sql.executed",
-    ]
+    assert [event.stage for event in traces.events] == list(nl_to_sql_trace_stages(status="ok"))
 
 
 def test_nl_sql_chain_rejects_unsafe_generated_sql_and_emits_error_trace() -> None:
@@ -158,8 +156,32 @@ def test_nl_sql_chain_rejects_unsafe_generated_sql_and_emits_error_trace() -> No
     assert response.error is not None
     assert response.error.code == "UNSAFE_SQL"
     assert remaining_rows == 3
+    assert [event.stage for event in traces.events] == list(
+        nl_to_sql_trace_stages(status="error", error_stage="validation")
+    )
     assert traces.events[-1].stage == "nl.sql.error"
     assert traces.events[-1].payload["error_code"] == "UNSAFE_SQL"
+
+
+def test_nl_sql_trace_entrypoints_and_lifecycle_contract_is_explicit() -> None:
+    assert NL_TO_SQL_TRACE_ENTRYPOINTS == (
+        "pension_data.api.routes.nl.run_nl_query_endpoint",
+        "pension_data.langchain.nl_sql_chain.run_nl_sql_chain",
+    )
+    assert nl_to_sql_trace_stages(status="ok") == (
+        "nl.prompt.received",
+        "nl.sql.generated",
+        "nl.sql.executed",
+    )
+    assert nl_to_sql_trace_stages(status="error") == (
+        "nl.prompt.received",
+        "nl.sql.generated",
+        "nl.sql.error",
+    )
+    assert nl_to_sql_trace_stages(status="error", error_stage="validation") == (
+        "nl.prompt.received",
+        "nl.sql.error",
+    )
 
 
 def test_nl_sql_chain_returns_specific_error_for_max_rows_overflow() -> None:
