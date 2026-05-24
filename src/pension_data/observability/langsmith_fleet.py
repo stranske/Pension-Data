@@ -57,6 +57,7 @@ class FleetRunContext:
 
     run_id: str
     query_category: str
+    query_intent: str | None = None
     provider: str | None = None
     model: str | None = None
     trace_id: str | None = None
@@ -150,6 +151,8 @@ def build_fleet_records(
     replay_dataset_id: str | None = None,
     replay_run_id: str | None = None,
     replay_match_status: str | None = None,
+    golden_corpus_outcome: str | None = None,
+    evidence_availability: str | None = None,
     artifact_ref: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return Workflows-compatible fleet records for one NL-to-SQL run.
@@ -174,9 +177,11 @@ def build_fleet_records(
 
     shared_domain: dict[str, Any] = {
         "query_category": context.query_category,
+        "query_intent": context.query_intent or context.query_category,
         "sql_validation_status": sql_validation_status,
         "read_only_status": read_only_status,
         "row_count": sanitized_row_count,
+        "evidence_availability": evidence_availability or "unknown",
     }
     if sanitized_max_rows is not None:
         shared_domain["max_rows"] = sanitized_max_rows
@@ -252,6 +257,8 @@ def build_fleet_records(
         replay_domain["replay_run_id"] = replay_run_id
     if replay_match_status:
         replay_domain["replay_match_status"] = replay_match_status
+    if golden_corpus_outcome:
+        replay_domain["golden_corpus_outcome"] = golden_corpus_outcome
     records.append(
         _record(
             context=context,
@@ -275,6 +282,7 @@ def build_fleet_records_from_response(
     replay_dataset_id: str | None = None,
     replay_run_id: str | None = None,
     replay_match_status: str | None = None,
+    golden_corpus_outcome: str | None = None,
     artifact_ref: str | None = None,
 ) -> list[dict[str, Any]]:
     """Build fleet records directly from an NL-to-SQL chain response.
@@ -295,10 +303,12 @@ def build_fleet_records_from_response(
     trace_event_count = _response_trace_event_count(response)
     error_stage = _error_stage_for(error_code)
     latency_ms = _response_latency_ms(response)
+    evidence_availability = _derive_evidence_availability(response)
     if context.latency_ms is None and latency_ms is not None:
         context = FleetRunContext(
             run_id=context.run_id,
             query_category=context.query_category,
+            query_intent=context.query_intent,
             provider=context.provider,
             model=context.model,
             trace_id=context.trace_id,
@@ -320,6 +330,8 @@ def build_fleet_records_from_response(
         replay_dataset_id=replay_dataset_id,
         replay_run_id=replay_run_id,
         replay_match_status=replay_match_status,
+        golden_corpus_outcome=golden_corpus_outcome,
+        evidence_availability=evidence_availability,
         artifact_ref=artifact_ref,
     )
 
@@ -564,6 +576,30 @@ def _request_max_rows(request: Any) -> int | None:
         return max(0, int(value))
     except (TypeError, ValueError):
         return None
+
+
+def _derive_evidence_availability(response: Any) -> str:
+    provenance = getattr(response, "provenance", None)
+    if not isinstance(provenance, tuple):
+        return "unknown"
+    if not provenance:
+        return "none"
+    with_evidence = 0
+    with_source = 0
+    for row in provenance:
+        evidence_refs = getattr(row, "evidence_refs", ())
+        source_document_id = getattr(row, "source_document_id", None)
+        if isinstance(evidence_refs, tuple) and evidence_refs:
+            with_evidence += 1
+        if isinstance(source_document_id, str) and source_document_id.strip():
+            with_source += 1
+    if with_evidence == len(provenance):
+        return "all"
+    if with_evidence > 0:
+        return "partial"
+    if with_source > 0:
+        return "source_only"
+    return "none"
 
 
 def _utc_timestamp() -> str:

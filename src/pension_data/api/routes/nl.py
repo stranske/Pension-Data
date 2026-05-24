@@ -56,11 +56,15 @@ def run_nl_query_endpoint(
     log_retention_limit: int = 2_000,
     event: Mapping[str, Any] | None = None,
     query_category: str | None = None,
+    query_intent: str | None = None,
     fleet_artifact_path: Path | None = None,
     fleet_retention_limit: int = 2_000,
     fleet_trace_id: str | None = None,
     fleet_trace_url: str | None = None,
     fleet_github_pr: str | None = None,
+    replay_dataset_id: str | None = None,
+    replay_run_id: str | None = None,
+    golden_corpus_outcome: str | None = None,
 ) -> NLRouteResult:
     """Authenticate and execute one NL-to-SQL request with audit metadata."""
     auth_context = authenticate_request(
@@ -91,6 +95,7 @@ def run_nl_query_endpoint(
         )
     fleet_artifact_target: Path | None = None
     normalized_category = query_category.strip() if query_category else ""
+    normalized_intent = query_intent.strip() if query_intent else ""
     if normalized_category:
         fleet_artifact_target = fleet_artifact_path or default_fleet_artifact_path()
     elif fleet_artifact_path is not None:
@@ -100,6 +105,7 @@ def run_nl_query_endpoint(
             context=FleetRunContext(
                 run_id=response.metadata.request_id,
                 query_category=normalized_category or "unspecified",
+                query_intent=normalized_intent or None,
                 provider=provider if provider != "unknown" else None,
                 model=model if model != "unknown" else None,
                 trace_id=fleet_trace_id,
@@ -108,6 +114,10 @@ def run_nl_query_endpoint(
             ),
             response=response,
             request=request,
+            replay_dataset_id=replay_dataset_id,
+            replay_run_id=replay_run_id,
+            replay_match_status=golden_corpus_outcome,
+            golden_corpus_outcome=golden_corpus_outcome,
         )
         with suppress(Exception):
             append_fleet_records(
@@ -130,6 +140,9 @@ def run_nl_query_endpoint(
             "langsmith_trace_url": fleet_trace_url,
             "langsmith_query_category": (
                 query_category.strip() if query_category and query_category.strip() else None
+            ),
+            "langsmith_query_intent": (
+                query_intent.strip() if query_intent and query_intent.strip() else None
             ),
         }
     )

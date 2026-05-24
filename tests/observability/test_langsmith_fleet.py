@@ -99,9 +99,11 @@ def test_build_fleet_records_uses_no_secret_status_when_key_missing(
         assert record["surface"] == "nl-to-sql"
         assert record["github_issue"] == "stranske/Pension-Data#445"
         assert record["domain"]["query_category"] == "funded_ratio_lookup"
+        assert record["domain"]["query_intent"] == "funded_ratio_lookup"
         assert record["domain"]["sql_validation_status"] == "pass"
         assert record["domain"]["read_only_status"] == "read_only"
         assert record["domain"]["row_count"] == 2
+        assert record["domain"]["evidence_availability"] == "unknown"
         assert record["domain"]["max_rows"] == 10
         serialized = json.dumps(record)
         assert "SELECT" not in serialized
@@ -123,6 +125,7 @@ def test_build_fleet_records_enables_langsmith_defaults_when_key_present(
     context = langsmith_fleet.FleetRunContext(
         run_id="nlq:def",
         query_category="discount_rate_lookup",
+        query_intent="benchmark_lookup",
         provider="openai",
         model="gpt-4o",
         trace_id="trace-123",
@@ -137,6 +140,7 @@ def test_build_fleet_records_enables_langsmith_defaults_when_key_present(
         replay_dataset_id="ds:funded_ratio",
         replay_run_id="run:001",
         replay_match_status="match",
+        golden_corpus_outcome="match",
     )
 
     statuses = [record["status"] for record in records]
@@ -148,6 +152,8 @@ def test_build_fleet_records_enables_langsmith_defaults_when_key_present(
     assert records[3]["domain"]["replay_dataset_id"] == "ds:funded_ratio"
     assert records[3]["domain"]["replay_run_id"] == "run:001"
     assert records[3]["domain"]["replay_match_status"] == "match"
+    assert records[3]["domain"]["golden_corpus_outcome"] == "match"
+    assert records[0]["domain"]["query_intent"] == "benchmark_lookup"
     import os
 
     assert os.environ[langsmith_fleet.ENV_LANGCHAIN_PROJECT] == langsmith_fleet.DEFAULT_PROJECT
@@ -310,6 +316,7 @@ def test_build_fleet_records_from_response_round_trip(
         assert record["domain"]["sql_validation_status"] == "pass"
         assert record["domain"]["read_only_status"] == "read_only"
         assert record["domain"]["row_count"] == 2
+        assert record["domain"]["evidence_availability"] == "none"
         assert record["domain"]["max_rows"] == 10
         assert record["domain"]["trace_event_count"] == len(traces.events)
         assert record["domain"]["latency_ms"] >= 0
@@ -456,10 +463,14 @@ def test_run_nl_query_endpoint_emits_fleet_artifact_when_category_set(
             log_path=log_path,
             policy=_policy(),
             query_category="funded_ratio_lookup",
+            query_intent="time_series_lookup",
             fleet_artifact_path=fleet_path,
             fleet_trace_id="trace-xyz",
             fleet_trace_url="https://smith.langchain.com/r/trace-xyz",
             fleet_github_pr="stranske/Pension-Data#999",
+            replay_dataset_id="golden:nl-sql:v1",
+            replay_run_id="run-4242",
+            golden_corpus_outcome="match",
         )
     finally:
         connection.close()
@@ -477,13 +488,20 @@ def test_run_nl_query_endpoint_emits_fleet_artifact_when_category_set(
     for record in records[:3]:
         assert record["status"] == "no_secret"
         assert record["domain"]["query_category"] == "funded_ratio_lookup"
+        assert record["domain"]["query_intent"] == "time_series_lookup"
         assert record["domain"]["sql_validation_status"] == "pass"
         assert record["domain"]["row_count"] == 2
+        assert record["domain"]["evidence_availability"] == "none"
         assert record["trace_id"] == "trace-xyz"
         assert record["trace_url"] == "https://smith.langchain.com/r/trace-xyz"
         assert record["github_pr"] == "stranske/Pension-Data#999"
-    assert records[3]["status"] == "skipped"
+    assert records[3]["status"] == "no_secret"
+    assert records[3]["domain"]["replay_dataset_id"] == "golden:nl-sql:v1"
+    assert records[3]["domain"]["replay_run_id"] == "run-4242"
+    assert records[3]["domain"]["replay_match_status"] == "match"
+    assert records[3]["domain"]["golden_corpus_outcome"] == "match"
     assert result.audit_event["langsmith_query_category"] == "funded_ratio_lookup"
+    assert result.audit_event["langsmith_query_intent"] == "time_series_lookup"
     assert result.audit_event["langsmith_trace_id"] == "trace-xyz"
 
 
