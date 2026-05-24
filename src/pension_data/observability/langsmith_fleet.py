@@ -66,6 +66,59 @@ class FleetRunContext:
     latency_ms: int | None = None
 
 
+class LangSmithClientTraceSink:
+    """Trace sink that writes sanitized NL lifecycle events to LangSmith."""
+
+    def __init__(self, *, client: Any | None = None, project_name: str = DEFAULT_PROJECT) -> None:
+        if client is None:
+            from langsmith import Client
+
+            client = Client()
+        self._client = client
+        self._project_name = project_name
+
+    def emit(self, event: Any) -> None:
+        """Create one ended LangSmith run for a sanitized lifecycle event."""
+
+        stage = str(getattr(event, "stage", "") or "nl.unknown")
+        payload = _safe_trace_payload(getattr(event, "payload", {}))
+        request_id = str(payload.get("request_id", ""))
+        timestamp = datetime.now(UTC)
+        self._client.create_run(
+            name=f"{SURFACE}.{stage}",
+            run_type="chain",
+            project_name=self._project_name,
+            start_time=timestamp,
+            end_time=timestamp,
+            inputs={
+                "request_id": request_id,
+                "stage": stage,
+            },
+            outputs=payload,
+            extra={
+                "metadata": {
+                    "repo": REPO,
+                    "surface": SURFACE,
+                    "github_issue": GITHUB_ISSUE,
+                    "stage": stage,
+                }
+            },
+            tags=[REPO, SURFACE, stage],
+        )
+
+
+def build_langsmith_trace_sink(
+    *,
+    client: Any | None = None,
+    project_name: str = DEFAULT_PROJECT,
+) -> LangSmithClientTraceSink | None:
+    """Return a LangSmith-backed trace sink when tracing credentials exist."""
+
+    if not ensure_langsmith_project_defaults():
+        return None
+    return LangSmithClientTraceSink(client=client, project_name=project_name)
+
+
 def ensure_langsmith_project_defaults() -> bool:
     """Apply Pension-Data LangSmith defaults when a key is present.
 
@@ -381,6 +434,17 @@ def _record(
     if error_code:
         record["error_category"] = error_code
     return record
+
+
+def _safe_trace_payload(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        return {}
+    safe: dict[str, Any] = {}
+    for key in ("request_id", "status", "row_count", "error_code"):
+        value = payload.get(key)
+        if value is not None:
+            safe[key] = value
+    return safe
 
 
 def _stage_status(

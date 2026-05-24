@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
@@ -12,6 +13,7 @@ import pytest
 
 from pension_data.langchain.nl_sql_chain import (
     InMemoryLangSmithTraceSink,
+    LangSmithTraceEvent,
     NLToSQLRequest,
     run_nl_sql_chain,
 )
@@ -152,6 +154,56 @@ def test_build_fleet_records_enables_langsmith_defaults_when_key_present(
     assert os.environ[langsmith_fleet.ENV_LANGSMITH_PROJECT] == langsmith_fleet.DEFAULT_PROJECT
     assert os.environ[langsmith_fleet.ENV_LANGCHAIN_TRACING_V2] == "true"
     assert os.environ[langsmith_fleet.ENV_LANGCHAIN_API_KEY] == "test-key"
+
+
+def test_build_langsmith_trace_sink_noops_without_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGSMITH_KEY, raising=False)
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGCHAIN_TRACING_V2, raising=False)
+
+    sink = langsmith_fleet.build_langsmith_trace_sink(client=object())
+
+    assert sink is None
+    assert langsmith_fleet.ENV_LANGCHAIN_TRACING_V2 not in os.environ
+
+
+def test_langsmith_trace_sink_emits_sanitized_stage_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(langsmith_fleet.ENV_LANGSMITH_KEY, "test-key")
+    calls: list[dict[str, Any]] = []
+
+    class _FakeClient:
+        def create_run(self, **kwargs: Any) -> None:
+            calls.append(kwargs)
+
+    sink = langsmith_fleet.build_langsmith_trace_sink(client=_FakeClient())
+    assert sink is not None
+
+    sink.emit(
+        LangSmithTraceEvent(
+            stage="nl.sql.generated",
+            payload={
+                "request_id": "nlq:123",
+                "question": "raw question must not leave the process",
+                "sql": "SELECT sensitive_value FROM members",
+                "status": "ok",
+                "row_count": 2,
+            },
+        )
+    )
+
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["project_name"] == langsmith_fleet.DEFAULT_PROJECT
+    assert call["name"] == "nl-to-sql.nl.sql.generated"
+    assert call["inputs"] == {"request_id": "nlq:123", "stage": "nl.sql.generated"}
+    assert call["outputs"] == {"request_id": "nlq:123", "status": "ok", "row_count": 2}
+    serialized = json.dumps(call, default=str)
+    assert "raw question" not in serialized
+    assert "SELECT sensitive_value" not in serialized
+    assert call["extra"]["metadata"]["github_issue"] == "stranske/Pension-Data#445"
 
 
 def test_build_fleet_records_marks_validation_failure_and_skips_later_stages(
@@ -433,6 +485,46 @@ def test_run_nl_query_endpoint_emits_fleet_artifact_when_category_set(
     assert records[3]["status"] == "skipped"
     assert result.audit_event["langsmith_query_category"] == "funded_ratio_lookup"
     assert result.audit_event["langsmith_trace_id"] == "trace-xyz"
+
+
+def test_run_nl_query_endpoint_uses_default_langsmith_sink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pension_data.api.auth import SCOPE_NL, APIKeyStore
+    from pension_data.api.routes import nl as nl_route
+
+    emitted: list[LangSmithTraceEvent] = []
+
+    class _RecordingSink:
+        def emit(self, event: LangSmithTraceEvent) -> None:
+            emitted.append(event)
+
+    monkeypatch.setattr(nl_route, "build_langsmith_trace_sink", lambda: _RecordingSink())
+    key_store = APIKeyStore()
+    secret, _ = key_store.create_key(scopes=(SCOPE_NL,))
+    connection = _seed_connection()
+    try:
+        result = nl_route.run_nl_query_endpoint(
+            api_key_header=secret,
+            key_store=key_store,
+            connection=connection,
+            request=NLToSQLRequest(question="Show funded ratio values by id", max_rows=10),
+            chain=_StaticChain(
+                "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"
+            ),
+            log_path=tmp_path / "nl_operations.jsonl",
+            policy=_policy(),
+        )
+    finally:
+        connection.close()
+
+    assert result.response.status == "ok"
+    assert [event.stage for event in emitted] == [
+        "nl.prompt.received",
+        "nl.sql.generated",
+        "nl.sql.executed",
+    ]
 
 
 def test_run_nl_query_endpoint_skips_fleet_artifact_when_no_category(
