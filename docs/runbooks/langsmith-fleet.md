@@ -30,8 +30,12 @@ fields (validated against the v1 schema):
 
 Records also carry `stage` (matches the operation name), `latency_ms`,
 `max_rows`, `trace_event_count`, and — when present — `trace_id`, `trace_url`,
-`provider`, `model`, and `github_pr`. Raw prompts, generated SQL, member
-data, and result rows are never written to the artifact.
+`provider`, `model`, and `github_pr`. The live LangSmith sink emits the
+sanitized lifecycle stages `nl.prompt.received`, `nl.sql.generated`,
+`nl.sql.validated`, `nl.sql.executed`, and `nl.sql.error` as applicable; the
+route copies the latest sink trace ID/URL into the fleet artifact and audit
+event when callers do not pass explicit trace values. Raw prompts, generated
+SQL, member data, and result rows are never written to the artifact.
 
 ## Status semantics
 
@@ -74,6 +78,22 @@ production wiring point. Callers may also pass `fleet_trace_id`,
 PR context through. Bench/replay scripts can call
 `pension_data.observability.langsmith_fleet.build_fleet_records_from_response`
 directly and use `write_fleet_records` for one-off artifact writes.
+
+## Verifier checklist
+
+For issue `#445` completion, the dashboard contract is satisfied when:
+
+1. Successful NL requests produce `sql-generation`, `validation`, and
+   `execution` fleet records with `status="success"` when `LANGSMITH_API_KEY`
+   is set, or `status="no_secret"` without the key.
+2. Validation failures set the `validation` operation to `error`, skip later
+   operations, and include `sql_validation_status` plus `read_only_status` in
+   the domain payload.
+3. Replay/evaluation callers provide `replay_dataset_id`, `replay_run_id`, or
+   `replay_match_status`; otherwise the replay operation is intentionally
+   `skipped`.
+4. Trace correlation is visible in both the artifact and audit payload through
+   `trace_id`/`trace_url` or `langsmith_trace_id`/`langsmith_trace_url`.
 
 ## Disabling emission
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Mapping
+from contextlib import contextmanager
 from typing import Any
 
 import pytest
@@ -135,6 +136,9 @@ def test_nl_sql_chain_executes_read_only_sql_and_emits_langsmith_traces() -> Non
     assert response.provenance[0].evidence_refs == ()
     assert response.provenance[0].confidence is None
     assert [event.stage for event in traces.events] == list(nl_to_sql_trace_stages(status="ok"))
+    assert traces.events[2].stage == "nl.sql.validated"
+    assert traces.events[2].payload["sql_validation_status"] == "pass"
+    assert traces.events[2].payload["read_only_status"] == "read_only"
 
 
 def test_nl_sql_chain_rejects_unsafe_generated_sql_and_emits_error_trace() -> None:
@@ -159,6 +163,8 @@ def test_nl_sql_chain_rejects_unsafe_generated_sql_and_emits_error_trace() -> No
     assert [event.stage for event in traces.events] == list(
         nl_to_sql_trace_stages(status="error", error_stage="validation")
     )
+    assert traces.events[1].stage == "nl.sql.generated"
+    assert traces.events[1].payload["sql"] == "DELETE FROM sample_metrics"
     assert traces.events[-1].stage == "nl.sql.error"
     assert traces.events[-1].payload["error_code"] == "UNSAFE_SQL"
 
@@ -171,17 +177,69 @@ def test_nl_sql_trace_entrypoints_and_lifecycle_contract_is_explicit() -> None:
     assert nl_to_sql_trace_stages(status="ok") == (
         "nl.prompt.received",
         "nl.sql.generated",
+        "nl.sql.validated",
         "nl.sql.executed",
     )
     assert nl_to_sql_trace_stages(status="error") == (
         "nl.prompt.received",
         "nl.sql.generated",
+        "nl.sql.validated",
+        "nl.sql.error",
+    )
+    assert nl_to_sql_trace_stages(status="error", error_stage="execution") == (
+        "nl.prompt.received",
+        "nl.sql.generated",
+        "nl.sql.validated",
         "nl.sql.error",
     )
     assert nl_to_sql_trace_stages(status="error", error_stage="validation") == (
         "nl.prompt.received",
+        "nl.sql.generated",
         "nl.sql.error",
     )
+    assert nl_to_sql_trace_stages(status="error", error_stage="request") == (
+        "nl.prompt.received",
+        "nl.sql.error",
+    )
+
+
+def test_nl_sql_chain_enters_langsmith_context_with_nl_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context_calls: list[dict[str, Any]] = []
+
+    @contextmanager
+    def _fake_langsmith_tracing_context(**kwargs: Any):
+        context_calls.append(kwargs)
+        yield None
+
+    monkeypatch.setattr(
+        "pension_data.langchain.nl_sql_chain.langsmith_tracing_context",
+        _fake_langsmith_tracing_context,
+    )
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show funded ratio values by id", max_rows=10),
+            chain=StaticChain("SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"),
+            trace_sink=InMemoryLangSmithTraceSink(events=[]),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "ok"
+    assert len(context_calls) == 1
+    call = context_calls[0]
+    assert call["name"] == "nl_to_sql.query"
+    assert call["run_type"] == "chain"
+    assert call["metadata"]["surface"] == "nl-to-sql"
+    assert call["metadata"]["entrypoint"] == "pension_data.langchain.nl_sql_chain.run_nl_sql_chain"
+    assert call["metadata"]["max_rows"] == 10
+    assert call["metadata"]["timeout_ms"] == 2_000
+    assert isinstance(call["inputs"]["request_id"], str)
+    assert call["inputs"]["request_id"].startswith("nlq:")
 
 
 def test_nl_sql_chain_returns_specific_error_for_max_rows_overflow() -> None:
@@ -282,7 +340,7 @@ def test_nl_route_requires_nl_scope_and_emits_audit_event() -> None:
     assert result.audit_event["request_origin"] == "unit-test"
     assert result.audit_event["query_status"] == "ok"
     assert result.audit_event["returned_rows"] == 2
-    assert len(traces.events) == 3
+    assert len(traces.events) == 4
 
 
 def test_nl_sql_chain_rejects_disallowed_relation() -> None:
@@ -415,11 +473,13 @@ def test_nl_sql_chain_rejects_select_alias_bypass_attempt() -> None:
 
 def test_nl_sql_chain_returns_invalid_request_for_policy_bound_violation() -> None:
     connection = _seed_connection()
+    traces = InMemoryLangSmithTraceSink(events=[])
     try:
         response = run_nl_sql_chain(
             connection=connection,
             request=NLToSQLRequest(question="Show funded ratio values by id", max_rows=5000),
             chain=StaticChain("SELECT id, value FROM sample_metrics"),
+            trace_sink=traces,
             policy=_sample_policy(max_rows=100),
         )
     finally:
@@ -429,6 +489,9 @@ def test_nl_sql_chain_returns_invalid_request_for_policy_bound_violation() -> No
     assert response.error is not None
     assert response.error.code == "INVALID_REQUEST"
     assert "policy max_rows" in response.error.message
+    assert [event.stage for event in traces.events] == list(
+        nl_to_sql_trace_stages(status="error", error_stage="request")
+    )
 
 
 def test_nl_sql_chain_emits_provenance_metadata_when_fields_present() -> None:

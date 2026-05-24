@@ -76,6 +76,12 @@ def run_nl_query_endpoint(
         trace_sink=active_trace_sink,
         policy=policy,
     )
+    resolved_fleet_trace_id = fleet_trace_id or _trace_sink_attr(
+        active_trace_sink, "latest_trace_id"
+    )
+    resolved_fleet_trace_url = fleet_trace_url or _trace_sink_attr(
+        active_trace_sink, "latest_trace_url"
+    )
     entry = build_nl_operation_log_entry(
         request=request,
         response=response,
@@ -100,10 +106,11 @@ def run_nl_query_endpoint(
             context=FleetRunContext(
                 run_id=response.metadata.request_id,
                 query_category=normalized_category or "unspecified",
+                session_id=entry.correlation_id,
                 provider=provider if provider != "unknown" else None,
                 model=model if model != "unknown" else None,
-                trace_id=fleet_trace_id,
-                trace_url=fleet_trace_url,
+                trace_id=resolved_fleet_trace_id,
+                trace_url=resolved_fleet_trace_url,
                 github_pr=fleet_github_pr,
             ),
             response=response,
@@ -126,8 +133,8 @@ def run_nl_query_endpoint(
             "error_code": response.error.code if response.error is not None else None,
             "provider": entry.provider,
             "model": entry.model,
-            "langsmith_trace_id": fleet_trace_id,
-            "langsmith_trace_url": fleet_trace_url,
+            "langsmith_trace_id": resolved_fleet_trace_id,
+            "langsmith_trace_url": resolved_fleet_trace_url,
             "langsmith_query_category": (
                 query_category.strip() if query_category and query_category.strip() else None
             ),
@@ -141,3 +148,8 @@ def run_nl_query_endpoint(
             event=event_payload,
         ),
     )
+
+
+def _trace_sink_attr(trace_sink: LangSmithTraceSink | None, name: str) -> str | None:
+    value = getattr(trace_sink, name, None)
+    return value.strip() if isinstance(value, str) and value.strip() else None

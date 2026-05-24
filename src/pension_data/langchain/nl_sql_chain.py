@@ -10,6 +10,7 @@ from time import perf_counter
 from typing import Any, Literal, Protocol
 from uuid import uuid4
 
+from pension_data.langchain.tracing import langsmith_tracing_context
 from pension_data.query.sql_safety import (
     AmbiguousPromptError,
     SQLSafetyPolicy,
@@ -32,22 +33,38 @@ NL_TO_SQL_TRACE_ENTRYPOINTS: tuple[str, ...] = (
 NL_TO_SQL_TRACE_STAGES_SUCCESS: tuple[str, ...] = (
     "nl.prompt.received",
     "nl.sql.generated",
+    "nl.sql.validated",
     "nl.sql.executed",
 )
 NL_TO_SQL_TRACE_STAGE_ERROR: str = "nl.sql.error"
-NL_TO_SQL_TRACE_ERROR_STAGES: tuple[str, ...] = ("validation", "execution")
+NL_TO_SQL_TRACE_ERROR_STAGES: tuple[str, ...] = ("request", "validation", "execution")
 
 
 def nl_to_sql_trace_stages(
-    *, status: NLToSQLStatus, error_stage: Literal["validation", "execution"] = "execution"
+    *,
+    status: NLToSQLStatus,
+    error_stage: Literal["request", "validation", "execution"] = "execution",
 ) -> tuple[str, ...]:
-    """Return ordered lifecycle stages that should be traced for a run status."""
+    """Return ordered lifecycle stages that should be traced for a run status.
+
+    The ``error_stage`` argument names the point in the lifecycle where the
+    error originated and therefore which prior stages were already emitted:
+
+    - ``request``: pre-SQL failure (request bounds, ambiguous prompt). Only
+      ``nl.prompt.received`` was emitted before ``nl.sql.error``.
+    - ``validation``: SQL was generated but rejected by the read-only safety
+      policy. ``nl.prompt.received`` and ``nl.sql.generated`` were emitted.
+    - ``execution``: SQL was generated and validated but failed during query
+      execution. All three pre-execution stages were emitted.
+    """
 
     if status == "ok":
         return NL_TO_SQL_TRACE_STAGES_SUCCESS
-    if error_stage == "validation":
+    if error_stage == "request":
         return (NL_TO_SQL_TRACE_STAGES_SUCCESS[0], NL_TO_SQL_TRACE_STAGE_ERROR)
-    return (*NL_TO_SQL_TRACE_STAGES_SUCCESS[:2], NL_TO_SQL_TRACE_STAGE_ERROR)
+    if error_stage == "validation":
+        return (*NL_TO_SQL_TRACE_STAGES_SUCCESS[:2], NL_TO_SQL_TRACE_STAGE_ERROR)
+    return (*NL_TO_SQL_TRACE_STAGES_SUCCESS[:3], NL_TO_SQL_TRACE_STAGE_ERROR)
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,101 +333,124 @@ def run_nl_sql_chain(
             error=error,
         )
 
-    sql: str | None = None
-    active_policy = policy or default_nl_query_policy()
-    try:
-        if request.max_rows < 1:
-            raise NLRequestValidationError("max_rows must be >= 1")
-        if request.timeout_ms < 1:
-            raise NLRequestValidationError("timeout_ms must be >= 1")
-        if request.max_rows > active_policy.max_rows:
-            raise NLRequestValidationError(
-                f"max_rows must be <= policy max_rows ({active_policy.max_rows})"
-            )
-        if request.timeout_ms > active_policy.max_timeout_ms:
-            raise NLRequestValidationError(
-                "timeout_ms exceeds policy max_timeout_ms " f"({active_policy.max_timeout_ms})"
-            )
-        params = _normalize_params(request.params)
-        question = validate_nl_prompt(request.question)
+    with langsmith_tracing_context(
+        name="nl_to_sql.query",
+        run_type="chain",
+        inputs={"request_id": request_id, "question": request.question},
+        metadata={
+            "surface": "nl-to-sql",
+            "entrypoint": "pension_data.langchain.nl_sql_chain.run_nl_sql_chain",
+            "max_rows": request.max_rows,
+            "timeout_ms": request.timeout_ms,
+        },
+    ):
+        sql: str | None = None
+        active_policy = policy or default_nl_query_policy()
         _emit_trace(
             trace_sink,
             emitted_events,
             stage="nl.prompt.received",
-            payload={"request_id": request_id, "question": question},
+            payload={"request_id": request_id, "question": request.question},
         )
-
-        generated = chain.invoke({"question": question, "dialect": "sqlite"})
-        sql = validate_sql_policy(_extract_sql(generated), policy=active_policy)
-        if active_policy.require_source_document_id:
-            selected_columns = extract_selected_columns(sql)
-            if "source_document_id" not in set(selected_columns):
-                raise SQLSafetyValidationError(
-                    "generated SQL must include source_document_id in SELECT for provenance metadata"
+        try:
+            if request.max_rows < 1:
+                raise NLRequestValidationError("max_rows must be >= 1")
+            if request.timeout_ms < 1:
+                raise NLRequestValidationError("timeout_ms must be >= 1")
+            if request.max_rows > active_policy.max_rows:
+                raise NLRequestValidationError(
+                    f"max_rows must be <= policy max_rows ({active_policy.max_rows})"
                 )
-        _emit_trace(
-            trace_sink,
-            emitted_events,
-            stage="nl.sql.generated",
-            payload={"request_id": request_id, "sql": sql},
-        )
+            if request.timeout_ms > active_policy.max_timeout_ms:
+                raise NLRequestValidationError(
+                    "timeout_ms exceeds policy max_timeout_ms " f"({active_policy.max_timeout_ms})"
+                )
+            params = _normalize_params(request.params)
+            question = validate_nl_prompt(request.question)
 
-        deadline = perf_counter() + (request.timeout_ms / 1000.0)
-        _set_timeout_handler(connection, deadline_s=deadline)
-        cursor = connection.execute(sql, params)
-        columns = tuple(column[0] for column in (cursor.description or ()))
-        validate_result_columns(columns, policy=active_policy)
-        fetched = tuple(tuple(row) for row in cursor.fetchmany(request.max_rows + 1))
-        if len(fetched) > request.max_rows:
-            raise MaxRowsExceededError(
-                f"generated SQL exceeded max_rows limit ({request.max_rows})"
+            generated = chain.invoke({"question": question, "dialect": "sqlite"})
+            sql = _extract_sql(generated)
+            _emit_trace(
+                trace_sink,
+                emitted_events,
+                stage="nl.sql.generated",
+                payload={"request_id": request_id, "sql": sql},
             )
-        provenance = _build_provenance(columns=columns, rows=fetched)
-        if "source_document_id" in {column.lower() for column in columns} and any(
-            row.source_document_id is None for row in provenance
-        ):
-            raise SQLSafetyValidationError(
-                "source_document_id must be populated for provenance-tracked rows"
+            sql = validate_sql_policy(sql, policy=active_policy)
+            if active_policy.require_source_document_id:
+                selected_columns = extract_selected_columns(sql)
+                if "source_document_id" not in set(selected_columns):
+                    raise SQLSafetyValidationError(
+                        "generated SQL must include source_document_id in SELECT for provenance metadata"
+                    )
+            _emit_trace(
+                trace_sink,
+                emitted_events,
+                stage="nl.sql.validated",
+                payload={
+                    "request_id": request_id,
+                    "status": "ok",
+                    "sql_validation_status": "pass",
+                    "read_only_status": "read_only",
+                },
             )
-        _emit_trace(
-            trace_sink,
-            emitted_events,
-            stage="nl.sql.executed",
-            payload={
-                "request_id": request_id,
-                "status": "ok",
-                "row_count": len(fetched),
-            },
-        )
-        return _finalize(
-            status="ok",
-            sql=sql,
-            columns=columns,
-            rows=fetched,
-            provenance=provenance,
-            error=None,
-        )
-    except Exception as exc:  # noqa: BLE001
-        if isinstance(exc, sqlite3.OperationalError) and "interrupted" in str(exc).lower():
-            exc = TimeoutError("query timed out before completion")
-        _emit_trace(
-            trace_sink,
-            emitted_events,
-            stage="nl.sql.error",
-            payload={
-                "request_id": request_id,
-                "status": "error",
-                "error_code": _error_code(exc),
-                "message": str(exc),
-            },
-        )
-        return _finalize(
-            status="error",
-            sql=sql,
-            columns=(),
-            rows=(),
-            provenance=(),
-            error=NLToSQLError(code=_error_code(exc), message=str(exc)),
-        )
-    finally:
-        _clear_timeout_handler(connection)
+
+            deadline = perf_counter() + (request.timeout_ms / 1000.0)
+            _set_timeout_handler(connection, deadline_s=deadline)
+            cursor = connection.execute(sql, params)
+            columns = tuple(column[0] for column in (cursor.description or ()))
+            validate_result_columns(columns, policy=active_policy)
+            fetched = tuple(tuple(row) for row in cursor.fetchmany(request.max_rows + 1))
+            if len(fetched) > request.max_rows:
+                raise MaxRowsExceededError(
+                    f"generated SQL exceeded max_rows limit ({request.max_rows})"
+                )
+            provenance = _build_provenance(columns=columns, rows=fetched)
+            if "source_document_id" in {column.lower() for column in columns} and any(
+                row.source_document_id is None for row in provenance
+            ):
+                raise SQLSafetyValidationError(
+                    "source_document_id must be populated for provenance-tracked rows"
+                )
+            _emit_trace(
+                trace_sink,
+                emitted_events,
+                stage="nl.sql.executed",
+                payload={
+                    "request_id": request_id,
+                    "status": "ok",
+                    "row_count": len(fetched),
+                },
+            )
+            return _finalize(
+                status="ok",
+                sql=sql,
+                columns=columns,
+                rows=fetched,
+                provenance=provenance,
+                error=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, sqlite3.OperationalError) and "interrupted" in str(exc).lower():
+                exc = TimeoutError("query timed out before completion")
+            _emit_trace(
+                trace_sink,
+                emitted_events,
+                stage="nl.sql.error",
+                payload={
+                    "request_id": request_id,
+                    "status": "error",
+                    "error_code": _error_code(exc),
+                    "message": str(exc),
+                },
+            )
+            return _finalize(
+                status="error",
+                sql=sql,
+                columns=(),
+                rows=(),
+                provenance=(),
+                error=NLToSQLError(code=_error_code(exc), message=str(exc)),
+            )
+        finally:
+            _clear_timeout_handler(connection)

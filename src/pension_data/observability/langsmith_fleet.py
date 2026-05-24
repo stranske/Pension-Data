@@ -57,6 +57,7 @@ class FleetRunContext:
 
     run_id: str
     query_category: str
+    session_id: str | None = None
     provider: str | None = None
     model: str | None = None
     trace_id: str | None = None
@@ -76,6 +77,8 @@ class LangSmithClientTraceSink:
             client = Client()
         self._client = client
         self._project_name = project_name
+        self.latest_trace_id: str | None = None
+        self.latest_trace_url: str | None = None
 
     def emit(self, event: Any) -> None:
         """Create one ended LangSmith run for a sanitized lifecycle event."""
@@ -84,7 +87,7 @@ class LangSmithClientTraceSink:
         payload = _safe_trace_payload(getattr(event, "payload", {}))
         request_id = str(payload.get("request_id", ""))
         timestamp = datetime.now(UTC)
-        self._client.create_run(
+        run = self._client.create_run(
             name=f"{SURFACE}.{stage}",
             run_type="chain",
             project_name=self._project_name,
@@ -105,6 +108,11 @@ class LangSmithClientTraceSink:
             },
             tags=[REPO, SURFACE, stage],
         )
+        trace_id = _resolve_run_attr(run, "id", "run_id", "trace_id")
+        trace_url = _resolve_run_attr(run, "url", "trace_url")
+        if trace_id or trace_url:
+            self.latest_trace_id = trace_id
+            self.latest_trace_url = trace_url
 
 
 def build_langsmith_trace_sink(
@@ -145,11 +153,13 @@ def build_fleet_records(
     row_count: int,
     max_rows: int | None = None,
     trace_event_count: int | None = None,
+    evidence_available: bool | None = None,
     error_code: str | None = None,
     error_stage: str | None = None,
     replay_dataset_id: str | None = None,
     replay_run_id: str | None = None,
     replay_match_status: str | None = None,
+    golden_corpus_outcome: str | None = None,
     artifact_ref: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return Workflows-compatible fleet records for one NL-to-SQL run.
@@ -173,11 +183,17 @@ def build_fleet_records(
     )
 
     shared_domain: dict[str, Any] = {
+        "query_intent": context.query_category,
         "query_category": context.query_category,
+        "query_category_or_intent": context.query_category,
         "sql_validation_status": sql_validation_status,
+        "sql_validation": sql_validation_status,
         "read_only_status": read_only_status,
+        "read_only_safety_status": read_only_status,
         "row_count": sanitized_row_count,
     }
+    if evidence_available is not None:
+        shared_domain["evidence_available"] = bool(evidence_available)
     if sanitized_max_rows is not None:
         shared_domain["max_rows"] = sanitized_max_rows
     if context.latency_ms is not None:
@@ -252,6 +268,9 @@ def build_fleet_records(
         replay_domain["replay_run_id"] = replay_run_id
     if replay_match_status:
         replay_domain["replay_match_status"] = replay_match_status
+    normalized_golden_outcome = (golden_corpus_outcome or replay_match_status or "").strip()
+    if normalized_golden_outcome:
+        replay_domain["golden_corpus_outcome"] = normalized_golden_outcome
     records.append(
         _record(
             context=context,
@@ -291,6 +310,7 @@ def build_fleet_records_from_response(
     sql_validation_status = _derive_sql_validation_status(error_code, response)
     read_only_status = _derive_read_only_status(error_code, response)
     row_count = _response_row_count(response)
+    evidence_available = _response_evidence_available(response)
     max_rows = _request_max_rows(request)
     trace_event_count = _response_trace_event_count(response)
     error_stage = _error_stage_for(error_code)
@@ -298,6 +318,7 @@ def build_fleet_records_from_response(
     if context.latency_ms is None and latency_ms is not None:
         context = FleetRunContext(
             run_id=context.run_id,
+            session_id=context.session_id,
             query_category=context.query_category,
             provider=context.provider,
             model=context.model,
@@ -320,6 +341,8 @@ def build_fleet_records_from_response(
         replay_dataset_id=replay_dataset_id,
         replay_run_id=replay_run_id,
         replay_match_status=replay_match_status,
+        evidence_available=evidence_available,
+        golden_corpus_outcome=replay_match_status,
         artifact_ref=artifact_ref,
     )
 
@@ -414,11 +437,14 @@ def _record(
         "surface": SURFACE,
         "operation": operation,
         "run_id": context.run_id,
+        "request_id": context.run_id,
         "status": status,
         "github_issue": GITHUB_ISSUE,
         "recorded_at": recorded_at,
         "domain": dict(domain),
     }
+    if context.session_id:
+        record["session_id"] = context.session_id
     if context.github_pr:
         record["github_pr"] = context.github_pr
     if context.provider:
@@ -440,11 +466,42 @@ def _safe_trace_payload(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, Mapping):
         return {}
     safe: dict[str, Any] = {}
-    for key in ("request_id", "status", "row_count", "error_code"):
+    for key in (
+        "request_id",
+        "status",
+        "row_count",
+        "error_code",
+        "sql_validation_status",
+        "read_only_status",
+    ):
         value = payload.get(key)
         if value is not None:
             safe[key] = value
     return safe
+
+
+def _resolve_run_attr(run: Any, *names: str) -> str | None:
+    if run is None:
+        return None
+    for name in names:
+        value = getattr(run, name, None)
+        normalized = _normalize_trace_ref(value)
+        if normalized:
+            return normalized
+    if isinstance(run, Mapping):
+        for name in names:
+            value = run.get(name)
+            normalized = _normalize_trace_ref(value)
+            if normalized:
+                return normalized
+    return None
+
+
+def _normalize_trace_ref(value: Any) -> str | None:
+    if value is None:
+        return None
+    token = str(value).strip()
+    return token or None
 
 
 def _stage_status(
@@ -539,6 +596,23 @@ def _response_trace_event_count(response: Any) -> int | None:
         return max(0, int(count))
     except (TypeError, ValueError):
         return None
+
+
+def _response_evidence_available(response: Any) -> bool | None:
+    provenance = getattr(response, "provenance", None)
+    if provenance is None:
+        return None
+    if not isinstance(provenance, tuple | list):
+        return None
+    if not provenance:
+        return False
+    for row in provenance:
+        refs = getattr(row, "evidence_refs", None)
+        if isinstance(refs, tuple | list) and any(
+            isinstance(ref, str) and ref.strip() for ref in refs
+        ):
+            return True
+    return False
 
 
 def _response_latency_ms(response: Any) -> int | None:
