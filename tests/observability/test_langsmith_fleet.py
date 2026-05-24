@@ -172,6 +172,10 @@ def test_langsmith_trace_sink_emits_sanitized_stage_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(langsmith_fleet.ENV_LANGSMITH_KEY, "test-key")
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGCHAIN_TRACING_V2, raising=False)
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGCHAIN_API_KEY, raising=False)
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGCHAIN_PROJECT, raising=False)
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGSMITH_PROJECT, raising=False)
     calls: list[dict[str, Any]] = []
 
     class _FakeClient:
