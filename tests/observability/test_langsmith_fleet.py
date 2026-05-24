@@ -550,6 +550,53 @@ def test_run_nl_query_endpoint_uses_default_langsmith_sink(
     ]
 
 
+def test_run_nl_query_endpoint_uses_sink_trace_refs_for_artifact_and_audit(
+    tmp_path: Path,
+) -> None:
+    from pension_data.api.auth import SCOPE_NL, APIKeyStore
+    from pension_data.api.routes.nl import run_nl_query_endpoint
+
+    class _RecordingTraceSink:
+        trace_id = "trace-from-sink"
+        trace_url = "https://smith.langchain.com/r/trace-from-sink"
+
+        def emit(self, event: LangSmithTraceEvent) -> None:
+            del event
+
+    key_store = APIKeyStore()
+    secret, _ = key_store.create_key(scopes=(SCOPE_NL,))
+    connection = _seed_connection()
+    fleet_path = tmp_path / "langsmith" / langsmith_fleet.ARTIFACT_NAME
+    try:
+        result = run_nl_query_endpoint(
+            api_key_header=secret,
+            key_store=key_store,
+            connection=connection,
+            request=NLToSQLRequest(question="Show funded ratio values by id", max_rows=10),
+            chain=_StaticChain(
+                "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"
+            ),
+            trace_sink=_RecordingTraceSink(),
+            log_path=tmp_path / "nl_operations.jsonl",
+            policy=_policy(),
+            query_category="funded_ratio_lookup",
+            fleet_artifact_path=fleet_path,
+        )
+    finally:
+        connection.close()
+
+    assert result.response.status == "ok"
+    assert result.audit_event["langsmith_trace_id"] == "trace-from-sink"
+    assert (
+        result.audit_event["langsmith_trace_url"] == "https://smith.langchain.com/r/trace-from-sink"
+    )
+    records = [json.loads(line) for line in fleet_path.read_text(encoding="utf-8").splitlines()]
+    assert all(record["trace_id"] == "trace-from-sink" for record in records)
+    assert all(
+        record["trace_url"] == "https://smith.langchain.com/r/trace-from-sink" for record in records
+    )
+
+
 def test_run_nl_query_endpoint_skips_fleet_artifact_when_no_category(
     tmp_path: Path,
 ) -> None:

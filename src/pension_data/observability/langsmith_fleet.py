@@ -77,6 +77,18 @@ class LangSmithClientTraceSink:
             client = Client()
         self._client = client
         self._project_name = project_name
+        self._trace_id: str | None = None
+        self._trace_url: str | None = None
+
+    @property
+    def trace_id(self) -> str | None:
+        """Return the most recent LangSmith run identifier emitted by this sink."""
+        return self._trace_id
+
+    @property
+    def trace_url(self) -> str | None:
+        """Return the most recent LangSmith run URL emitted by this sink."""
+        return self._trace_url
 
     def emit(self, event: Any) -> None:
         """Create one ended LangSmith run for a sanitized lifecycle event."""
@@ -85,7 +97,7 @@ class LangSmithClientTraceSink:
         payload = _safe_trace_payload(getattr(event, "payload", {}))
         request_id = str(payload.get("request_id", ""))
         timestamp = datetime.now(UTC)
-        self._client.create_run(
+        created_run = self._client.create_run(
             name=f"{SURFACE}.{stage}",
             run_type="chain",
             project_name=self._project_name,
@@ -106,6 +118,10 @@ class LangSmithClientTraceSink:
             },
             tags=[REPO, SURFACE, stage],
         )
+        trace_id = _extract_created_run_id(created_run)
+        if trace_id:
+            self._trace_id = trace_id
+            self._trace_url = f"https://smith.langchain.com/r/{trace_id}"
 
 
 def build_langsmith_trace_sink(
@@ -457,6 +473,20 @@ def _safe_trace_payload(payload: Any) -> dict[str, Any]:
         if value is not None:
             safe[key] = value
     return safe
+
+
+def _extract_created_run_id(created_run: Any) -> str | None:
+    if created_run is None:
+        return None
+    identifier = getattr(created_run, "id", None)
+    if identifier:
+        return str(identifier)
+    if isinstance(created_run, Mapping):
+        for key in ("id", "run_id"):
+            value = created_run.get(key)
+            if value:
+                return str(value)
+    return None
 
 
 def _stage_status(

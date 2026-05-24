@@ -40,6 +40,19 @@ class NLRouteResult:
     audit_event: dict[str, Any]
 
 
+def _read_trace_field(trace_sink: LangSmithTraceSink | None, field: str) -> str | None:
+    if trace_sink is None:
+        return None
+    value = getattr(trace_sink, field, None)
+    if callable(value):
+        with suppress(Exception):
+            value = value()
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized or None
+    return None
+
+
 def run_nl_query_endpoint(
     *,
     api_key_header: str | None,
@@ -80,6 +93,8 @@ def run_nl_query_endpoint(
         trace_sink=active_trace_sink,
         policy=policy,
     )
+    resolved_trace_id = fleet_trace_id or _read_trace_field(active_trace_sink, "trace_id")
+    resolved_trace_url = fleet_trace_url or _read_trace_field(active_trace_sink, "trace_url")
     entry = build_nl_operation_log_entry(
         request=request,
         response=response,
@@ -108,8 +123,8 @@ def run_nl_query_endpoint(
                 query_intent=normalized_intent or None,
                 provider=provider if provider != "unknown" else None,
                 model=model if model != "unknown" else None,
-                trace_id=fleet_trace_id,
-                trace_url=fleet_trace_url,
+                trace_id=resolved_trace_id,
+                trace_url=resolved_trace_url,
                 github_pr=fleet_github_pr,
             ),
             response=response,
@@ -136,8 +151,8 @@ def run_nl_query_endpoint(
             "error_code": response.error.code if response.error is not None else None,
             "provider": entry.provider,
             "model": entry.model,
-            "langsmith_trace_id": fleet_trace_id,
-            "langsmith_trace_url": fleet_trace_url,
+            "langsmith_trace_id": resolved_trace_id,
+            "langsmith_trace_url": resolved_trace_url,
             "langsmith_query_category": (
                 query_category.strip() if query_category and query_category.strip() else None
             ),
