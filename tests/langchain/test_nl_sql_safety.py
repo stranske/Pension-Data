@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Mapping
+from contextlib import contextmanager
 from typing import Any
 
 import pytest
@@ -187,6 +188,45 @@ def test_nl_sql_trace_entrypoints_and_lifecycle_contract_is_explicit() -> None:
         "nl.prompt.received",
         "nl.sql.error",
     )
+
+
+def test_nl_sql_chain_enters_langsmith_context_with_nl_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context_calls: list[dict[str, Any]] = []
+
+    @contextmanager
+    def _fake_langsmith_tracing_context(**kwargs: Any):
+        context_calls.append(kwargs)
+        yield None
+
+    monkeypatch.setattr(
+        "pension_data.langchain.nl_sql_chain.langsmith_tracing_context",
+        _fake_langsmith_tracing_context,
+    )
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show funded ratio values by id", max_rows=10),
+            chain=StaticChain("SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"),
+            trace_sink=InMemoryLangSmithTraceSink(events=[]),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "ok"
+    assert len(context_calls) == 1
+    call = context_calls[0]
+    assert call["name"] == "nl_to_sql.query"
+    assert call["run_type"] == "chain"
+    assert call["metadata"]["surface"] == "nl-to-sql"
+    assert call["metadata"]["entrypoint"] == "pension_data.langchain.nl_sql_chain.run_nl_sql_chain"
+    assert call["metadata"]["max_rows"] == 10
+    assert call["metadata"]["timeout_ms"] == 2_000
+    assert isinstance(call["inputs"]["request_id"], str)
+    assert call["inputs"]["request_id"].startswith("nlq:")
 
 
 def test_nl_sql_chain_returns_specific_error_for_max_rows_overflow() -> None:
