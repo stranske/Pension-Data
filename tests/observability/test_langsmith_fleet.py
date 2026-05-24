@@ -490,3 +490,190 @@ def test_append_fleet_records_trims_to_retention_limit(tmp_path: Path) -> None:
     assert len(lines) == 3
     assert json.loads(lines[0])["run_id"] == "nlq:2"
     assert json.loads(lines[-1])["run_id"] == "nlq:4"
+
+
+def test_fleet_artifact_never_contains_raw_question_sql_or_row_data(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify Task 5: no raw prompts, generated SQL, or row payloads in the artifact."""
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGSMITH_KEY, raising=False)
+    from pension_data.api.auth import SCOPE_NL, APIKeyStore
+    from pension_data.api.routes.nl import run_nl_query_endpoint
+
+    question = "UNIQUE_QUESTION_SENTINEL_XYZ: what is the funded ratio for plan alpha?"
+    raw_sql = "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"
+    raw_row_value = "0.79"  # A value that appears in seeded row data
+
+    key_store = APIKeyStore()
+    secret, _ = key_store.create_key(scopes=(SCOPE_NL,))
+    connection = _seed_connection()
+    log_path = tmp_path / "nl_operations.jsonl"
+    fleet_path = tmp_path / "langsmith" / langsmith_fleet.ARTIFACT_NAME
+    try:
+        result = run_nl_query_endpoint(
+            api_key_header=secret,
+            key_store=key_store,
+            connection=connection,
+            request=NLToSQLRequest(question=question, max_rows=10),
+            chain=_StaticChain(raw_sql),
+            log_path=log_path,
+            policy=_policy(),
+            query_category="funded_ratio_lookup",
+            fleet_artifact_path=fleet_path,
+        )
+    finally:
+        connection.close()
+
+    assert result.response.status == "ok"
+    artifact_text = fleet_path.read_text(encoding="utf-8")
+    assert question not in artifact_text, "raw NL question must not appear in fleet artifact"
+    assert raw_sql not in artifact_text, "raw generated SQL must not appear in fleet artifact"
+    assert raw_row_value not in artifact_text, "raw row values must not appear in fleet artifact"
+
+
+def test_build_fleet_records_ambiguous_prompt_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGSMITH_KEY, raising=False)
+    context = langsmith_fleet.FleetRunContext(
+        run_id="nlq:ambig",
+        query_category="ambiguous_query",
+    )
+    records = langsmith_fleet.build_fleet_records(
+        context=context,
+        sql_validation_status="ambiguous",
+        read_only_status="unknown",
+        row_count=0,
+        error_code="AMBIGUOUS_PROMPT",
+    )
+    statuses = {record["operation"]: record["status"] for record in records}
+    assert statuses == {
+        "sql-generation": "error",
+        "validation": "skipped",
+        "execution": "skipped",
+        "replay": "skipped",
+    }
+    gen = next(r for r in records if r["operation"] == "sql-generation")
+    assert gen["error_category"] == "AMBIGUOUS_PROMPT"
+    assert gen["domain"]["sql_validation_status"] == "ambiguous"
+    assert gen["domain"]["read_only_status"] == "unknown"
+
+
+def test_build_fleet_records_invalid_request_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGSMITH_KEY, raising=False)
+    context = langsmith_fleet.FleetRunContext(
+        run_id="nlq:invalid",
+        query_category="bad_request",
+    )
+    records = langsmith_fleet.build_fleet_records(
+        context=context,
+        sql_validation_status="invalid_request",
+        read_only_status="unknown",
+        row_count=0,
+        error_code="INVALID_REQUEST",
+    )
+    statuses = {record["operation"]: record["status"] for record in records}
+    assert statuses["validation"] == "error"
+    assert statuses["execution"] == "skipped"
+    val = next(r for r in records if r["operation"] == "validation")
+    assert val["domain"]["sql_validation_status"] == "invalid_request"
+    assert val["domain"]["read_only_status"] == "unknown"
+
+
+def test_build_fleet_records_with_artifact_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGSMITH_KEY, raising=False)
+    context = langsmith_fleet.FleetRunContext(
+        run_id="nlq:ref",
+        query_category="test_category",
+    )
+    records = langsmith_fleet.build_fleet_records(
+        context=context,
+        sql_validation_status="pass",
+        read_only_status="read_only",
+        row_count=1,
+        artifact_ref="s3://bucket/run-001.json",
+    )
+    for record in records[:3]:
+        assert record["artifact_ref"] == "s3://bucket/run-001.json"
+
+
+def test_build_fleet_records_from_response_respects_preset_latency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGSMITH_KEY, raising=False)
+    connection = _seed_connection()
+    try:
+        request = NLToSQLRequest(question="Show funded ratio", max_rows=5)
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=request,
+            chain=_StaticChain(
+                "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"
+            ),
+            trace_sink=None,
+            policy=_policy(),
+        )
+    finally:
+        connection.close()
+
+    context = langsmith_fleet.FleetRunContext(
+        run_id=response.metadata.request_id,
+        query_category="funded_ratio_lookup",
+        latency_ms=9999,
+    )
+    records = langsmith_fleet.build_fleet_records_from_response(
+        context=context,
+        response=response,
+        request=request,
+    )
+    for record in records[:3]:
+        assert record["domain"]["latency_ms"] == 9999
+
+
+def test_default_fleet_artifact_path_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    override = str(tmp_path / "custom" / "fleet.ndjson")
+    monkeypatch.setenv("PENSION_DATA_LANGSMITH_FLEET_PATH", override)
+    result = langsmith_fleet.default_fleet_artifact_path()
+    assert result == (tmp_path / "custom" / "fleet.ndjson")
+
+
+def test_append_fleet_records_rejects_invalid_retention_limit(tmp_path: Path) -> None:
+    path = tmp_path / langsmith_fleet.ARTIFACT_NAME
+    with pytest.raises(ValueError, match="retention_limit must be >= 1"):
+        langsmith_fleet.append_fleet_records(path, [], retention_limit=0)
+
+
+def test_append_fleet_records_empty_is_noop(tmp_path: Path) -> None:
+    path = tmp_path / langsmith_fleet.ARTIFACT_NAME
+    result = langsmith_fleet.append_fleet_records(path, [])
+    assert result == path
+    assert not path.exists()
+
+
+def test_build_fleet_records_unknown_error_code_skips_all_stages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An unrecognised error code maps to no known stage (target_position == -1),
+    # so every stage appears after the (unknown) failure point and is marked skipped.
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGSMITH_KEY, raising=False)
+    context = langsmith_fleet.FleetRunContext(
+        run_id="nlq:unknown-err",
+        query_category="misc",
+    )
+    records = langsmith_fleet.build_fleet_records(
+        context=context,
+        sql_validation_status="unknown",
+        read_only_status="unknown",
+        row_count=0,
+        error_code="SOME_UNKNOWN_CODE",
+    )
+    statuses = {record["operation"]: record["status"] for record in records}
+    assert all(s == "skipped" for s in statuses.values())
