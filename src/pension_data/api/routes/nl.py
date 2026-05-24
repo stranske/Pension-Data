@@ -27,6 +27,7 @@ from pension_data.observability.langsmith_fleet import (
     FleetRunContext,
     append_fleet_records,
     build_fleet_records_from_response,
+    build_langsmith_trace_sink,
     default_fleet_artifact_path,
 )
 
@@ -67,11 +68,12 @@ def run_nl_query_endpoint(
         required_scope=SCOPE_NL,
         key_store=key_store,
     )
+    active_trace_sink = trace_sink or build_langsmith_trace_sink()
     response = run_nl_sql_chain(
         connection=connection,
         request=request,
         chain=chain,
-        trace_sink=trace_sink,
+        trace_sink=active_trace_sink,
         policy=policy,
     )
     entry = build_nl_operation_log_entry(

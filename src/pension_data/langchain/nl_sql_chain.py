@@ -25,6 +25,30 @@ SqlParams = Mapping[str, Any] | tuple[Any, ...] | list[Any]
 NLToSQLStatus = Literal["ok", "error"]
 NLToSQLPolicy = SQLSafetyPolicy
 
+NL_TO_SQL_TRACE_ENTRYPOINTS: tuple[str, ...] = (
+    "pension_data.api.routes.nl.run_nl_query_endpoint",
+    "pension_data.langchain.nl_sql_chain.run_nl_sql_chain",
+)
+NL_TO_SQL_TRACE_STAGES_SUCCESS: tuple[str, ...] = (
+    "nl.prompt.received",
+    "nl.sql.generated",
+    "nl.sql.executed",
+)
+NL_TO_SQL_TRACE_STAGE_ERROR: str = "nl.sql.error"
+NL_TO_SQL_TRACE_ERROR_STAGES: tuple[str, ...] = ("validation", "execution")
+
+
+def nl_to_sql_trace_stages(
+    *, status: NLToSQLStatus, error_stage: Literal["validation", "execution"] = "execution"
+) -> tuple[str, ...]:
+    """Return ordered lifecycle stages that should be traced for a run status."""
+
+    if status == "ok":
+        return NL_TO_SQL_TRACE_STAGES_SUCCESS
+    if error_stage == "validation":
+        return (NL_TO_SQL_TRACE_STAGES_SUCCESS[0], NL_TO_SQL_TRACE_STAGE_ERROR)
+    return (*NL_TO_SQL_TRACE_STAGES_SUCCESS[:2], NL_TO_SQL_TRACE_STAGE_ERROR)
+
 
 @dataclass(frozen=True, slots=True)
 class NLToSQLRequest:
