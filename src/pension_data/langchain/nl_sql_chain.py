@@ -37,18 +37,33 @@ NL_TO_SQL_TRACE_STAGES_SUCCESS: tuple[str, ...] = (
     "nl.sql.executed",
 )
 NL_TO_SQL_TRACE_STAGE_ERROR: str = "nl.sql.error"
-NL_TO_SQL_TRACE_ERROR_STAGES: tuple[str, ...] = ("validation", "execution")
+NL_TO_SQL_TRACE_ERROR_STAGES: tuple[str, ...] = ("request", "validation", "execution")
 
 
 def nl_to_sql_trace_stages(
-    *, status: NLToSQLStatus, error_stage: Literal["validation", "execution"] = "execution"
+    *,
+    status: NLToSQLStatus,
+    error_stage: Literal["request", "validation", "execution"] = "execution",
 ) -> tuple[str, ...]:
-    """Return ordered lifecycle stages that should be traced for a run status."""
+    """Return ordered lifecycle stages that should be traced for a run status.
+
+    The ``error_stage`` argument names the point in the lifecycle where the
+    error originated and therefore which prior stages were already emitted:
+
+    - ``request``: pre-SQL failure (request bounds, ambiguous prompt). Only
+      ``nl.prompt.received`` was emitted before ``nl.sql.error``.
+    - ``validation``: SQL was generated but rejected by the read-only safety
+      policy. ``nl.prompt.received`` and ``nl.sql.generated`` were emitted.
+    - ``execution``: SQL was generated and validated but failed during query
+      execution. All three pre-execution stages were emitted.
+    """
 
     if status == "ok":
         return NL_TO_SQL_TRACE_STAGES_SUCCESS
-    if error_stage == "validation":
+    if error_stage == "request":
         return (NL_TO_SQL_TRACE_STAGES_SUCCESS[0], NL_TO_SQL_TRACE_STAGE_ERROR)
+    if error_stage == "validation":
+        return (*NL_TO_SQL_TRACE_STAGES_SUCCESS[:2], NL_TO_SQL_TRACE_STAGE_ERROR)
     return (*NL_TO_SQL_TRACE_STAGES_SUCCESS[:3], NL_TO_SQL_TRACE_STAGE_ERROR)
 
 
@@ -331,6 +346,12 @@ def run_nl_sql_chain(
     ):
         sql: str | None = None
         active_policy = policy or default_nl_query_policy()
+        _emit_trace(
+            trace_sink,
+            emitted_events,
+            stage="nl.prompt.received",
+            payload={"request_id": request_id, "question": request.question},
+        )
         try:
             if request.max_rows < 1:
                 raise NLRequestValidationError("max_rows must be >= 1")
@@ -346,27 +367,22 @@ def run_nl_sql_chain(
                 )
             params = _normalize_params(request.params)
             question = validate_nl_prompt(request.question)
-            _emit_trace(
-                trace_sink,
-                emitted_events,
-                stage="nl.prompt.received",
-                payload={"request_id": request_id, "question": question},
-            )
 
             generated = chain.invoke({"question": question, "dialect": "sqlite"})
-            sql = validate_sql_policy(_extract_sql(generated), policy=active_policy)
-            if active_policy.require_source_document_id:
-                selected_columns = extract_selected_columns(sql)
-                if "source_document_id" not in set(selected_columns):
-                    raise SQLSafetyValidationError(
-                        "generated SQL must include source_document_id in SELECT for provenance metadata"
-                    )
+            sql = _extract_sql(generated)
             _emit_trace(
                 trace_sink,
                 emitted_events,
                 stage="nl.sql.generated",
                 payload={"request_id": request_id, "sql": sql},
             )
+            sql = validate_sql_policy(sql, policy=active_policy)
+            if active_policy.require_source_document_id:
+                selected_columns = extract_selected_columns(sql)
+                if "source_document_id" not in set(selected_columns):
+                    raise SQLSafetyValidationError(
+                        "generated SQL must include source_document_id in SELECT for provenance metadata"
+                    )
             _emit_trace(
                 trace_sink,
                 emitted_events,

@@ -163,6 +163,8 @@ def test_nl_sql_chain_rejects_unsafe_generated_sql_and_emits_error_trace() -> No
     assert [event.stage for event in traces.events] == list(
         nl_to_sql_trace_stages(status="error", error_stage="validation")
     )
+    assert traces.events[1].stage == "nl.sql.generated"
+    assert traces.events[1].payload["sql"] == "DELETE FROM sample_metrics"
     assert traces.events[-1].stage == "nl.sql.error"
     assert traces.events[-1].payload["error_code"] == "UNSAFE_SQL"
 
@@ -184,7 +186,18 @@ def test_nl_sql_trace_entrypoints_and_lifecycle_contract_is_explicit() -> None:
         "nl.sql.validated",
         "nl.sql.error",
     )
+    assert nl_to_sql_trace_stages(status="error", error_stage="execution") == (
+        "nl.prompt.received",
+        "nl.sql.generated",
+        "nl.sql.validated",
+        "nl.sql.error",
+    )
     assert nl_to_sql_trace_stages(status="error", error_stage="validation") == (
+        "nl.prompt.received",
+        "nl.sql.generated",
+        "nl.sql.error",
+    )
+    assert nl_to_sql_trace_stages(status="error", error_stage="request") == (
         "nl.prompt.received",
         "nl.sql.error",
     )
@@ -460,11 +473,13 @@ def test_nl_sql_chain_rejects_select_alias_bypass_attempt() -> None:
 
 def test_nl_sql_chain_returns_invalid_request_for_policy_bound_violation() -> None:
     connection = _seed_connection()
+    traces = InMemoryLangSmithTraceSink(events=[])
     try:
         response = run_nl_sql_chain(
             connection=connection,
             request=NLToSQLRequest(question="Show funded ratio values by id", max_rows=5000),
             chain=StaticChain("SELECT id, value FROM sample_metrics"),
+            trace_sink=traces,
             policy=_sample_policy(max_rows=100),
         )
     finally:
@@ -474,6 +489,9 @@ def test_nl_sql_chain_returns_invalid_request_for_policy_bound_violation() -> No
     assert response.error is not None
     assert response.error.code == "INVALID_REQUEST"
     assert "policy max_rows" in response.error.message
+    assert [event.stage for event in traces.events] == list(
+        nl_to_sql_trace_stages(status="error", error_stage="request")
+    )
 
 
 def test_nl_sql_chain_emits_provenance_metadata_when_fields_present() -> None:

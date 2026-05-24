@@ -110,9 +110,8 @@ class LangSmithClientTraceSink:
         )
         trace_id = _resolve_run_attr(run, "id", "run_id", "trace_id")
         trace_url = _resolve_run_attr(run, "url", "trace_url")
-        if trace_id:
+        if trace_id or trace_url:
             self.latest_trace_id = trace_id
-        if trace_url:
             self.latest_trace_url = trace_url
 
 
