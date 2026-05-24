@@ -51,7 +51,7 @@ _EXECUTION_FAILURE_CODES: Final = frozenset(
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FleetRunContext:
     """Shared trace context for one Pension-Data NL-to-SQL run."""
 

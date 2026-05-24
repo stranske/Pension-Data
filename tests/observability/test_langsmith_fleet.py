@@ -103,7 +103,11 @@ def test_build_fleet_records_uses_no_secret_status_when_key_missing(
         assert record["domain"]["max_rows"] == 10
         serialized = json.dumps(record)
         assert "SELECT" not in serialized
-        assert "funded_ratio" not in serialized.lower().split(":")[0]
+        # `query_category` is the only field expected to contain the
+        # "funded_ratio" substring; ensure it does not leak elsewhere.
+        category_value = record["domain"]["query_category"]
+        sanitized = serialized.replace(json.dumps(category_value), '""')
+        assert "funded_ratio" not in sanitized.lower()
 
 
 def test_build_fleet_records_enables_langsmith_defaults_when_key_present(
