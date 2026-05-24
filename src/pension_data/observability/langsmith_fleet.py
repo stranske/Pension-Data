@@ -76,6 +76,8 @@ class LangSmithClientTraceSink:
             client = Client()
         self._client = client
         self._project_name = project_name
+        self.latest_trace_id: str | None = None
+        self.latest_trace_url: str | None = None
 
     def emit(self, event: Any) -> None:
         """Create one ended LangSmith run for a sanitized lifecycle event."""
@@ -84,7 +86,7 @@ class LangSmithClientTraceSink:
         payload = _safe_trace_payload(getattr(event, "payload", {}))
         request_id = str(payload.get("request_id", ""))
         timestamp = datetime.now(UTC)
-        self._client.create_run(
+        run = self._client.create_run(
             name=f"{SURFACE}.{stage}",
             run_type="chain",
             project_name=self._project_name,
@@ -105,6 +107,12 @@ class LangSmithClientTraceSink:
             },
             tags=[REPO, SURFACE, stage],
         )
+        trace_id = _resolve_run_attr(run, "id", "run_id", "trace_id")
+        trace_url = _resolve_run_attr(run, "url", "trace_url")
+        if trace_id:
+            self.latest_trace_id = trace_id
+        if trace_url:
+            self.latest_trace_url = trace_url
 
 
 def build_langsmith_trace_sink(
@@ -440,11 +448,42 @@ def _safe_trace_payload(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, Mapping):
         return {}
     safe: dict[str, Any] = {}
-    for key in ("request_id", "status", "row_count", "error_code"):
+    for key in (
+        "request_id",
+        "status",
+        "row_count",
+        "error_code",
+        "sql_validation_status",
+        "read_only_status",
+    ):
         value = payload.get(key)
         if value is not None:
             safe[key] = value
     return safe
+
+
+def _resolve_run_attr(run: Any, *names: str) -> str | None:
+    if run is None:
+        return None
+    for name in names:
+        value = getattr(run, name, None)
+        normalized = _normalize_trace_ref(value)
+        if normalized:
+            return normalized
+    if isinstance(run, Mapping):
+        for name in names:
+            value = run.get(name)
+            normalized = _normalize_trace_ref(value)
+            if normalized:
+                return normalized
+    return None
+
+
+def _normalize_trace_ref(value: Any) -> str | None:
+    if value is None:
+        return None
+    token = str(value).strip()
+    return token or None
 
 
 def _stage_status(

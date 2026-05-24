@@ -179,8 +179,12 @@ def test_langsmith_trace_sink_emits_sanitized_stage_runs(
     calls: list[dict[str, Any]] = []
 
     class _FakeClient:
-        def create_run(self, **kwargs: Any) -> None:
+        def create_run(self, **kwargs: Any) -> dict[str, str]:
             calls.append(kwargs)
+            return {
+                "id": f"run-{len(calls)}",
+                "url": f"https://smith.langchain.com/r/run-{len(calls)}",
+            }
 
     sink = langsmith_fleet.build_langsmith_trace_sink(client=_FakeClient())
     assert sink is not None
@@ -204,6 +208,8 @@ def test_langsmith_trace_sink_emits_sanitized_stage_runs(
     assert call["name"] == "nl-to-sql.nl.sql.generated"
     assert call["inputs"] == {"request_id": "nlq:123", "stage": "nl.sql.generated"}
     assert call["outputs"] == {"request_id": "nlq:123", "status": "ok", "row_count": 2}
+    assert sink.latest_trace_id == "run-1"
+    assert sink.latest_trace_url == "https://smith.langchain.com/r/run-1"
     serialized = json.dumps(call, default=str)
     assert "raw question" not in serialized
     assert "SELECT sensitive_value" not in serialized
@@ -527,8 +533,58 @@ def test_run_nl_query_endpoint_uses_default_langsmith_sink(
     assert [event.stage for event in emitted] == [
         "nl.prompt.received",
         "nl.sql.generated",
+        "nl.sql.validated",
         "nl.sql.executed",
     ]
+
+
+def test_run_nl_query_endpoint_correlates_default_sink_trace_to_fleet_and_audit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pension_data.api.auth import SCOPE_NL, APIKeyStore
+    from pension_data.api.routes import nl as nl_route
+
+    class _RecordingSink:
+        latest_trace_id = "trace-auto"
+        latest_trace_url = "https://smith.langchain.com/r/trace-auto"
+
+        def emit(self, event: LangSmithTraceEvent) -> None:
+            if event.stage == "nl.sql.executed":
+                self.latest_trace_id = "trace-executed"
+                self.latest_trace_url = "https://smith.langchain.com/r/trace-executed"
+
+    monkeypatch.setattr(nl_route, "build_langsmith_trace_sink", lambda: _RecordingSink())
+    key_store = APIKeyStore()
+    secret, _ = key_store.create_key(scopes=(SCOPE_NL,))
+    fleet_path = tmp_path / "langsmith" / langsmith_fleet.ARTIFACT_NAME
+    connection = _seed_connection()
+    try:
+        result = nl_route.run_nl_query_endpoint(
+            api_key_header=secret,
+            key_store=key_store,
+            connection=connection,
+            request=NLToSQLRequest(question="Show funded ratio values by id", max_rows=10),
+            chain=_StaticChain(
+                "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"
+            ),
+            log_path=tmp_path / "nl_operations.jsonl",
+            policy=_policy(),
+            query_category="funded_ratio_lookup",
+            fleet_artifact_path=fleet_path,
+        )
+    finally:
+        connection.close()
+
+    records = [json.loads(line) for line in fleet_path.read_text(encoding="utf-8").splitlines()]
+    assert {record["trace_id"] for record in records[:3]} == {"trace-executed"}
+    assert {record["trace_url"] for record in records[:3]} == {
+        "https://smith.langchain.com/r/trace-executed"
+    }
+    assert result.audit_event["langsmith_trace_id"] == "trace-executed"
+    assert (
+        result.audit_event["langsmith_trace_url"] == "https://smith.langchain.com/r/trace-executed"
+    )
 
 
 def test_run_nl_query_endpoint_skips_fleet_artifact_when_no_category(

@@ -135,6 +135,9 @@ def test_nl_sql_chain_executes_read_only_sql_and_emits_langsmith_traces() -> Non
     assert response.provenance[0].evidence_refs == ()
     assert response.provenance[0].confidence is None
     assert [event.stage for event in traces.events] == list(nl_to_sql_trace_stages(status="ok"))
+    assert traces.events[2].stage == "nl.sql.validated"
+    assert traces.events[2].payload["sql_validation_status"] == "pass"
+    assert traces.events[2].payload["read_only_status"] == "read_only"
 
 
 def test_nl_sql_chain_rejects_unsafe_generated_sql_and_emits_error_trace() -> None:
@@ -171,11 +174,13 @@ def test_nl_sql_trace_entrypoints_and_lifecycle_contract_is_explicit() -> None:
     assert nl_to_sql_trace_stages(status="ok") == (
         "nl.prompt.received",
         "nl.sql.generated",
+        "nl.sql.validated",
         "nl.sql.executed",
     )
     assert nl_to_sql_trace_stages(status="error") == (
         "nl.prompt.received",
         "nl.sql.generated",
+        "nl.sql.validated",
         "nl.sql.error",
     )
     assert nl_to_sql_trace_stages(status="error", error_stage="validation") == (
@@ -282,7 +287,7 @@ def test_nl_route_requires_nl_scope_and_emits_audit_event() -> None:
     assert result.audit_event["request_origin"] == "unit-test"
     assert result.audit_event["query_status"] == "ok"
     assert result.audit_event["returned_rows"] == 2
-    assert len(traces.events) == 3
+    assert len(traces.events) == 4
 
 
 def test_nl_sql_chain_rejects_disallowed_relation() -> None:

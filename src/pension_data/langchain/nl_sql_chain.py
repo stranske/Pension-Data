@@ -32,6 +32,7 @@ NL_TO_SQL_TRACE_ENTRYPOINTS: tuple[str, ...] = (
 NL_TO_SQL_TRACE_STAGES_SUCCESS: tuple[str, ...] = (
     "nl.prompt.received",
     "nl.sql.generated",
+    "nl.sql.validated",
     "nl.sql.executed",
 )
 NL_TO_SQL_TRACE_STAGE_ERROR: str = "nl.sql.error"
@@ -47,7 +48,7 @@ def nl_to_sql_trace_stages(
         return NL_TO_SQL_TRACE_STAGES_SUCCESS
     if error_stage == "validation":
         return (NL_TO_SQL_TRACE_STAGES_SUCCESS[0], NL_TO_SQL_TRACE_STAGE_ERROR)
-    return (*NL_TO_SQL_TRACE_STAGES_SUCCESS[:2], NL_TO_SQL_TRACE_STAGE_ERROR)
+    return (*NL_TO_SQL_TRACE_STAGES_SUCCESS[:3], NL_TO_SQL_TRACE_STAGE_ERROR)
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,6 +354,17 @@ def run_nl_sql_chain(
             emitted_events,
             stage="nl.sql.generated",
             payload={"request_id": request_id, "sql": sql},
+        )
+        _emit_trace(
+            trace_sink,
+            emitted_events,
+            stage="nl.sql.validated",
+            payload={
+                "request_id": request_id,
+                "status": "ok",
+                "sql_validation_status": "pass",
+                "read_only_status": "read_only",
+            },
         )
 
         deadline = perf_counter() + (request.timeout_ms / 1000.0)
