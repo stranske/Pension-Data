@@ -94,6 +94,7 @@ def test_build_fleet_records_uses_no_secret_status_when_key_missing(
     assert {record["status"] for record in records[:3]} == {"no_secret"}
     assert records[3]["status"] == "skipped"
     for record in records:
+        assert record["request_id"] == "nlq:abc"
         assert record["schema_version"] == langsmith_fleet.SCHEMA_VERSION
         assert record["repo"] == "stranske/Pension-Data"
         assert record["surface"] == "nl-to-sql"
@@ -141,6 +142,7 @@ def test_build_fleet_records_enables_langsmith_defaults_when_key_present(
 
     statuses = [record["status"] for record in records]
     assert statuses == ["success", "success", "success", "success"]
+    assert records[0]["request_id"] == "nlq:def"
     assert records[0]["trace_id"] == "trace-123"
     assert records[0]["trace_url"] == "https://smith.langchain.com/r/trace-123"
     assert records[0]["provider"] == "openai"
@@ -486,6 +488,8 @@ def test_run_nl_query_endpoint_emits_fleet_artifact_when_category_set(
     ]
     for record in records[:3]:
         assert record["status"] == "no_secret"
+        assert record["request_id"] == result.response.metadata.request_id
+        assert record["session_id"] == result.audit_event["correlation_id"]
         assert record["domain"]["query_category"] == "funded_ratio_lookup"
         assert record["domain"]["sql_validation_status"] == "pass"
         assert record["domain"]["row_count"] == 2

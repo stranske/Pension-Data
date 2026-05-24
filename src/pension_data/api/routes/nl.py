@@ -106,6 +106,7 @@ def run_nl_query_endpoint(
             context=FleetRunContext(
                 run_id=response.metadata.request_id,
                 query_category=normalized_category or "unspecified",
+                session_id=entry.correlation_id,
                 provider=provider if provider != "unknown" else None,
                 model=model if model != "unknown" else None,
                 trace_id=resolved_fleet_trace_id,

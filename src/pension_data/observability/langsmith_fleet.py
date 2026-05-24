@@ -57,6 +57,7 @@ class FleetRunContext:
 
     run_id: str
     query_category: str
+    session_id: str | None = None
     provider: str | None = None
     model: str | None = None
     trace_id: str | None = None
@@ -306,6 +307,7 @@ def build_fleet_records_from_response(
     if context.latency_ms is None and latency_ms is not None:
         context = FleetRunContext(
             run_id=context.run_id,
+            session_id=context.session_id,
             query_category=context.query_category,
             provider=context.provider,
             model=context.model,
@@ -422,11 +424,14 @@ def _record(
         "surface": SURFACE,
         "operation": operation,
         "run_id": context.run_id,
+        "request_id": context.run_id,
         "status": status,
         "github_issue": GITHUB_ISSUE,
         "recorded_at": recorded_at,
         "domain": dict(domain),
     }
+    if context.session_id:
+        record["session_id"] = context.session_id
     if context.github_pr:
         record["github_pr"] = context.github_pr
     if context.provider:
