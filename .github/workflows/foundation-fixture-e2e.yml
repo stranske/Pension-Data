@@ -62,6 +62,64 @@ jobs:
               raise SystemExit("foundation fixture ledger does not include all expected stages")
           PY
 
+      - name: Prepare reviewable findings generator inputs
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from pension_data.coverage.readiness import write_coverage_artifacts
+          from pension_data.extract.persistence import extraction_persistence_contract
+
+          artifact_root = Path("artifacts")
+          coverage_payload = json.loads(
+              (artifact_root / "foundation" / "coverage_readiness.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          write_coverage_artifacts(coverage_payload, output_root=artifact_root)
+
+          persistence_dir = artifact_root / "extraction_persistence"
+          persistence_dir.mkdir(parents=True, exist_ok=True)
+          (persistence_dir / "persistence_contract.json").write_text(
+              json.dumps(extraction_persistence_contract(), indent=2, sort_keys=True),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Build reviewable findings artifact
+        run: |
+          set -euo pipefail
+          python scripts/langchain/build_reviewable_findings_artifact.py \
+            --persistence-contract artifacts/extraction_persistence/persistence_contract.json \
+            --readiness-csv artifacts/coverage/readiness_rows.csv \
+            --output artifacts/reviewable-findings/extraction-quality-dashboard.json
+          python - <<'PY'
+          import json
+
+          from pension_data.langchain.review_artifact import (
+              validate_reviewable_findings_artifact,
+          )
+
+          with open(
+              "artifacts/reviewable-findings/extraction-quality-dashboard.json",
+              encoding="utf-8",
+          ) as handle:
+              validate_reviewable_findings_artifact(json.load(handle))
+          PY
+
+      - name: Verify reviewable findings generator fails on missing readiness CSV
+        run: |
+          set -euo pipefail
+          if python scripts/langchain/build_reviewable_findings_artifact.py \
+            --persistence-contract artifacts/extraction_persistence/persistence_contract.json \
+            --readiness-csv artifacts/coverage/missing-readiness.csv \
+            --output artifacts/reviewable-findings/should-not-exist.json; then
+            echo "generator unexpectedly succeeded with a missing readiness CSV" >&2
+            exit 1
+          fi
+
       - name: Run foundation fixture tests
         run: |
           set -euo pipefail
@@ -73,4 +131,12 @@ jobs:
         with:
           name: foundation-fixture-artifacts
           path: artifacts/foundation
+          if-no-files-found: warn
+
+      - name: Upload reviewable findings artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reviewable-findings-artifacts
+          path: artifacts/reviewable-findings
           if-no-files-found: warn

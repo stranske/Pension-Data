@@ -89,6 +89,10 @@ two-layer model.
 
 ## Generation Plan
 
-The first generator should read extraction persistence outputs and source-readiness artifacts, then
-write `docs/data/reviewable-findings/extraction-quality-dashboard.json` as a CI/release artifact.
-It should fail validation with `validate_reviewable_findings_artifact(...)` before publishing.
+The first generator reads extraction persistence outputs and source-readiness artifacts, then writes
+`artifacts/reviewable-findings/extraction-quality-dashboard.json` as a CI/release artifact. The
+`.github/workflows/foundation-fixture-e2e.yml` `Foundation Fixture E2E` workflow prepares
+`artifacts/extraction_persistence/persistence_contract.json` and
+`artifacts/coverage/readiness_rows.csv`, runs
+`scripts/langchain/build_reviewable_findings_artifact.py`, validates the output with
+`validate_reviewable_findings_artifact(...)`, and uploads `artifacts/reviewable-findings/`.
