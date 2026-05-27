@@ -13,7 +13,7 @@ from pension_data.langchain.review_artifact import (
 )
 
 DEFAULT_PERSISTENCE_CONTRACT_PATH = "extraction_persistence/persistence_contract.json"
-DEFAULT_READINESS_CSV_PATH = "coverage/source_authority_readiness.csv"
+DEFAULT_READINESS_CSV_PATH = "coverage/readiness_rows.csv"
 
 
 def parse_args() -> argparse.Namespace:
