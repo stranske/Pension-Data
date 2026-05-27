@@ -23,8 +23,9 @@ sample for static UI hosting and reviewer workflows, but it is not the productio
 In-process callers must also provide both source paths; calling the builder without source artifacts
 is treated as a contract error.
 
-The `Foundation Fixture E2E` workflow prepares those source artifacts under `artifacts/`, runs the
-generator with `artifacts/extraction_persistence/persistence_contract.json` and
+The `.github/workflows/foundation-fixture-e2e.yml` `Foundation Fixture E2E` workflow prepares those
+source artifacts under `artifacts/`, runs the generator with
+`artifacts/extraction_persistence/persistence_contract.json` and
 `artifacts/coverage/readiness_rows.csv`, validates the generated dashboard artifact, and uploads
 `artifacts/reviewable-findings/` for review.
 
