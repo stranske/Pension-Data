@@ -209,21 +209,53 @@ def _extract_sql(generated: str | Mapping[str, Any]) -> str:
 def _extract_cost(generated: str | Mapping[str, Any]) -> Mapping[str, Any] | None:
     if isinstance(generated, str):
         return None
-    usage = generated.get("usage") or generated.get("token_usage")
-    if not isinstance(usage, Mapping):
-        usage = generated
-    prompt_tokens = _safe_int(
-        usage.get("prompt_tokens") or usage.get("input_tokens") or usage.get("prompt_token_count")
-    )
-    completion_tokens = _safe_int(
-        usage.get("completion_tokens")
-        or usage.get("output_tokens")
-        or usage.get("completion_token_count")
-    )
-    total_tokens = _safe_int(usage.get("total_tokens") or usage.get("total_token_count"))
+    usage_sources: list[Mapping[str, Any]] = []
+    direct_usage = generated.get("usage")
+    if isinstance(direct_usage, Mapping):
+        usage_sources.append(direct_usage)
+    direct_token_usage = generated.get("token_usage")
+    if isinstance(direct_token_usage, Mapping):
+        usage_sources.append(direct_token_usage)
+    response_metadata = generated.get("response_metadata")
+    if isinstance(response_metadata, Mapping):
+        token_usage = response_metadata.get("token_usage")
+        if isinstance(token_usage, Mapping):
+            usage_sources.append(token_usage)
+        usage_metadata = response_metadata.get("usage_metadata")
+        if isinstance(usage_metadata, Mapping):
+            usage_sources.append(usage_metadata)
+    usage_metadata = generated.get("usage_metadata")
+    if isinstance(usage_metadata, Mapping):
+        usage_sources.append(usage_metadata)
+    usage_sources.append(generated)
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    cost_usd: float | None = None
+    for usage in usage_sources:
+        if prompt_tokens is None:
+            prompt_tokens = _safe_int(
+                usage.get("prompt_tokens")
+                or usage.get("input_tokens")
+                or usage.get("input_token_count")
+                or usage.get("prompt_token_count")
+            )
+        if completion_tokens is None:
+            completion_tokens = _safe_int(
+                usage.get("completion_tokens")
+                or usage.get("output_tokens")
+                or usage.get("output_token_count")
+                or usage.get("completion_token_count")
+            )
+        if total_tokens is None:
+            total_tokens = _safe_int(usage.get("total_tokens") or usage.get("total_token_count"))
+        if cost_usd is None:
+            cost_usd = _safe_float(usage.get("cost_usd"))
     if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
         total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
-    cost_usd = _safe_float(usage.get("cost_usd") or generated.get("cost_usd"))
+    if cost_usd is None:
+        cost_usd = _safe_float(generated.get("cost_usd"))
     if (
         prompt_tokens is None
         and completion_tokens is None

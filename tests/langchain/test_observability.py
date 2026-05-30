@@ -381,6 +381,65 @@ def test_nl_error_run_record_preserves_provider_usage_metadata(tmp_path: Path) -
     }
 
 
+def test_nl_route_persists_nested_provider_usage_and_replayable_rows_artifact(
+    tmp_path: Path,
+) -> None:
+    key_store = APIKeyStore()
+    secret, _ = key_store.create_key(scopes=(SCOPE_NL,), label="analyst")
+    connection = _seed_provenance_connection()
+    try:
+        result = run_nl_query_endpoint(
+            api_key_header=secret,
+            key_store=key_store,
+            connection=connection,
+            request=NLToSQLRequest(
+                question="Show funded ratio sources",
+                max_rows=10,
+                timeout_ms=2_000,
+            ),
+            chain=_StaticChain(
+                {
+                    "sql": (
+                        "SELECT id, value, source_document_id, evidence_refs, confidence "
+                        "FROM sample_metrics WHERE metric = 'funded_ratio' ORDER BY id"
+                    ),
+                    "response_metadata": {
+                        "token_usage": {
+                            "prompt_tokens": 17,
+                            "completion_tokens": 6,
+                            "total_tokens": 23,
+                            "cost_usd": "0.00044",
+                        }
+                    },
+                }
+            ),
+            policy=_provenance_policy(),
+            run_record_root=tmp_path,
+        )
+    finally:
+        connection.close()
+
+    assert result.response.status == "ok"
+    assert result.response.metadata.cost == {
+        "prompt_tokens": 17,
+        "completion_tokens": 6,
+        "total_tokens": 23,
+        "cost_usd": 0.00044,
+    }
+
+    record_path = next((tmp_path / "langchain" / "nl_runs" / "runs").glob("*.json"))
+    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    assert payload["cost"] == {
+        "prompt_tokens": 17,
+        "completion_tokens": 6,
+        "total_tokens": 23,
+        "cost_usd": 0.00044,
+    }
+    replayed = replay_run_record(record=payload, root=tmp_path)
+    assert replayed.rows == result.response.rows
+    assert replayed.provenance == result.response.provenance
+
+
 def test_nl_route_emits_structured_log_entry(tmp_path: Path) -> None:
     key_store = APIKeyStore()
     secret, _ = key_store.create_key(scopes=(SCOPE_NL,))
