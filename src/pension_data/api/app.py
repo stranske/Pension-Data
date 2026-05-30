@@ -149,8 +149,7 @@ def _data_zone() -> str:
 
 def _authorized_llm_base_url_configured() -> bool:
     return bool(
-        os.getenv("OPENAI_BASE_URL", "").strip()
-        or os.getenv("ANTHROPIC_BASE_URL", "").strip()
+        os.getenv("OPENAI_BASE_URL", "").strip() or os.getenv("ANTHROPIC_BASE_URL", "").strip()
     )
 
 
@@ -218,11 +217,11 @@ def _key_store_from_env() -> APIKeyStore:
     secret = os.getenv("PENSION_DATA_API_KEY", "").strip()
     if secret:
         raw_scopes = os.getenv("PENSION_DATA_API_KEY_SCOPES", "").strip()
-        scopes = tuple(
-            scope.strip()
-            for scope in raw_scopes.split(",")
-            if scope.strip()
-        ) or (SCOPE_QUERY, SCOPE_NL, SCOPE_EXPORT)
+        scopes = tuple(scope.strip() for scope in raw_scopes.split(",") if scope.strip()) or (
+            SCOPE_QUERY,
+            SCOPE_NL,
+            SCOPE_EXPORT,
+        )
         store.register_key(secret, scopes=scopes, label="env")
     return store
 
