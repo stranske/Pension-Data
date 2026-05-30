@@ -7,8 +7,10 @@ import tempfile
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
+from scripts.langchain import build_reviewable_findings_artifact as artifact_cli
 
 from pension_data.langchain.findings_compare import CompareMetadata
 from pension_data.langchain.findings_explain import ExplainMetadata
@@ -45,6 +47,23 @@ def test_schema_file_matches_python_contract() -> None:
     assert schema["artifact_path"] == REVIEWABLE_FINDINGS_ARTIFACT_PATH
     assert schema["slice"]["first_slice"] == "extraction_quality_dashboard"
     assert "confidence" in schema["findings"]["required_filter_fields"]
+
+
+def test_cli_defaults_to_the_selected_first_artifact_slice() -> None:
+    with patch("sys.argv", ["build_reviewable_findings_artifact.py"]):
+        args = artifact_cli.parse_args()
+    assert args.slice == "extraction_quality_dashboard"
+
+
+def test_cli_rejects_unknown_slice_value() -> None:
+    with (
+        pytest.raises(SystemExit),
+        patch(
+            "sys.argv",
+            ["build_reviewable_findings_artifact.py", "--slice", "funding_trend"],
+        ),
+    ):
+        artifact_cli.parse_args()
 
 
 def test_langchain_required_output_fields_are_non_empty_and_exposed() -> None:
