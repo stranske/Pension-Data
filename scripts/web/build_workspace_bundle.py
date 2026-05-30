@@ -53,9 +53,12 @@ def _artifact_path(pilot_run_dir: Path, manifest: Mapping[str, Any], key: str) -
     if not isinstance(raw_path, str) or not raw_path.strip():
         raise ValueError(f"run_manifest.json missing artifact_files.{key}")
     candidate = Path(raw_path)
-    if not candidate.is_absolute():
-        candidate = pilot_run_dir / candidate
-    return candidate
+    if candidate.is_absolute() or candidate.exists():
+        return candidate
+    root_candidate = ROOT / candidate
+    if root_candidate.exists():
+        return root_candidate
+    return pilot_run_dir / candidate
 
 
 def _as_text(value: Any) -> str:

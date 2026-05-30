@@ -104,6 +104,55 @@ def test_generator_emits_runtime_valid_generated_bundle(tmp_path: Path) -> None:
     }
 
 
+def test_generator_accepts_paths_already_rooted_at_output_root(tmp_path: Path, monkeypatch) -> None:
+    run_dir = tmp_path / "outputs" / "one_pdf_pilot" / "run-456"
+    persistence_dir = run_dir / "extraction_persistence"
+    persistence_dir.mkdir(parents=True)
+    staging_path = persistence_dir / "staging_core_metrics.json"
+    staging_path.write_text(
+        json.dumps(
+            [
+                {
+                    "confidence": 0.93,
+                    "metric_family": "funded_status",
+                    "metric_name": "funded_ratio",
+                    "normalized_value": 0.82,
+                    "plan_id": "ca-pers",
+                    "plan_period": "FY2025",
+                    "source_document_id": "calpers-fy2025",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "artifact_files": {
+                    "staging_core_metrics_json": (
+                        "outputs/one_pdf_pilot/run-456/"
+                        "extraction_persistence/staging_core_metrics.json"
+                    ),
+                },
+                "input": {"effective_date": "2026-05-30"},
+                "run_id": "run-456",
+            }
+        ),
+        encoding="utf-8",
+    )
+    contract_path = tmp_path / "apps" / "contracts" / "runtime-contract.json"
+    contract_path.parent.mkdir(parents=True)
+    contract_path.write_text(
+        (ROOT / "apps" / "contracts" / "runtime-contract.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    payload = build_workspace_bundle.build_workspace_bundle(run_dir)
+
+    assert payload["datasets"][0]["rows"][0]["metric"] == "funded_ratio"
+
+
 def test_cli_writes_bundle_that_runtime_smoke_accepts(tmp_path: Path) -> None:
     run_dir = _write_fixture_pilot_run(tmp_path)
     out = tmp_path / "workspace.json"
