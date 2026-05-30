@@ -48,6 +48,7 @@ REQUIRED_FINDING_FIELDS: tuple[str, ...] = (
     "citations",
 )
 MINIMAL_FINDING_FIELDS: tuple[str, ...] = (
+    "finding_id",
     "entity",
     "period",
     "metric_family",

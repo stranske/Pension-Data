@@ -55,6 +55,7 @@ def test_minimal_findings_schema_includes_ui_and_explainer_required_fields() -> 
     minimal_schema = minimal_findings_json_schema()
     required_fields = set(minimal_schema["required_fields"])
     assert {
+        "finding_id",
         "entity",
         "period",
         "metric_family",

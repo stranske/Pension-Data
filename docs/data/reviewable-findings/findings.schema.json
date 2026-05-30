@@ -65,6 +65,7 @@
   },
   "minimal_findings_json_schema": {
     "required_fields": [
+      "finding_id",
       "entity",
       "period",
       "metric_family",

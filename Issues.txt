@@ -57,7 +57,7 @@ Non-Goals
 
 Tasks
 - [x] Choose the first artifact slice: funding trend, allocation peer compare, holdings overlap, or extraction quality dashboard.
-- [ ] Define the minimal findings JSON schema consumed by the static UI and LangChain explainers.
+- [x] Define the minimal findings JSON schema consumed by the static UI and LangChain explainers.
 - [ ] Add a generation command or documented artifact path under `docs/data/` or a release artifact plan.
 - [ ] Add tests or schema validation for the artifact contract.
 - [ ] Document how a human reviewer should inspect the generated artifact in the weekly review packet.
