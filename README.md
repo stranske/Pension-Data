@@ -25,15 +25,16 @@ pip install -e ".[source_collection]"
 Run the internal/on-prem workspace server:
 
 ```bash
-PENSION_DATA_DATA_ZONE=proprietary pension-data-serve
+PENSION_DATA_API_KEY="$(openssl rand -hex 24)" PENSION_DATA_DATA_ZONE=proprietary pension-data-serve
 curl http://127.0.0.1:8765/health
 ```
 
 The server binds to `127.0.0.1` by default and serves the checked-in browser
 workspace plus deterministic API routes under `/api`. In `proprietary` mode,
-LLM-backed routes stay disabled unless `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`,
-or `PENSION_DATA_AUTHORIZED_LLM_BASE_URL` points at an approved no-train
-endpoint. Use `PENSION_DATA_DATA_ZONE=fixture` only for synthetic/demo data.
+LLM-backed routes stay disabled unless the provider base URL actually consumed
+by the LangChain runtime (`OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`) points at
+an approved no-train endpoint. Use `PENSION_DATA_DATA_ZONE=fixture` only for
+synthetic/demo data.
 
 Run local checks:
 

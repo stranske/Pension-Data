@@ -53,6 +53,20 @@ def test_saved_view_route_maps_auth_errors() -> None:
     assert "missing API key" in response.json()["detail"]
 
 
+def test_default_app_uses_environment_api_key(monkeypatch) -> None:
+    monkeypatch.setenv("PENSION_DATA_API_KEY", "test-env-secret")
+    monkeypatch.setenv("PENSION_DATA_API_KEY_SCOPES", SCOPE_QUERY)
+
+    client = TestClient(create_app())
+    response = client.get(
+        "/api/saved-views/funding-trend",
+        headers={"Authorization": "Bearer test-env-secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["view_name"] == "funding_trend"
+
+
 def test_metric_history_route_is_authenticated() -> None:
     client, secret = _client_with_query_key()
 
@@ -73,7 +87,6 @@ def test_llm_routes_are_disabled_in_proprietary_zone_without_authorized_base_url
     monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
-    monkeypatch.delenv("PENSION_DATA_AUTHORIZED_LLM_BASE_URL", raising=False)
     client, _ = _client_with_query_key()
 
     response = client.post("/api/nl/query")

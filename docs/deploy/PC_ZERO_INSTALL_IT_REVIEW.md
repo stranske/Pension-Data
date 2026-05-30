@@ -23,7 +23,7 @@ This guide describes the browser-only mode for Pension-Data in locked-down PC en
 Start the internal host from an approved workstation or server:
 
 ```bash
-PENSION_DATA_DATA_ZONE=proprietary pension-data-serve
+PENSION_DATA_API_KEY="$(openssl rand -hex 24)" PENSION_DATA_DATA_ZONE=proprietary pension-data-serve
 curl http://127.0.0.1:8765/health
 ```
 
@@ -31,8 +31,9 @@ curl http://127.0.0.1:8765/health
 keys (`environment`, `apiBaseUrl`, `artifactBaseUrl`), and deterministic routes
 such as `/api/saved-views/funding-trend` and `/api/metric-history/{entity_id}`
 run without LLM egress. LLM-backed NL/findings routes remain disabled in
-`proprietary` mode unless `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, or
-`PENSION_DATA_AUTHORIZED_LLM_BASE_URL` points at an authorized no-train proxy.
+`proprietary` mode unless the provider base URL actually consumed by the
+LangChain runtime (`OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`) points at an
+authorized no-train proxy.
 
 ## Auth and Access
 

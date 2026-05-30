@@ -13,6 +13,9 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from pension_data.api.auth import (
+    SCOPE_EXPORT,
+    SCOPE_NL,
+    SCOPE_QUERY,
     APIKeyStore,
     AuthError,
     InvalidAPIKeyError,
@@ -37,7 +40,7 @@ DEFAULT_PORT = 8765
 def create_app(*, key_store: APIKeyStore | None = None, web_root: Path | None = None) -> FastAPI:
     """Build the FastAPI app with deterministic routes enabled by default."""
     app = FastAPI(title="Pension-Data Internal API")
-    store = key_store or APIKeyStore()
+    store = key_store or _key_store_from_env()
     static_root = web_root or WEB_ROOT
 
     @app.exception_handler(AuthError)
@@ -129,7 +132,7 @@ def create_app(*, key_store: APIKeyStore | None = None, web_root: Path | None = 
 
 
 def _auth_status(exc: AuthError) -> int:
-    if isinstance(exc, MissingAPIKeyError | InvalidAPIKeyError):
+    if isinstance(exc, (MissingAPIKeyError, InvalidAPIKeyError)):
         return 401
     if isinstance(exc, ScopeDeniedError):
         return 403
@@ -148,7 +151,6 @@ def _authorized_llm_base_url_configured() -> bool:
     return bool(
         os.getenv("OPENAI_BASE_URL", "").strip()
         or os.getenv("ANTHROPIC_BASE_URL", "").strip()
-        or os.getenv("PENSION_DATA_AUTHORIZED_LLM_BASE_URL", "").strip()
     )
 
 
@@ -209,6 +211,20 @@ def _fixture_metric_history_rows() -> tuple[MetricHistoryRow, ...]:
             ),
         ),
     )
+
+
+def _key_store_from_env() -> APIKeyStore:
+    store = APIKeyStore()
+    secret = os.getenv("PENSION_DATA_API_KEY", "").strip()
+    if secret:
+        raw_scopes = os.getenv("PENSION_DATA_API_KEY_SCOPES", "").strip()
+        scopes = tuple(
+            scope.strip()
+            for scope in raw_scopes.split(",")
+            if scope.strip()
+        ) or (SCOPE_QUERY, SCOPE_NL, SCOPE_EXPORT)
+        store.register_key(secret, scopes=scopes, label="env")
+    return store
 
 
 def _jsonable(value: Any) -> Any:

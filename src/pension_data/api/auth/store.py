@@ -69,6 +69,33 @@ class APIKeyStore:
         self._hash_to_id[key_hash] = key_id
         return secret, record
 
+    def register_key(
+        self,
+        secret: str,
+        *,
+        scopes: tuple[str, ...] | list[str] | set[str],
+        label: str | None = None,
+    ) -> APIKeyRecord:
+        """Register externally provisioned key material without returning it."""
+        token = secret.strip()
+        if not token:
+            raise ValueError("secret must be non-empty")
+        normalized_scopes = normalize_scopes(scopes)
+        key_id = f"key_{secrets.token_hex(8)}"
+        key_hash = _hash_secret(token)
+        record = APIKeyRecord(
+            key_id=key_id,
+            key_hash=key_hash,
+            hash_scheme="sha256",
+            scopes=normalized_scopes,
+            status="active",
+            created_at=_utcnow(),
+            label=label,
+        )
+        self._records_by_id[key_id] = record
+        self._hash_to_id[key_hash] = key_id
+        return record
+
     def get_by_secret(self, secret: str) -> APIKeyRecord | None:
         """Resolve API key secret to stored metadata record."""
         key_hash = _hash_secret(secret)
