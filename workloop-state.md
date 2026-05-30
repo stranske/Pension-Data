@@ -7,3 +7,12 @@
 - Liveness disposition before selection: Manager-Database #1088 and Pension-Data #478 are merged/reopened for verifier sequencing; Inv-Man-Intake #469/#470 and learning-management-system #180 are scoped-blocked; Trend_Model_Project #5343/#5344 are in the #5353 blocker cone; trip-planner #1260 is linked to open PR #1266.
 - Implementation plan: add `pension_data.api.app` FastAPI app factory, deterministic saved-view/metric-history routes, static `apps/web` mounting, proprietary-zone LLM disable gate, `pension-data-serve` console script, docs, and focused TestClient coverage.
 - Validation so far: `python -m pytest tests/api/test_app_serving.py tests/api/test_saved_views_route.py -q` -> 12 passed; `python -m ruff check src/pension_data/api/app.py tests/api/test_app_serving.py` -> passed; `python -m mypy src/pension_data/api/app.py` -> passed. Live smoke with `PYTHONPATH=src PENSION_DATA_DATA_ZONE=proprietary PENSION_DATA_PORT=8766 python -m pension_data.api.app`: `/health` 200, `/index.html` 200, `/data/workspace.json` reports `fixture` and `core_facts`.
+
+## 2026-05-30T18:02Z - opener opened PR #491 and repaired dispatch evidence
+
+- PR: #491, `Issue #484: Assemble internal serving layer`, non-draft, linked with `Closes #484`.
+- Labels: `agent:codex`, `agents:keepalive`, `autofix`, `priority:high`, `repo-review-approved`; post-open repair added `agent:retry`.
+- Relay: `pr_opened active.source_repo=stranske/Pension-Data active.source_issue=484 active.source_pr=491 active.next_action=wait_for_keepalive`.
+- Post-open cap-health initially reported #491 as `needs-dispatch-evidence`; `opener-repair-infra-stalls.py` added `agent:retry` and dispatched Gate Followups. Fresh cap-health at 18:01Z reports #491 `draining` with active Autofix/Gate evidence.
+- Direct checks briefly showed cancelled Python pytest jobs from an older Gate run; logs showed `pytest cancelled` due workflow cancellation, not a deterministic branch-local code failure. Newer Gate/Autofix runs are pending/in progress, so opener stops at async-check boundary.
+- Cross-repo cap hygiene: the same repair helper re-dispatched trip-planner #1266 after skipped keepalive jobs; cap-health still labels #1266 `infra-stalled` pending fresher evidence. Trend_Model_Project #5353 remains scoped-blocked (`runner-failed` due product/scope decision), not opener-repairable.
