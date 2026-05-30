@@ -22,6 +22,7 @@ from pension_data.langchain.observability import (
     append_nl_operation_log,
     build_nl_operation_log_entry,
     default_nl_log_path,
+    persist_nl_query_run_record,
 )
 from pension_data.observability.langsmith_fleet import (
     FleetRunContext,
@@ -61,6 +62,7 @@ def run_nl_query_endpoint(
     fleet_trace_id: str | None = None,
     fleet_trace_url: str | None = None,
     fleet_github_pr: str | None = None,
+    run_record_root: Path | None = None,
 ) -> NLRouteResult:
     """Authenticate and execute one NL-to-SQL request with audit metadata."""
     auth_context = authenticate_request(
@@ -94,6 +96,16 @@ def run_nl_query_endpoint(
             path=log_path or default_nl_log_path(),
             entry=entry,
             retention_limit=log_retention_limit,
+        )
+    with suppress(Exception):
+        persist_nl_query_run_record(
+            request=request,
+            response=response,
+            key_id=auth_context.key_id,
+            scopes=auth_context.scopes,
+            required_scope=SCOPE_NL,
+            correlation_id=entry.correlation_id,
+            root=run_record_root,
         )
     fleet_artifact_target: Path | None = None
     normalized_category = query_category.strip() if query_category else ""

@@ -93,6 +93,7 @@ class NLToSQLMetadata:
     duration_ms: int
     returned_rows: int
     trace_event_count: int
+    cost: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +204,95 @@ def _extract_sql(generated: str | Mapping[str, Any]) -> str:
     if not isinstance(sql, str):
         raise ValueError("chain output must include a string `sql` field")
     return sql
+
+
+def _extract_cost(generated: str | Mapping[str, Any]) -> Mapping[str, Any] | None:
+    if isinstance(generated, str):
+        return None
+    usage_sources: list[Mapping[str, Any]] = []
+    direct_usage = generated.get("usage")
+    if isinstance(direct_usage, Mapping):
+        usage_sources.append(direct_usage)
+    direct_token_usage = generated.get("token_usage")
+    if isinstance(direct_token_usage, Mapping):
+        usage_sources.append(direct_token_usage)
+    response_metadata = generated.get("response_metadata")
+    if isinstance(response_metadata, Mapping):
+        token_usage = response_metadata.get("token_usage")
+        if isinstance(token_usage, Mapping):
+            usage_sources.append(token_usage)
+        usage_metadata = response_metadata.get("usage_metadata")
+        if isinstance(usage_metadata, Mapping):
+            usage_sources.append(usage_metadata)
+    usage_metadata = generated.get("usage_metadata")
+    if isinstance(usage_metadata, Mapping):
+        usage_sources.append(usage_metadata)
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    cost_usd: float | None = None
+    for usage in usage_sources:
+        if prompt_tokens is None:
+            prompt_tokens = _safe_int(
+                _first_present(
+                    usage,
+                    "prompt_tokens",
+                    "input_tokens",
+                    "input_token_count",
+                    "prompt_token_count",
+                )
+            )
+        if completion_tokens is None:
+            completion_tokens = _safe_int(
+                _first_present(
+                    usage,
+                    "completion_tokens",
+                    "output_tokens",
+                    "output_token_count",
+                    "completion_token_count",
+                )
+            )
+        if total_tokens is None:
+            total_tokens = _safe_int(_first_present(usage, "total_tokens", "total_token_count"))
+        if cost_usd is None:
+            cost_usd = _safe_float(usage.get("cost_usd"))
+    if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+        total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+    if (
+        prompt_tokens is None
+        and completion_tokens is None
+        and total_tokens is None
+        and cost_usd is None
+    ):
+        return None
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cost_usd": cost_usd,
+    }
+
+
+def _first_present(mapping: Mapping[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in mapping:
+            return mapping[key]
+    return None
+
+
+def _safe_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        token = value.strip()
+        if token.isdigit():
+            return int(token)
+    return None
 
 
 def _safe_float(value: Any) -> float | None:
@@ -316,6 +406,7 @@ def run_nl_sql_chain(
         rows: tuple[tuple[Any, ...], ...],
         provenance: tuple[NLToSQLProvenanceRow, ...],
         error: NLToSQLError | None,
+        cost: Mapping[str, Any] | None = None,
     ) -> NLToSQLResponse:
         duration_ms = max(0, int(round((perf_counter() - started) * 1000)))
         return NLToSQLResponse(
@@ -329,6 +420,7 @@ def run_nl_sql_chain(
                 duration_ms=duration_ms,
                 returned_rows=len(rows),
                 trace_event_count=len(emitted_events),
+                cost=cost,
             ),
             error=error,
         )
@@ -345,6 +437,7 @@ def run_nl_sql_chain(
         },
     ):
         sql: str | None = None
+        cost: Mapping[str, Any] | None = None
         active_policy = policy or default_nl_query_policy()
         _emit_trace(
             trace_sink,
@@ -363,12 +456,13 @@ def run_nl_sql_chain(
                 )
             if request.timeout_ms > active_policy.max_timeout_ms:
                 raise NLRequestValidationError(
-                    "timeout_ms exceeds policy max_timeout_ms " f"({active_policy.max_timeout_ms})"
+                    f"timeout_ms exceeds policy max_timeout_ms ({active_policy.max_timeout_ms})"
                 )
             params = _normalize_params(request.params)
             question = validate_nl_prompt(request.question)
 
             generated = chain.invoke({"question": question, "dialect": "sqlite"})
+            cost = _extract_cost(generated)
             sql = _extract_sql(generated)
             _emit_trace(
                 trace_sink,
@@ -429,6 +523,7 @@ def run_nl_sql_chain(
                 rows=fetched,
                 provenance=provenance,
                 error=None,
+                cost=cost,
             )
         except Exception as exc:  # noqa: BLE001
             if isinstance(exc, sqlite3.OperationalError) and "interrupted" in str(exc).lower():
@@ -451,6 +546,7 @@ def run_nl_sql_chain(
                 rows=(),
                 provenance=(),
                 error=NLToSQLError(code=_error_code(exc), message=str(exc)),
+                cost=cost,
             )
         finally:
             _clear_timeout_handler(connection)
