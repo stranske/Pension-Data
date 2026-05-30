@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import tomllib
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,16 @@ def test_cli_rejects_unknown_slice_value() -> None:
         ),
     ):
         artifact_cli.parse_args()
+
+
+def test_pyproject_exposes_reviewable_findings_generator_command() -> None:
+    pyproject_path = REPO_ROOT / "pyproject.toml"
+    pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+
+    scripts = pyproject["project"]["scripts"]
+    assert scripts["reviewable-findings-artifact"] == (
+        "scripts.langchain.build_reviewable_findings_artifact:main"
+    )
 
 
 def test_langchain_required_output_fields_are_non_empty_and_exposed() -> None:

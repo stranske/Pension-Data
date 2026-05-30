@@ -57,6 +57,7 @@ Repository = "https://github.com/stranske/Pension-Data"
 [project.scripts]
 one-pdf-pilot = "pension_data.ops.one_pdf_pilot_cli:main"
 pension-data-serve = "pension_data.api.app:run"
+reviewable-findings-artifact = "scripts.langchain.build_reviewable_findings_artifact:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
