@@ -1,0 +1,33 @@
+{
+  "table": "curated_metric_facts",
+  "schema": "CREATE TABLE curated_metric_facts (plan_id TEXT NOT NULL, plan_period TEXT NOT NULL, metric_family TEXT NOT NULL, metric_name TEXT NOT NULL, normalized_value REAL NOT NULL, normalized_unit TEXT, source_document_id TEXT NOT NULL)",
+  "rows": [
+    {"plan_id": "CA-PERS", "plan_period": "FY2024", "metric_family": "funded_status", "metric_name": "funded_ratio", "normalized_value": 0.784, "normalized_unit": "ratio", "source_document_id": "doc:ca-2024"},
+    {"plan_id": "CA-PERS", "plan_period": "FY2023", "metric_family": "funded_status", "metric_name": "funded_ratio", "normalized_value": 0.771, "normalized_unit": "ratio", "source_document_id": "doc:ca-2023"},
+    {"plan_id": "CA-PERS", "plan_period": "FY2024", "metric_family": "assumptions", "metric_name": "discount_rate", "normalized_value": 0.068, "normalized_unit": "ratio", "source_document_id": "doc:ca-2024"}
+  ],
+  "queries": [
+    {
+      "id": "funded_ratio_with_provenance",
+      "question": "List funded ratio facts with their source document provenance",
+      "sql": "SELECT plan_id, plan_period, metric_name, normalized_value, source_document_id FROM curated_metric_facts WHERE metric_family = 'funded_status'",
+      "expect_status": "ok",
+      "expect_unsafe": false
+    },
+    {
+      "id": "all_curated_metric_facts",
+      "question": "Show every curated metric fact with provenance",
+      "sql": "SELECT plan_id, plan_period, metric_name, normalized_value, source_document_id FROM curated_metric_facts",
+      "expect_status": "ok",
+      "expect_unsafe": false
+    },
+    {
+      "id": "omits_source_document_id",
+      "question": "List metric values without provenance",
+      "sql": "SELECT plan_id, metric_name, normalized_value FROM curated_metric_facts",
+      "expect_status": "error",
+      "expect_unsafe": true
+    }
+  ],
+  "replay_query_id": "funded_ratio_with_provenance"
+}

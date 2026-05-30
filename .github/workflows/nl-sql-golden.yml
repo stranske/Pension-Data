@@ -1,0 +1,90 @@
+name: NL-SQL Golden
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  nl-sql-golden:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run NL->SQL golden corpus (deterministic stub chain, no live LLM)
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/golden_nl
+          set +e
+          PYTHONPATH=src:.:tools python tools/golden_nl/nl_sql_golden.py \
+            --corpus tests/golden/nl_sql/corpus.json \
+            --baseline tests/golden/nl_sql/baseline.json \
+            --emit-root artifacts/golden_nl
+          driver_exit=$?
+          set -e
+          # exit 0 = clean, 2 = drift (gated below); anything else is a hard failure
+          # (e.g. a provenance / UNSAFE_SQL invariant violation).
+          if [ "$driver_exit" -ne 0 ] && [ "$driver_exit" -ne 2 ]; then
+            exit "$driver_exit"
+          fi
+
+      - name: Gate NL->SQL golden drift
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src:. python tools/ci_quality/replay_gate.py \
+            --diff artifacts/golden_nl/diff_report.json \
+            --max-unexpected 0 \
+            --report-out artifacts/golden_nl/replay_gate_report.json
+
+      - name: Replay recorded NL request against seeded fixture
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src:. python scripts/langchain/nl_replay.py \
+            --db-path artifacts/golden_nl/seed.db \
+            --log-path artifacts/golden_nl/nl_operations.jsonl \
+            > artifacts/golden_nl/replay_actual.json
+          PYTHONPATH=src:. python - <<'PY'
+          import json
+          from pathlib import Path
+
+          actual = json.loads(Path("artifacts/golden_nl/replay_actual.json").read_text())
+          expected = json.loads(Path("artifacts/golden_nl/replay_expected.json").read_text())
+          mismatches = [
+              key
+              for key in ("status", "returned_rows")
+              if actual.get(key) != expected.get(key)
+          ]
+          if mismatches:
+              raise SystemExit(
+                  "nl_replay mismatch on "
+                  f"{mismatches}: actual={actual} expected={expected}"
+              )
+          print(
+              "Replay matches recorded run: "
+              f"status={actual['status']} returned_rows={actual['returned_rows']}"
+          )
+          PY
+
+      - name: Upload NL->SQL golden artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nl-sql-golden
+          path: |
+            artifacts/golden_nl/snapshot.json
+            artifacts/golden_nl/diff_report.json
+            artifacts/golden_nl/replay_gate_report.json
+            artifacts/golden_nl/replay_actual.json
+            artifacts/golden_nl/replay_expected.json
+          if-no-files-found: warn

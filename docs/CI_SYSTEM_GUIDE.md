@@ -106,6 +106,33 @@ To add a domain-specific job:
 2. Add your job with appropriate triggers
 3. Include the job in the Gate aggregation (if using custom Gate)
 
+### Repository-Specific Golden Gates
+
+This repo pins each tool that embodies its role to a **golden reference run**: a
+committed baseline that must keep matching on every PR. Each gate produces a
+snapshot artifact and diffs it against the committed baseline with
+`tools/ci_quality/replay_gate.py --max-unexpected 0` (a green job with no baseline
+diff is not sufficient).
+
+| Workflow | Tool under gate | Baseline |
+|----------|-----------------|----------|
+| `extraction-golden-regression.yml` | Fallback extraction parser | `tests/golden/extraction_fallback_baseline.json` |
+| `entity-regression.yml` | Entity resolution | `tests/golden/` entity corpus |
+| `quality-replay.yml` | Quality replay | quality corpus |
+| `quality-sla-check.yml` | Quality SLA | SLA thresholds |
+| `foundation-fixture-e2e.yml` | Foundation fixture E2E | foundation fixture |
+| `one-pdf-pilot-golden.yml` | One-PDF pilot (`scripts/run_one_pdf_pilot.py`) | `tests/golden/one_pdf_pilot/run_manifest_baseline.json` |
+| `nl-sql-golden.yml` | NL→SQL chain (`run_nl_sql_chain` + `scripts/langchain/nl_replay.py`) | `tests/golden/nl_sql/baseline.json` |
+
+The `one-pdf-pilot-golden.yml` job runs the pilot on a tiny **synthetic** fixture
+with a pinned `--run-id`, then diffs the resulting `run_manifest.json`
+(`artifact_files` keys + `ledger_status`) against the committed baseline. The
+`nl-sql-golden.yml` job runs a committed corpus through a deterministic in-process
+stub chain (no live LLM), asserts per-row `source_document_id` provenance and that
+a `SELECT` omitting `source_document_id` is rejected with `UNSAFE_SQL`, then
+replays a recorded request via `scripts/langchain/nl_replay.py` against a seeded
+SQLite fixture.
+
 ---
 
 ## Agent Automation System

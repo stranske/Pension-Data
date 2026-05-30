@@ -1,0 +1,25 @@
+{
+  "queries": [
+    {
+      "error_code": null,
+      "id": "all_curated_metric_facts",
+      "provenance_complete": true,
+      "returned_rows": 3,
+      "status": "ok"
+    },
+    {
+      "error_code": null,
+      "id": "funded_ratio_with_provenance",
+      "provenance_complete": true,
+      "returned_rows": 2,
+      "status": "ok"
+    },
+    {
+      "error_code": "UNSAFE_SQL",
+      "id": "omits_source_document_id",
+      "provenance_complete": true,
+      "returned_rows": 0,
+      "status": "error"
+    }
+  ]
+}

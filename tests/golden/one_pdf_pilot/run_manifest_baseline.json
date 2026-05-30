@@ -1,0 +1,17 @@
+{
+  "artifact_files_keys": [
+    "component_coverage_report_json",
+    "coverage_summary_json",
+    "extraction_warnings_json",
+    "orchestration_ledger_json",
+    "orchestration_published_rows_json",
+    "orchestration_review_queue_rows_json",
+    "orchestration_state_json",
+    "parser_result_json",
+    "persistence_contract_json",
+    "schema_component_datasets_manifest_json",
+    "staging_core_metrics_json",
+    "staging_manager_fund_vehicle_relationships_json"
+  ],
+  "ledger_status": "success"
+}
