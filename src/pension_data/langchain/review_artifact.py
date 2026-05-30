@@ -56,31 +56,98 @@ class ReviewableFindingsArtifactError(ValueError):
 
 
 def reviewable_findings_schema() -> dict[str, object]:
-    """Return the machine-readable contract for static UI and LangChain consumers."""
+    """Return the JSON schema contract for static UI and LangChain consumers."""
     return {
-        "artifact_type": REVIEWABLE_FINDINGS_ARTIFACT_TYPE,
-        "schema_version": REVIEWABLE_FINDINGS_SCHEMA_VERSION,
-        "artifact_path": REVIEWABLE_FINDINGS_ARTIFACT_PATH,
-        "required_artifact_fields": list(REQUIRED_ARTIFACT_FIELDS),
-        "slice": {
-            "required_fields": list(REQUIRED_SLICE_FIELDS),
-            "first_slice": REVIEWABLE_FINDINGS_FIRST_SLICE_ID,
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://pension-data/docs/data/reviewable-findings/findings.schema.json",
+        "title": "ReviewableFindingsArtifact",
+        "type": "object",
+        "additionalProperties": False,
+        "required": list(REQUIRED_ARTIFACT_FIELDS),
+        "x-artifact-path": REVIEWABLE_FINDINGS_ARTIFACT_PATH,
+        "x-first-slice": REVIEWABLE_FINDINGS_FIRST_SLICE_ID,
+        "x-required-filter-fields": ["entity", "period", "metric_family", "confidence"],
+        "x-langchain-required-output-fields": [
+            "request_id",
+            "generated_at",
+            "summary",
+            "citations",
+            "artifact_path",
+        ],
+        "properties": {
+            "artifact_type": {"const": REVIEWABLE_FINDINGS_ARTIFACT_TYPE},
+            "schema_version": {"const": REVIEWABLE_FINDINGS_SCHEMA_VERSION},
+            "artifact_id": {"type": "string", "minLength": 1},
+            "generated_at": {"type": "string", "minLength": 1},
+            "source_artifact_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "string", "minLength": 1},
+            },
+            "slice": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": list(REQUIRED_SLICE_FIELDS),
+                "properties": {
+                    "slice_id": {"const": REVIEWABLE_FINDINGS_FIRST_SLICE_ID},
+                    "title": {"type": "string", "minLength": 1},
+                    "metric_family": {"type": "string", "minLength": 1},
+                    "description": {"type": "string", "minLength": 1},
+                },
+            },
+            "findings": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"$ref": "#/$defs/finding"},
+            },
+            "langchain_actions": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"$ref": "#/$defs/langchain_action"},
+            },
+            "total_candidate_findings": {"type": "integer", "minimum": 1},
+            "truncated": {"type": "boolean"},
         },
-        "findings": {
-            "required_fields": list(REQUIRED_FINDING_FIELDS),
-            "allowed_severity": sorted(ALLOWED_SEVERITIES),
-            "required_filter_fields": ["entity", "period", "metric_family", "confidence"],
-        },
-        "langchain_actions": {
-            "allowed_actions": sorted(ALLOWED_LANGCHAIN_ACTIONS),
-            "required_request_fields": ["action", "question", "finding_ids"],
-            "required_output_fields": [
-                "request_id",
-                "generated_at",
-                "summary",
-                "citations",
-                "artifact_path",
-            ],
+        "$defs": {
+            "finding": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": list(REQUIRED_FINDING_FIELDS),
+                "properties": {
+                    "finding_id": {"type": "string", "minLength": 1},
+                    "entity": {"type": "string", "minLength": 1},
+                    "period": {"type": "string", "minLength": 1},
+                    "metric_family": {"type": "string", "minLength": 1},
+                    "metric": {"type": "string", "minLength": 1},
+                    "value": {"type": "number"},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                    "severity": {"enum": sorted(ALLOWED_SEVERITIES)},
+                    "provenance_refs": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                    "citations": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                },
+            },
+            "langchain_action": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["action", "question", "finding_ids"],
+                "properties": {
+                    "action": {"enum": sorted(ALLOWED_LANGCHAIN_ACTIONS)},
+                    "question": {"type": "string", "minLength": 1},
+                    "finding_ids": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                },
+            },
         },
     }
 

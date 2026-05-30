@@ -44,9 +44,10 @@ def test_schema_file_matches_python_contract() -> None:
     schema = json.loads(schema_path.read_text())
 
     assert schema == reviewable_findings_schema()
-    assert schema["artifact_path"] == REVIEWABLE_FINDINGS_ARTIFACT_PATH
-    assert schema["slice"]["first_slice"] == "extraction_quality_dashboard"
-    assert "confidence" in schema["findings"]["required_filter_fields"]
+    assert schema["x-artifact-path"] == REVIEWABLE_FINDINGS_ARTIFACT_PATH
+    assert schema["x-first-slice"] == "extraction_quality_dashboard"
+    assert "confidence" in schema["x-required-filter-fields"]
+    assert "findings" in schema["required"]
 
 
 def test_cli_defaults_to_the_selected_first_artifact_slice() -> None:
@@ -67,9 +68,7 @@ def test_cli_rejects_unknown_slice_value() -> None:
 
 
 def test_langchain_required_output_fields_are_non_empty_and_exposed() -> None:
-    required_output_fields = reviewable_findings_schema()["langchain_actions"][
-        "required_output_fields"
-    ]
+    required_output_fields = reviewable_findings_schema()["x-langchain-required-output-fields"]
     assert required_output_fields
     assert set(required_output_fields) == {
         "request_id",
@@ -98,9 +97,7 @@ def test_langchain_required_output_fields_are_non_empty_and_exposed() -> None:
 def test_langchain_required_output_fields_are_non_empty_in_recorded_outputs(
     recorded_output_path: Path,
 ) -> None:
-    required_output_fields = reviewable_findings_schema()["langchain_actions"][
-        "required_output_fields"
-    ]
+    required_output_fields = reviewable_findings_schema()["x-langchain-required-output-fields"]
     payload = json.loads(recorded_output_path.read_text(encoding="utf-8"))
 
     for field in required_output_fields:

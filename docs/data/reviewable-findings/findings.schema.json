@@ -1,8 +1,10 @@
 {
-  "artifact_type": "pension_data.reviewable_findings",
-  "schema_version": 1,
-  "artifact_path": "docs/data/reviewable-findings/extraction-quality-dashboard.json",
-  "required_artifact_fields": [
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pension-data/docs/data/reviewable-findings/findings.schema.json",
+  "title": "ReviewableFindingsArtifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
     "artifact_type",
     "schema_version",
     "artifact_id",
@@ -12,55 +14,190 @@
     "findings",
     "langchain_actions"
   ],
-  "slice": {
-    "required_fields": [
-      "slice_id",
-      "title",
-      "metric_family",
-      "description"
-    ],
-    "first_slice": "extraction_quality_dashboard"
+  "x-artifact-path": "docs/data/reviewable-findings/extraction-quality-dashboard.json",
+  "x-first-slice": "extraction_quality_dashboard",
+  "x-required-filter-fields": [
+    "entity",
+    "period",
+    "metric_family",
+    "confidence"
+  ],
+  "x-langchain-required-output-fields": [
+    "request_id",
+    "generated_at",
+    "summary",
+    "citations",
+    "artifact_path"
+  ],
+  "properties": {
+    "artifact_type": {
+      "const": "pension_data.reviewable_findings"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "artifact_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_artifact_ids": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "slice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slice_id",
+        "title",
+        "metric_family",
+        "description"
+      ],
+      "properties": {
+        "slice_id": {
+          "const": "extraction_quality_dashboard"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metric_family": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "langchain_actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/langchain_action"
+      }
+    },
+    "total_candidate_findings": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "truncated": {
+      "type": "boolean"
+    }
   },
-  "findings": {
-    "required_fields": [
-      "finding_id",
-      "entity",
-      "period",
-      "metric_family",
-      "metric",
-      "value",
-      "confidence",
-      "provenance_refs",
-      "citations"
-    ],
-    "allowed_severity": [
-      "blocker",
-      "info",
-      "warning"
-    ],
-    "required_filter_fields": [
-      "entity",
-      "period",
-      "metric_family",
-      "confidence"
-    ]
-  },
-  "langchain_actions": {
-    "allowed_actions": [
-      "compare",
-      "explain"
-    ],
-    "required_request_fields": [
-      "action",
-      "question",
-      "finding_ids"
-    ],
-    "required_output_fields": [
-      "request_id",
-      "generated_at",
-      "summary",
-      "citations",
-      "artifact_path"
-    ]
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding_id",
+        "entity",
+        "period",
+        "metric_family",
+        "metric",
+        "value",
+        "confidence",
+        "provenance_refs",
+        "citations"
+      ],
+      "properties": {
+        "finding_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "period": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metric_family": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metric": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "number"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "severity": {
+          "enum": [
+            "blocker",
+            "info",
+            "warning"
+          ]
+        },
+        "provenance_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "langchain_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "question",
+        "finding_ids"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "compare",
+            "explain"
+          ]
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "finding_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
   }
 }
