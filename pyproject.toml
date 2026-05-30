@@ -106,6 +106,7 @@ known-first-party = ["pension_data", "tools"]
 
 [tool.mypy]
 python_version = "3.12"
+files = ["src"]
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -116,10 +117,6 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 show_error_codes = true
-
-[[tool.mypy.overrides]]
-module = "tests.*"
-disallow_untyped_defs = false
 
 [tool.black]
 line-length = 100
