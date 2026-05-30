@@ -4,21 +4,24 @@ This guide describes the browser-only mode for Pension-Data in locked-down PC en
 
 ## Overview
 
-- Delivery model: static web app assets served from Cloudflare Pages.
+- Delivery model: static web app assets served from Cloudflare Pages for synthetic demo data only.
 - Optional install: Progressive Web App (PWA) install where enterprise policy allows it.
 - No required local binary installs for browser mode.
+- Real extracted pension data is served only from the in-perimeter host, not from Cloudflare Pages.
 
 ## Data Flow
 
 1. Browser downloads static assets (`index.html`, `app.js`, `styles.css`, manifest, service worker).
-2. Browser loads workspace data bundle from `apps/web/data/workspace.json` (or user-selected local JSON file). The checked-in bundle is labeled `data_origin: fixture` and is demo data only.
+2. Browser loads the checked-in workspace data bundle from `apps/web/data/workspace.json`. The Cloudflare Pages bundle must be labeled `data_origin: fixture` and is synthetic demo data only.
 3. Analysis/filtering/chart rendering run client-side in the browser session.
 4. Optional exports (CSV, JSON, PNG, SVG, HTML) are generated client-side and downloaded by the user.
+5. Real or generated pension data is loaded only through a separate in-perimeter host or a user-selected local JSON file; Pages must not carry proprietary data outside the organization boundary.
 
 ## Auth and Access
 
 - Recommended deployment posture: Cloudflare Access in front of Pages deployment.
 - Access control is managed in Cloudflare Zero Trust policies, not in browser local scripts.
+- Cloudflare Access protects the synthetic demo surface; it is not approval to upload real or generated pension data to Pages.
 - No additional privileged local service is required.
 
 ## Local Storage and Retention
@@ -60,4 +63,4 @@ Retention behavior:
 - [ ] Confirm handling expectations for downloaded exports (CSV/JSON/PNG/SVG/HTML).
 - [ ] Confirm whether PWA install is allowed or blocked by policy.
 - [ ] Confirm offline usage expectations and local cache clearing policy.
-- [ ] Confirm reviewers understand the packaged bundle is fixture-only until generated artifacts are supplied.
+- [ ] Confirm reviewers understand the Pages deployment is fixture-only / demo data only; real artifacts require the in-perimeter host.

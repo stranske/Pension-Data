@@ -100,8 +100,24 @@ jobs:
           )
           PY
 
+      - name: Refuse non-synthetic Pages bundle
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          workspace_path = Path("apps/web/data/workspace.json")
+          workspace = json.loads(workspace_path.read_text(encoding="utf-8"))
+          data_origin = workspace.get("data_origin")
+          if data_origin != "fixture":
+              raise SystemExit(
+                  "Refusing to deploy non-synthetic bundle to external Cloudflare Pages; "
+                  "real data must use the in-perimeter host (see companion issue)."
+              )
+          PY
+
       - name: Smoke check with runtime config
-        run: python scripts/web/smoke_test.py --base-dir apps/web --require-runtime
+        run: python scripts/web/smoke_test.py --base-dir apps/web
 
       - name: Deploy to Cloudflare Pages
         id: deploy

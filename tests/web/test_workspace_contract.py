@@ -163,9 +163,17 @@ def test_ui_surfaces_fixture_origin_marker() -> None:
     assert "data_origin" in app
 
 
-def test_web_workflow_invokes_local_runtime_and_remote_smoke_checks() -> None:
+def test_web_workflow_keeps_cloudflare_pages_fixture_only() -> None:
     workflow = WEB_WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "python scripts/web/smoke_test.py --base-dir apps/web" in workflow
-    assert "python scripts/web/smoke_test.py --base-dir apps/web --require-runtime" in workflow
+    deploy_section = workflow.split("deploy-pages:", maxsplit=1)[1]
+    assert "Refuse non-synthetic Pages bundle" in deploy_section
+    assert "Refusing to deploy non-synthetic bundle to external Cloudflare Pages" in deploy_section
+    assert 'data_origin != "fixture"' in deploy_section
+    assert "run: python scripts/web/smoke_test.py --base-dir apps/web\n" in deploy_section
+    assert (
+        "python scripts/web/smoke_test.py --base-dir apps/web --require-runtime"
+        not in deploy_section
+    )
     assert "--expect-runtime" in workflow

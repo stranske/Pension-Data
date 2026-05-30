@@ -25,34 +25,42 @@ Set repository variables:
 - `PENSION_DATA_ARTIFACT_BASE_URL`: Base URL for artifacts.
 - `PENSION_DATA_ENVIRONMENT_LABEL`: Environment label shown in UI (for example `prod-private`).
 
-## 3. Cloudflare Access Policy (Private Usage)
+## 3. Data Classification
+
+Cloudflare Pages is an external SaaS target and may serve only the checked-in fixture
+bundle (`data_origin: fixture`). Treat this deployment as a synthetic demo surface.
+Do not upload generated or live pension data to Pages; real extracted data belongs on
+the companion in-perimeter host.
+
+## 4. Cloudflare Access Policy (Private Usage)
 
 1. In Cloudflare Zero Trust, add an Access application for the Pages domain.
 2. Define allow policy by identity provider, email domain, or group.
 3. Add explicit deny rules for anonymous access.
 4. Test with one allowed and one blocked account before production cutover.
 
-## 4. Deployment Workflow
+## 5. Deployment Workflow
 
 Workflow: `.github/workflows/web-cloudflare-pages.yml`
 
 - Pull requests run local smoke checks only.
 - Pushes to `main` run smoke checks and deploy to Cloudflare Pages.
 - Deploy job writes `apps/web/config/runtime.json` from repository variables.
-- Runtime-required smoke checks reject `data_origin: fixture`; deploy-time bundles must be generated or live before production review.
+- Deploy job fails before `cloudflare/pages-action` if `apps/web/data/workspace.json` is not `data_origin: fixture`.
+- The deploy-time smoke check validates the fixture bundle and runtime config without `--require-runtime`, because this public target is synthetic/demo data only.
 
-## 5. Rollback Procedure
+## 6. Rollback Procedure
 
 1. Open Cloudflare Pages and select last known good deployment.
 2. Promote that deployment as active.
 3. If code rollback is required, revert the merge commit and push to `main`.
 4. Confirm runtime config values still match expected environment URLs.
 
-## 6. Verification
+## 7. Verification
 
 - Check workflow summary for successful smoke and deploy jobs.
 - Open deployed URL and confirm:
   - Environment badge is populated.
   - API and artifact endpoints show expected values.
-  - Data origin badge does not show `Demo data - not live` for runtime-required deployments.
+  - Data origin badge shows the fixture/demo classification for the Pages deployment.
   - Access policy blocks unauthorized users.
