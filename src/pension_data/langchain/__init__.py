@@ -34,6 +34,7 @@ from pension_data.langchain.review_artifact import (
     REVIEWABLE_FINDINGS_SCHEMA_PATH,
     REVIEWABLE_FINDINGS_SCHEMA_VERSION,
     ReviewableFindingsArtifactError,
+    minimal_findings_json_schema,
     reviewable_findings_schema,
     validate_reviewable_findings_artifact,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "configure_langsmith_env",
     "create_llm",
     "langsmith_tracing_context",
+    "minimal_findings_json_schema",
     "reviewable_findings_schema",
     "resolve_provider_config",
     "resolve_trace_url",

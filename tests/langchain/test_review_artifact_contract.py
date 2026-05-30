@@ -20,6 +20,7 @@ from pension_data.langchain.review_artifact import (
     REVIEWABLE_FINDINGS_SCHEMA_PATH,
     ReviewableFindingsArtifactError,
     build_extraction_quality_dashboard_artifact,
+    minimal_findings_json_schema,
     reviewable_findings_schema,
     validate_reviewable_findings_artifact,
     write_reviewable_findings_artifact,
@@ -47,6 +48,20 @@ def test_schema_file_matches_python_contract() -> None:
     assert schema["artifact_path"] == REVIEWABLE_FINDINGS_ARTIFACT_PATH
     assert schema["slice"]["first_slice"] == "extraction_quality_dashboard"
     assert "confidence" in schema["findings"]["required_filter_fields"]
+    assert schema["minimal_findings_json_schema"] == minimal_findings_json_schema()
+
+
+def test_minimal_findings_schema_includes_ui_and_explainer_required_fields() -> None:
+    minimal_schema = minimal_findings_json_schema()
+    required_fields = set(minimal_schema["required_fields"])
+    assert {
+        "entity",
+        "period",
+        "metric_family",
+        "confidence",
+        "provenance_refs",
+        "citations",
+    } <= required_fields
 
 
 def test_cli_defaults_to_the_selected_first_artifact_slice() -> None:
