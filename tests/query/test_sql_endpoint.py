@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -27,7 +29,9 @@ def _seed_connection(*, rows: int = 5) -> sqlite3.Connection:
     return connection
 
 
-def test_sql_endpoint_returns_standardized_success_envelope_and_audit_log() -> None:
+def test_sql_endpoint_returns_standardized_success_envelope_and_audit_log(
+    tmp_path: Path,
+) -> None:
     key_store = APIKeyStore()
     secret, record = key_store.create_key(scopes=(SCOPE_QUERY,), label="analyst")
     connection = _seed_connection(rows=5)
@@ -44,6 +48,7 @@ def test_sql_endpoint_returns_standardized_success_envelope_and_audit_log() -> N
                 max_rows=50,
             ),
             audit_log_store=audit_logs,
+            run_record_root=tmp_path / "run-records",
         )
     finally:
         connection.close()
@@ -65,6 +70,38 @@ def test_sql_endpoint_returns_standardized_success_envelope_and_audit_log() -> N
     assert result.audit_event["operation"] == "query.run"
     assert result.audit_event["api_key_id"] == record.key_id
     assert result.audit_event["query_status"] == "ok"
+
+
+def test_sql_endpoint_writes_run_record_with_null_cost(tmp_path: Path) -> None:
+    artifact_root = tmp_path
+    key_store = APIKeyStore()
+    secret, record = key_store.create_key(scopes=(SCOPE_QUERY,), label="analyst")
+    connection = _seed_connection(rows=3)
+    try:
+        result = run_sql_query_endpoint(
+            api_key_header=secret,
+            key_store=key_store,
+            connection=connection,
+            request=SQLQueryRequest(
+                sql="SELECT id, metric, value FROM sample_metrics ORDER BY id",
+                page=1,
+                page_size=2,
+                max_rows=50,
+            ),
+            run_record_root=artifact_root,
+        )
+    finally:
+        connection.close()
+
+    record_path = next((artifact_root / "query" / "sql_runs" / "runs").glob("*.json"))
+    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    assert payload["run_id"] == result.response.metadata.query_id
+    assert payload["who"]["key_id"] == record.key_id
+    assert payload["who"]["required_scope"] == SCOPE_QUERY
+    assert payload["executed_sql"] == "SELECT id, metric, value FROM sample_metrics ORDER BY id"
+    assert payload["row_count"] == 2
+    assert payload["rows_artifact"]["row_count"] == 2
+    assert payload["cost"] is None
 
 
 def test_sql_endpoint_rejects_unauthorized_scope() -> None:

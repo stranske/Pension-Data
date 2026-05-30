@@ -3,6 +3,10 @@
 Last reviewed: 2026-03-03
 Related issue: #129
 
+Related contracts:
+
+- [Query Run Record Contract](query-run-record-contract.md)
+
 ## Input Contract
 
 `SourceDocumentJobItem` fields:

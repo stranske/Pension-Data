@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
@@ -14,11 +15,15 @@ from pension_data.langchain.observability import (
     NLOperationLogEntry,
     append_nl_operation_log,
     build_nl_operation_log_entry,
+    build_nl_query_run_record,
     default_nl_log_path,
     load_nl_operation_logs,
+    persist_nl_query_run_record,
     replay_logged_request,
+    replay_run_record,
     summarize_nl_operation_logs,
 )
+from pension_data.query.run_record import QueryRunArtifact
 from pension_data.query.sql_safety import SQLSafetyPolicy
 
 
@@ -83,6 +88,50 @@ def _sample_policy() -> SQLSafetyPolicy:
         max_rows=10,
         max_timeout_ms=2_000,
     )
+
+
+def _provenance_policy() -> SQLSafetyPolicy:
+    return SQLSafetyPolicy(
+        allowed_relations=("sample_metrics",),
+        allowed_columns=(
+            "id",
+            "metric",
+            "value",
+            "source_document_id",
+            "evidence_refs",
+            "confidence",
+        ),
+        banned_clauses=(),
+        max_rows=10,
+        max_timeout_ms=2_000,
+        require_source_document_id=True,
+    )
+
+
+def _seed_provenance_connection() -> sqlite3.Connection:
+    connection = sqlite3.connect(":memory:")
+    connection.execute("""
+        CREATE TABLE sample_metrics (
+            id INTEGER PRIMARY KEY,
+            metric TEXT NOT NULL,
+            value REAL NOT NULL,
+            source_document_id TEXT NOT NULL,
+            evidence_refs TEXT NOT NULL,
+            confidence REAL NOT NULL
+        )
+        """)
+    connection.executemany(
+        """
+        INSERT INTO sample_metrics (
+            id, metric, value, source_document_id, evidence_refs, confidence
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (1, "funded_ratio", 0.79, "doc-001", "page:3,row:12", 0.91),
+            (2, "funded_ratio", 0.81, "doc-002", "page:4,row:6", 0.94),
+        ],
+    )
+    return connection
 
 
 def test_append_log_enforces_retention(tmp_path: Path) -> None:
@@ -152,6 +201,124 @@ def test_replay_logged_request_uses_logged_sql() -> None:
     assert replayed.sql == response.sql
 
 
+def test_nl_query_run_record_captures_full_run_and_is_byte_stable() -> None:
+    connection = _seed_provenance_connection()
+    try:
+        request = _sample_request()
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=request,
+            chain=_StaticChain(
+                {
+                    "sql": (
+                        "SELECT id, value, source_document_id, evidence_refs, confidence "
+                        "FROM sample_metrics WHERE metric = 'funded_ratio' ORDER BY id"
+                    ),
+                    "usage": {
+                        "prompt_tokens": 41,
+                        "completion_tokens": 12,
+                        "total_tokens": 53,
+                        "cost_usd": 0.00031,
+                    },
+                }
+            ),
+            policy=_provenance_policy(),
+        )
+    finally:
+        connection.close()
+
+    rows_artifact = QueryRunArtifact(
+        name="nl-query-rows",
+        path="langchain/nl_runs/rows/fixed.json",
+        content_type="application/json",
+        row_count=response.metadata.returned_rows,
+    )
+    record = build_nl_query_run_record(
+        request=request,
+        response=response,
+        key_id="key:test",
+        scopes=(SCOPE_NL,),
+        required_scope=SCOPE_NL,
+        correlation_id="corr:test",
+        rows_artifact=rows_artifact,
+    )
+    rebuilt = build_nl_query_run_record(
+        request=request,
+        response=response,
+        key_id="key:test",
+        scopes=(SCOPE_NL,),
+        required_scope=SCOPE_NL,
+        correlation_id="corr:test",
+        rows_artifact=rows_artifact,
+    )
+
+    payload = record.to_dict()
+    assert payload["who"] == {
+        "key_id": "key:test",
+        "scopes": [SCOPE_NL],
+        "required_scope": SCOPE_NL,
+        "correlation_id": "corr:test",
+    }
+    assert payload["inputs"]["question"] == "Show funded ratio values by id"
+    assert payload["generated_sql"] == response.sql
+    assert payload["rows_artifact"]["path"] == "langchain/nl_runs/rows/fixed.json"
+    assert payload["provenance"][0]["source_document_id"] == "doc-001"
+    assert payload["warnings"] == []
+    assert payload["error"] is None
+    assert payload["duration_ms"] >= 0
+    assert payload["cost"] == {
+        "prompt_tokens": 41,
+        "completion_tokens": 12,
+        "total_tokens": 53,
+        "cost_usd": 0.00031,
+    }
+    assert json.dumps(payload, sort_keys=True) == json.dumps(rebuilt.to_dict(), sort_keys=True)
+
+
+def test_replay_run_record_reconstructs_rows_and_provenance(tmp_path: Path) -> None:
+    connection = _seed_provenance_connection()
+    try:
+        request = _sample_request()
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=request,
+            chain=_StaticChain(
+                {
+                    "sql": (
+                        "SELECT id, value, source_document_id, evidence_refs, confidence "
+                        "FROM sample_metrics WHERE metric = 'funded_ratio' ORDER BY id"
+                    ),
+                    "token_usage": {"input_tokens": 20, "output_tokens": 5},
+                }
+            ),
+            policy=_provenance_policy(),
+        )
+    finally:
+        connection.close()
+
+    persist_nl_query_run_record(
+        request=request,
+        response=response,
+        key_id="key:test",
+        scopes=(SCOPE_NL,),
+        required_scope=SCOPE_NL,
+        correlation_id="corr:test",
+        root=tmp_path,
+    )
+    record_path = next((tmp_path / "langchain" / "nl_runs" / "runs").glob("*.json"))
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    replayed = replay_run_record(record=record, root=tmp_path)
+
+    assert replayed.rows == response.rows
+    assert replayed.provenance == response.provenance
+    assert replayed.metadata.cost == {
+        "prompt_tokens": 20,
+        "completion_tokens": 5,
+        "total_tokens": 25,
+        "cost_usd": None,
+    }
+
+
 def test_nl_route_emits_structured_log_entry(tmp_path: Path) -> None:
     key_store = APIKeyStore()
     secret, _ = key_store.create_key(scopes=(SCOPE_NL,))
@@ -170,6 +337,7 @@ def test_nl_route_emits_structured_log_entry(tmp_path: Path) -> None:
             model="gpt-4o-mini",
             correlation_id="corr:unit-test",
             log_path=log_path,
+            run_record_root=tmp_path / "run-records",
             event={"request_origin": "unit-test"},
             policy=_sample_policy(),
         )
@@ -218,6 +386,7 @@ def test_nl_route_logging_failure_does_not_break_endpoint(tmp_path: Path) -> Non
             provider="openai",
             model="gpt-4o-mini",
             log_path=bad_log_path,
+            run_record_root=tmp_path / "run-records",
             policy=_sample_policy(),
         )
     finally:

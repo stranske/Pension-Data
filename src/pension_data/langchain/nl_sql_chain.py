@@ -93,6 +93,7 @@ class NLToSQLMetadata:
     duration_ms: int
     returned_rows: int
     trace_event_count: int
+    cost: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +204,53 @@ def _extract_sql(generated: str | Mapping[str, Any]) -> str:
     if not isinstance(sql, str):
         raise ValueError("chain output must include a string `sql` field")
     return sql
+
+
+def _extract_cost(generated: str | Mapping[str, Any]) -> Mapping[str, Any] | None:
+    if isinstance(generated, str):
+        return None
+    usage = generated.get("usage") or generated.get("token_usage")
+    if not isinstance(usage, Mapping):
+        usage = generated
+    prompt_tokens = _safe_int(
+        usage.get("prompt_tokens") or usage.get("input_tokens") or usage.get("prompt_token_count")
+    )
+    completion_tokens = _safe_int(
+        usage.get("completion_tokens")
+        or usage.get("output_tokens")
+        or usage.get("completion_token_count")
+    )
+    total_tokens = _safe_int(usage.get("total_tokens") or usage.get("total_token_count"))
+    if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+        total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+    cost_usd = _safe_float(usage.get("cost_usd") or generated.get("cost_usd"))
+    if (
+        prompt_tokens is None
+        and completion_tokens is None
+        and total_tokens is None
+        and cost_usd is None
+    ):
+        return None
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cost_usd": cost_usd,
+    }
+
+
+def _safe_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        token = value.strip()
+        if token.isdigit():
+            return int(token)
+    return None
 
 
 def _safe_float(value: Any) -> float | None:
@@ -316,6 +364,7 @@ def run_nl_sql_chain(
         rows: tuple[tuple[Any, ...], ...],
         provenance: tuple[NLToSQLProvenanceRow, ...],
         error: NLToSQLError | None,
+        cost: Mapping[str, Any] | None = None,
     ) -> NLToSQLResponse:
         duration_ms = max(0, int(round((perf_counter() - started) * 1000)))
         return NLToSQLResponse(
@@ -329,6 +378,7 @@ def run_nl_sql_chain(
                 duration_ms=duration_ms,
                 returned_rows=len(rows),
                 trace_event_count=len(emitted_events),
+                cost=cost,
             ),
             error=error,
         )
@@ -369,6 +419,7 @@ def run_nl_sql_chain(
             question = validate_nl_prompt(request.question)
 
             generated = chain.invoke({"question": question, "dialect": "sqlite"})
+            cost = _extract_cost(generated)
             sql = _extract_sql(generated)
             _emit_trace(
                 trace_sink,
@@ -429,6 +480,7 @@ def run_nl_sql_chain(
                 rows=fetched,
                 provenance=provenance,
                 error=None,
+                cost=cost,
             )
         except Exception as exc:  # noqa: BLE001
             if isinstance(exc, sqlite3.OperationalError) and "interrupted" in str(exc).lower():
