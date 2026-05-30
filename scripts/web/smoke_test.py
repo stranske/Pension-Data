@@ -42,7 +42,11 @@ def _assert_config(payload: dict[str, object], *, path_label: str) -> None:
 
 
 def _assert_workspace_bundle(
-    payload: dict[str, object], *, path_label: str, reject_fixture: bool
+    payload: dict[str, object],
+    *,
+    path_label: str,
+    reject_fixture: bool,
+    require_fixture: bool = False,
 ) -> str:
     contract = _load_runtime_contract()
     contract_version = payload.get("contractVersion")
@@ -58,6 +62,10 @@ def _assert_workspace_bundle(
     if not isinstance(data_origin, str) or data_origin not in data_origins:
         raise ValueError(
             f"workspace bundle requires data_origin of {', '.join(sorted(data_origins))} in {path_label}"
+        )
+    if require_fixture and data_origin != "fixture":
+        raise ValueError(
+            f"Refusing to deploy non-synthetic bundle to external Cloudflare Pages: {path_label}"
         )
     if reject_fixture and data_origin == "fixture":
         raise ValueError(f"fixture workspace bundle is not allowed for runtime smoke: {path_label}")
@@ -108,7 +116,7 @@ def _allowed_data_origins(contract: dict[str, object]) -> frozenset[str]:
     return frozenset(normalized)
 
 
-def _smoke_local(base_dir: Path, *, require_runtime: bool) -> None:
+def _smoke_local(base_dir: Path, *, require_runtime: bool, require_fixture: bool = False) -> None:
     for relative_path in REQUIRED_LOCAL_FILES:
         if not (base_dir / relative_path).exists():
             raise ValueError(f"missing required file: {base_dir / relative_path}")
@@ -137,6 +145,7 @@ def _smoke_local(base_dir: Path, *, require_runtime: bool) -> None:
         workspace_payload,
         path_label="data/workspace.json",
         reject_fixture=require_runtime,
+        require_fixture=require_fixture,
     )
 
     runtime_path = base_dir / "config/runtime.json"
@@ -229,6 +238,11 @@ def parse_args() -> argparse.Namespace:
         help="Require runtime config file for local checks.",
     )
     parser.add_argument(
+        "--require-fixture",
+        action="store_true",
+        help="Refuse local bundles unless data_origin is fixture.",
+    )
+    parser.add_argument(
         "--expect-runtime",
         action="store_true",
         help="Require runtime config endpoint for remote checks.",
@@ -248,7 +262,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    _smoke_local(args.base_dir, require_runtime=args.require_runtime)
+    _smoke_local(
+        args.base_dir,
+        require_runtime=args.require_runtime,
+        require_fixture=args.require_fixture,
+    )
     if args.url:
         headers: dict[str, str] = {}
         if args.cf_access_client_id and args.cf_access_client_secret:
