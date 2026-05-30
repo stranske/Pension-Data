@@ -28,6 +28,9 @@ Open `apps/web/index.html` in a browser or run a static file server.
   (enabled only for local contexts or when `enableQueryOverrides=true` in config)
 - Workspace bundle contract: `apps/contracts/runtime-contract.json` (versioned contract shared with desktop shell)
 - Workspace bundles must declare `data_origin` as `fixture`, `generated`, or `live`; runtime/deploy smoke checks reject fixture bundles for runtime-required paths.
+- Build a generated review-artifact bundle from a one-PDF pilot run with
+  `python scripts/web/build_workspace_bundle.py --pilot-run-dir <run-dir> --out apps/web/data/workspace.json`.
+  The generator reads `run_manifest.json` and `staging_core_metrics.json`, emits `data_origin: "generated"`, and validates the bundle before writing.
 
 ## Zero-Install Usage
 
