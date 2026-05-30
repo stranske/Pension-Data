@@ -6,8 +6,8 @@ import argparse
 import sys
 
 from pension_data.langchain.review_artifact import (
-    REVIEWABLE_FINDINGS_FIRST_SLICE_ID,
     REVIEWABLE_FINDINGS_ARTIFACT_PATH,
+    REVIEWABLE_FINDINGS_FIRST_SLICE_ID,
     ReviewableFindingsArtifactError,
     build_extraction_quality_dashboard_artifact,
     write_reviewable_findings_artifact,
