@@ -240,6 +240,13 @@ def test_docs_pin_the_published_artifact_path_and_contract() -> None:
         assert "extraction_quality_dashboard" in text
 
 
+def test_docs_data_readme_pins_generator_command_and_path() -> None:
+    readme_path = REPO_ROOT / "docs/data/reviewable-findings/README.md"
+    text = readme_path.read_text(encoding="utf-8")
+    assert "uv run reviewable-findings-artifact" in text
+    assert REVIEWABLE_FINDINGS_ARTIFACT_PATH in text
+
+
 def test_published_artifact_path_contains_valid_contract_payload() -> None:
     artifact_path = REPO_ROOT / REVIEWABLE_FINDINGS_ARTIFACT_PATH
     artifact = json.loads(artifact_path.read_text())
