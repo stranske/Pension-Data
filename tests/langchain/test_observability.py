@@ -319,6 +319,47 @@ def test_replay_run_record_reconstructs_rows_and_provenance(tmp_path: Path) -> N
     }
 
 
+def test_nl_error_run_record_preserves_provider_usage_metadata(tmp_path: Path) -> None:
+    key_store = APIKeyStore()
+    secret, _ = key_store.create_key(scopes=(SCOPE_NL,), label="analyst")
+    connection = _seed_connection()
+    try:
+        result = run_nl_query_endpoint(
+            api_key_header=secret,
+            key_store=key_store,
+            connection=connection,
+            request=_sample_request(),
+            chain=_StaticChain(
+                {
+                    "sql": "DELETE FROM sample_metrics WHERE id = 1",
+                    "usage": {"prompt_tokens": 9, "completion_tokens": 3, "cost_usd": "0.0002"},
+                }
+            ),
+            policy=_sample_policy(),
+            run_record_root=tmp_path,
+        )
+    finally:
+        connection.close()
+
+    assert result.response.status == "error"
+    assert result.response.metadata.cost == {
+        "prompt_tokens": 9,
+        "completion_tokens": 3,
+        "total_tokens": 12,
+        "cost_usd": 0.0002,
+    }
+
+    record_path = next((tmp_path / "langchain" / "nl_runs" / "runs").glob("*.json"))
+    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "error"
+    assert payload["cost"] == {
+        "prompt_tokens": 9,
+        "completion_tokens": 3,
+        "total_tokens": 12,
+        "cost_usd": 0.0002,
+    }
+
+
 def test_nl_route_emits_structured_log_entry(tmp_path: Path) -> None:
     key_store = APIKeyStore()
     secret, _ = key_store.create_key(scopes=(SCOPE_NL,))

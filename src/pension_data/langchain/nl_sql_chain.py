@@ -395,6 +395,7 @@ def run_nl_sql_chain(
         },
     ):
         sql: str | None = None
+        cost: Mapping[str, Any] | None = None
         active_policy = policy or default_nl_query_policy()
         _emit_trace(
             trace_sink,
@@ -503,6 +504,7 @@ def run_nl_sql_chain(
                 rows=(),
                 provenance=(),
                 error=NLToSQLError(code=_error_code(exc), message=str(exc)),
+                cost=cost,
             )
         finally:
             _clear_timeout_handler(connection)
