@@ -115,7 +115,9 @@ def test_sql_endpoint_writes_run_record_with_null_cost(tmp_path: Path) -> None:
     assert payload["who"]["scopes"] == [SCOPE_QUERY]
     assert payload["who"]["required_scope"] == SCOPE_QUERY
     assert payload["who"]["correlation_id"] == "corr:sql-unit-test"
-    assert payload["executed_sql"] == "SELECT id, metric, value FROM sample_metrics ORDER BY id"
+    assert result.response.metadata.executed_sql is not None
+    assert result.response.metadata.executed_sql.startswith("SELECT * FROM (SELECT id, metric")
+    assert payload["executed_sql"] == result.response.metadata.executed_sql
     assert payload["row_count"] == 2
     assert payload["rows_artifact"]["row_count"] == 2
     assert payload["rows_artifact"]["path"].startswith("query/sql_runs/rows/")

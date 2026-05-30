@@ -127,7 +127,7 @@ def _persist_sql_query_run_record(
             "max_rows": request.max_rows,
         },
         generated_sql=None,
-        executed_sql=request.sql,
+        executed_sql=response.metadata.executed_sql,
         columns=response.columns,
         row_count=response.metadata.returned_rows,
         rows_artifact=rows_artifact,

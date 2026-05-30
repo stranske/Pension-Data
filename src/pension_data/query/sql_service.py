@@ -65,6 +65,7 @@ class SQLQueryMetadata:
     """Execution metadata included for successful and failed responses."""
 
     query_id: str
+    executed_sql: str | None
     page: int
     page_size: int
     returned_rows: int
@@ -388,7 +389,7 @@ def _build_sql_execution_run_record(
             "max_rows": request.max_rows,
         },
         generated_sql=None,
-        executed_sql=request.sql,
+        executed_sql=response.metadata.executed_sql,
         columns=response.columns,
         row_count=response.metadata.returned_rows,
         rows_artifact=rows_artifact,
@@ -435,10 +436,12 @@ def execute_sql_query(
         rows: tuple[tuple[Any, ...], ...],
         total_rows: int | None,
         error: SQLQueryError | None,
+        executed_sql: str | None,
     ) -> SQLQueryResponse:
         duration_ms = max(0, int(round((clock() - start) * 1000)))
         metadata = SQLQueryMetadata(
             query_id=query_id,
+            executed_sql=executed_sql,
             page=request.page,
             page_size=request.page_size,
             returned_rows=len(rows),
@@ -506,11 +509,13 @@ def execute_sql_query(
                 rows=(),
                 total_rows=total_rows,
                 error=None,
+                executed_sql=None,
             )
 
         page_limit = min(request.page_size, request.max_rows)
+        executed_sql = _paged_query(sql, params=params, dialect=dialect)
         page_cursor = connection.execute(
-            _paged_query(sql, params=params, dialect=dialect),
+            executed_sql,
             _paged_params(params, limit=page_limit, offset=offset),
         )
         columns = tuple(column[0] for column in (page_cursor.description or ()))
@@ -521,6 +526,7 @@ def execute_sql_query(
             rows=rows,
             total_rows=total_rows,
             error=None,
+            executed_sql=executed_sql,
         )
     except Exception as exc:  # noqa: BLE001
         if _is_timeout_exception(exc):
@@ -532,6 +538,7 @@ def execute_sql_query(
             rows=(),
             total_rows=None,
             error=error,
+            executed_sql=None,
         )
     finally:
         _clear_timeout_handler(connection, dialect=dialect)

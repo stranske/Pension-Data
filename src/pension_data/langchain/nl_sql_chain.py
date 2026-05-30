@@ -235,20 +235,26 @@ def _extract_cost(generated: str | Mapping[str, Any]) -> Mapping[str, Any] | Non
     for usage in usage_sources:
         if prompt_tokens is None:
             prompt_tokens = _safe_int(
-                usage.get("prompt_tokens")
-                or usage.get("input_tokens")
-                or usage.get("input_token_count")
-                or usage.get("prompt_token_count")
+                _first_present(
+                    usage,
+                    "prompt_tokens",
+                    "input_tokens",
+                    "input_token_count",
+                    "prompt_token_count",
+                )
             )
         if completion_tokens is None:
             completion_tokens = _safe_int(
-                usage.get("completion_tokens")
-                or usage.get("output_tokens")
-                or usage.get("output_token_count")
-                or usage.get("completion_token_count")
+                _first_present(
+                    usage,
+                    "completion_tokens",
+                    "output_tokens",
+                    "output_token_count",
+                    "completion_token_count",
+                )
             )
         if total_tokens is None:
-            total_tokens = _safe_int(usage.get("total_tokens") or usage.get("total_token_count"))
+            total_tokens = _safe_int(_first_present(usage, "total_tokens", "total_token_count"))
         if cost_usd is None:
             cost_usd = _safe_float(usage.get("cost_usd"))
     if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
@@ -266,6 +272,13 @@ def _extract_cost(generated: str | Mapping[str, Any]) -> Mapping[str, Any] | Non
         "total_tokens": total_tokens,
         "cost_usd": cost_usd,
     }
+
+
+def _first_present(mapping: Mapping[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in mapping:
+            return mapping[key]
+    return None
 
 
 def _safe_int(value: Any) -> int | None:
@@ -443,7 +456,7 @@ def run_nl_sql_chain(
                 )
             if request.timeout_ms > active_policy.max_timeout_ms:
                 raise NLRequestValidationError(
-                    "timeout_ms exceeds policy max_timeout_ms " f"({active_policy.max_timeout_ms})"
+                    f"timeout_ms exceeds policy max_timeout_ms ({active_policy.max_timeout_ms})"
                 )
             params = _normalize_params(request.params)
             question = validate_nl_prompt(request.question)

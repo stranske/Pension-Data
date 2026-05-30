@@ -381,6 +381,51 @@ def test_nl_error_run_record_preserves_provider_usage_metadata(tmp_path: Path) -
     }
 
 
+def test_nl_query_run_record_preserves_zero_usage_values(tmp_path: Path) -> None:
+    key_store = APIKeyStore()
+    secret, _ = key_store.create_key(scopes=(SCOPE_NL,), label="analyst")
+    connection = _seed_connection()
+    try:
+        result = run_nl_query_endpoint(
+            api_key_header=secret,
+            key_store=key_store,
+            connection=connection,
+            request=_sample_request(),
+            chain=_StaticChain(
+                {
+                    "sql": "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'",
+                    "usage": {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                        "cost_usd": 0,
+                    },
+                }
+            ),
+            policy=_sample_policy(),
+            run_record_root=tmp_path,
+        )
+    finally:
+        connection.close()
+
+    assert result.response.status == "ok"
+    assert result.response.metadata.cost == {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+    }
+
+    record_path = next((tmp_path / "langchain" / "nl_runs" / "runs").glob("*.json"))
+    payload = json.loads(record_path.read_text(encoding="utf-8"))
+    assert payload["cost"] == {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+    }
+
+
 def test_nl_route_persists_nested_provider_usage_and_replayable_rows_artifact(
     tmp_path: Path,
 ) -> None:
