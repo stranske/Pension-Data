@@ -47,6 +47,15 @@ REQUIRED_FINDING_FIELDS: tuple[str, ...] = (
     "provenance_refs",
     "citations",
 )
+MINIMAL_FINDING_FIELDS: tuple[str, ...] = (
+    "finding_id",
+    "entity",
+    "period",
+    "metric_family",
+    "confidence",
+    "provenance_refs",
+    "citations",
+)
 ALLOWED_SEVERITIES: frozenset[str] = frozenset({"info", "warning", "blocker"})
 ALLOWED_LANGCHAIN_ACTIONS: frozenset[str] = frozenset({"explain", "compare"})
 
@@ -57,6 +66,7 @@ class ReviewableFindingsArtifactError(ValueError):
 
 def reviewable_findings_schema() -> dict[str, object]:
     """Return the machine-readable contract for static UI and LangChain consumers."""
+    minimal_schema = minimal_findings_json_schema()
     return {
         "artifact_type": REVIEWABLE_FINDINGS_ARTIFACT_TYPE,
         "schema_version": REVIEWABLE_FINDINGS_SCHEMA_VERSION,
@@ -82,6 +92,16 @@ def reviewable_findings_schema() -> dict[str, object]:
                 "artifact_path",
             ],
         },
+        "minimal_findings_json_schema": minimal_schema,
+    }
+
+
+def minimal_findings_json_schema() -> dict[str, object]:
+    """Return the minimal finding fields consumed by static UI and LangChain explainers."""
+    return {
+        "required_fields": list(MINIMAL_FINDING_FIELDS),
+        "required_filter_fields": ["entity", "period", "metric_family", "confidence"],
+        "required_provenance_fields": ["provenance_refs", "citations"],
     }
 
 

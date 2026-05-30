@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import tomllib
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from pension_data.langchain.review_artifact import (
     REVIEWABLE_FINDINGS_SCHEMA_PATH,
     ReviewableFindingsArtifactError,
     build_extraction_quality_dashboard_artifact,
+    minimal_findings_json_schema,
     reviewable_findings_schema,
     validate_reviewable_findings_artifact,
     write_reviewable_findings_artifact,
@@ -47,6 +49,21 @@ def test_schema_file_matches_python_contract() -> None:
     assert schema["artifact_path"] == REVIEWABLE_FINDINGS_ARTIFACT_PATH
     assert schema["slice"]["first_slice"] == "extraction_quality_dashboard"
     assert "confidence" in schema["findings"]["required_filter_fields"]
+    assert schema["minimal_findings_json_schema"] == minimal_findings_json_schema()
+
+
+def test_minimal_findings_schema_includes_ui_and_explainer_required_fields() -> None:
+    minimal_schema = minimal_findings_json_schema()
+    required_fields = set(minimal_schema["required_fields"])
+    assert {
+        "finding_id",
+        "entity",
+        "period",
+        "metric_family",
+        "confidence",
+        "provenance_refs",
+        "citations",
+    } <= required_fields
 
 
 def test_cli_defaults_to_the_selected_first_artifact_slice() -> None:
@@ -64,6 +81,16 @@ def test_cli_rejects_unknown_slice_value() -> None:
         ),
     ):
         artifact_cli.parse_args()
+
+
+def test_pyproject_exposes_reviewable_findings_generator_command() -> None:
+    pyproject_path = REPO_ROOT / "pyproject.toml"
+    pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+
+    scripts = pyproject["project"]["scripts"]
+    assert scripts["reviewable-findings-artifact"] == (
+        "scripts.langchain.build_reviewable_findings_artifact:main"
+    )
 
 
 def test_langchain_required_output_fields_are_non_empty_and_exposed() -> None:
@@ -211,6 +238,13 @@ def test_docs_pin_the_published_artifact_path_and_contract() -> None:
         text = path.read_text()
         assert REVIEWABLE_FINDINGS_ARTIFACT_PATH in text
         assert "extraction_quality_dashboard" in text
+
+
+def test_docs_data_readme_pins_generator_command_and_path() -> None:
+    readme_path = REPO_ROOT / "docs/data/reviewable-findings/README.md"
+    text = readme_path.read_text(encoding="utf-8")
+    assert "uv run reviewable-findings-artifact" in text
+    assert REVIEWABLE_FINDINGS_ARTIFACT_PATH in text
 
 
 def test_published_artifact_path_contains_valid_contract_payload() -> None:

@@ -21,7 +21,9 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
+    "fastapi>=0.116.0",
     "pypdf>=5.4.0",
+    "uvicorn>=0.35.0",
 ]
 
 [project.optional-dependencies]
@@ -54,6 +56,8 @@ Repository = "https://github.com/stranske/Pension-Data"
 
 [project.scripts]
 one-pdf-pilot = "pension_data.ops.one_pdf_pilot_cli:main"
+pension-data-serve = "pension_data.api.app:run"
+reviewable-findings-artifact = "scripts.langchain.build_reviewable_findings_artifact:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -103,6 +107,7 @@ known-first-party = ["pension_data", "tools"]
 
 [tool.mypy]
 python_version = "3.12"
+files = ["src"]
 strict = true
 warn_return_any = true
 warn_unused_configs = true

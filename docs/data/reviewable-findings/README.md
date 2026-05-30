@@ -6,7 +6,8 @@ The first static UI and LangChain artifact slice is `extraction_quality_dashboar
 - Published artifact path: `docs/data/reviewable-findings/extraction-quality-dashboard.json`
 - Python contract helper: `pension_data.langchain.review_artifact.reviewable_findings_schema()`
 - Validator: `pension_data.langchain.review_artifact.validate_reviewable_findings_artifact(...)`
-- Generator command: `python scripts/langchain/build_reviewable_findings_artifact.py`
+- Generator command: `uv run reviewable-findings-artifact`
+- Direct script fallback: `python scripts/langchain/build_reviewable_findings_artifact.py`
 
 The generator reads real extraction persistence and readiness outputs and derives finding rows
 from that data. The required source artifact paths are passed as CLI arguments:

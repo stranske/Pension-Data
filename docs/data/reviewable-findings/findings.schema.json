@@ -62,5 +62,26 @@
       "citations",
       "artifact_path"
     ]
+  },
+  "minimal_findings_json_schema": {
+    "required_fields": [
+      "finding_id",
+      "entity",
+      "period",
+      "metric_family",
+      "confidence",
+      "provenance_refs",
+      "citations"
+    ],
+    "required_filter_fields": [
+      "entity",
+      "period",
+      "metric_family",
+      "confidence"
+    ],
+    "required_provenance_fields": [
+      "provenance_refs",
+      "citations"
+    ]
   }
 }
