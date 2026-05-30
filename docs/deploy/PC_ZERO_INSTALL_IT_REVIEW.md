@@ -5,6 +5,7 @@ This guide describes the browser-only mode for Pension-Data in locked-down PC en
 ## Overview
 
 - Delivery model: static web app assets served from Cloudflare Pages for synthetic demo data only.
+- Internal/on-prem serving model: `pension-data-serve` binds to `127.0.0.1` by default and serves the same browser assets plus deterministic API routes for real in-perimeter data.
 - Optional install: Progressive Web App (PWA) install where enterprise policy allows it.
 - No required local binary installs for browser mode.
 - Real extracted pension data is served only from the in-perimeter host, not from Cloudflare Pages.
@@ -16,6 +17,22 @@ This guide describes the browser-only mode for Pension-Data in locked-down PC en
 3. Analysis/filtering/chart rendering run client-side in the browser session.
 4. Optional exports (CSV, JSON, PNG, SVG, HTML) are generated client-side and downloaded by the user.
 5. Real or generated pension data is loaded only through a separate in-perimeter host or a user-selected local JSON file; Pages must not carry proprietary data outside the organization boundary.
+
+## Internal API Host
+
+Start the internal host from an approved workstation or server:
+
+```bash
+PENSION_DATA_DATA_ZONE=proprietary pension-data-serve
+curl http://127.0.0.1:8765/health
+```
+
+`GET /health` returns service readiness, `GET /config` returns the browser config
+keys (`environment`, `apiBaseUrl`, `artifactBaseUrl`), and deterministic routes
+such as `/api/saved-views/funding-trend` and `/api/metric-history/{entity_id}`
+run without LLM egress. LLM-backed NL/findings routes remain disabled in
+`proprietary` mode unless `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, or
+`PENSION_DATA_AUTHORIZED_LLM_BASE_URL` points at an authorized no-train proxy.
 
 ## Auth and Access
 
