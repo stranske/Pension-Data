@@ -11,7 +11,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = ROOT / "apps" / "web"
 SMOKE_PATH = ROOT / "scripts" / "web" / "smoke_test.py"
-WEB_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "web-cloudflare-pages.yml"
 
 spec = importlib.util.spec_from_file_location("web_smoke_test", SMOKE_PATH)
 assert spec is not None and spec.loader is not None
@@ -163,9 +162,15 @@ def test_ui_surfaces_fixture_origin_marker() -> None:
     assert "data_origin" in app
 
 
-def test_web_workflow_invokes_local_runtime_and_remote_smoke_checks() -> None:
-    workflow = WEB_WORKFLOW_PATH.read_text(encoding="utf-8")
+def test_fixture_guard_refuses_generated_bundle(tmp_path: Path) -> None:
+    base_dir = _copy_web_fixture(tmp_path)
+    workspace_path = base_dir / "data" / "workspace.json"
+    workspace = json.loads(workspace_path.read_text(encoding="utf-8"))
+    workspace["data_origin"] = "generated"
+    workspace_path.write_text(json.dumps(workspace), encoding="utf-8")
 
-    assert "python scripts/web/smoke_test.py --base-dir apps/web" in workflow
-    assert "python scripts/web/smoke_test.py --base-dir apps/web --require-runtime" in workflow
-    assert "--expect-runtime" in workflow
+    with pytest.raises(
+        ValueError,
+        match=r"Refusing to deploy non-synthetic bundle to external Cloudflare Pages: .*data/workspace\.json",
+    ):
+        web_smoke_test._smoke_local(base_dir, require_runtime=False, require_fixture=True)
