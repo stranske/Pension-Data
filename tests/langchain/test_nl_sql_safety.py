@@ -141,6 +141,35 @@ def test_nl_sql_chain_executes_read_only_sql_and_emits_langsmith_traces() -> Non
     assert traces.events[2].payload["read_only_status"] == "read_only"
 
 
+def test_nl_sql_chain_cost_uses_provider_usage_metadata_only() -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show funded ratio values by id", max_rows=10),
+            chain=StaticChain(
+                {
+                    "sql": "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'",
+                    "cost_usd": "999.99",
+                    "prompt_tokens": 999,
+                    "response_metadata": {"token_usage": {"prompt_tokens": 11, "output_tokens": 4}},
+                }
+            ),
+            trace_sink=InMemoryLangSmithTraceSink(events=[]),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "ok"
+    assert response.metadata.cost == {
+        "prompt_tokens": 11,
+        "completion_tokens": 4,
+        "total_tokens": 15,
+        "cost_usd": None,
+    }
+
+
 def test_nl_sql_chain_rejects_unsafe_generated_sql_and_emits_error_trace() -> None:
     connection = _seed_connection()
     traces = InMemoryLangSmithTraceSink(events=[])

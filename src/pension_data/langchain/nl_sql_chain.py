@@ -227,7 +227,6 @@ def _extract_cost(generated: str | Mapping[str, Any]) -> Mapping[str, Any] | Non
     usage_metadata = generated.get("usage_metadata")
     if isinstance(usage_metadata, Mapping):
         usage_sources.append(usage_metadata)
-    usage_sources.append(generated)
 
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
@@ -254,8 +253,6 @@ def _extract_cost(generated: str | Mapping[str, Any]) -> Mapping[str, Any] | Non
             cost_usd = _safe_float(usage.get("cost_usd"))
     if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
         total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
-    if cost_usd is None:
-        cost_usd = _safe_float(generated.get("cost_usd"))
     if (
         prompt_tokens is None
         and completion_tokens is None
