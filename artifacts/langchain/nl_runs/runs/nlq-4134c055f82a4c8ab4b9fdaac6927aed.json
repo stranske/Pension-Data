@@ -1,0 +1,58 @@
+{
+  "artifacts": [
+    {
+      "content_type": "application/json",
+      "name": "nl-query-rows",
+      "path": "langchain/nl_runs/rows/nlq-4134c055f82a4c8ab4b9fdaac6927aed.json",
+      "row_count": 2
+    }
+  ],
+  "columns": [
+    "id",
+    "value"
+  ],
+  "cost": null,
+  "duration_ms": 0,
+  "error": null,
+  "executed_sql": "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'",
+  "generated_sql": "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'",
+  "inputs": {
+    "max_rows": 10,
+    "params": null,
+    "question": "UNIQUE_QUESTION_SENTINEL_XYZ: what is the funded ratio for plan alpha?",
+    "timeout_ms": 2000
+  },
+  "provenance": [
+    {
+      "confidence": null,
+      "evidence_refs": [],
+      "row_index": 0,
+      "source_document_id": null
+    },
+    {
+      "confidence": null,
+      "evidence_refs": [],
+      "row_index": 1,
+      "source_document_id": null
+    }
+  ],
+  "row_count": 2,
+  "rows_artifact": {
+    "content_type": "application/json",
+    "name": "nl-query-rows",
+    "path": "langchain/nl_runs/rows/nlq-4134c055f82a4c8ab4b9fdaac6927aed.json",
+    "row_count": 2
+  },
+  "run_id": "nlq:4134c055f82a4c8ab4b9fdaac6927aed",
+  "status": "ok",
+  "surface": "nl",
+  "warnings": [],
+  "who": {
+    "correlation_id": "nlq:4134c055f82a4c8ab4b9fdaac6927aed",
+    "key_id": "key_d5e5d267847f8c8b",
+    "required_scope": "nl:query",
+    "scopes": [
+      "nl:query"
+    ]
+  }
+}

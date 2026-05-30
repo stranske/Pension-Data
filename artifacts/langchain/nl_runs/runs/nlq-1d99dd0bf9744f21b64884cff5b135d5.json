@@ -1,0 +1,58 @@
+{
+  "artifacts": [
+    {
+      "content_type": "application/json",
+      "name": "nl-query-rows",
+      "path": "langchain/nl_runs/rows/nlq-1d99dd0bf9744f21b64884cff5b135d5.json",
+      "row_count": 2
+    }
+  ],
+  "columns": [
+    "id",
+    "value"
+  ],
+  "cost": null,
+  "duration_ms": 0,
+  "error": null,
+  "executed_sql": "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'",
+  "generated_sql": "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'",
+  "inputs": {
+    "max_rows": 10,
+    "params": null,
+    "question": "Show funded ratio values by id",
+    "timeout_ms": 2000
+  },
+  "provenance": [
+    {
+      "confidence": null,
+      "evidence_refs": [],
+      "row_index": 0,
+      "source_document_id": null
+    },
+    {
+      "confidence": null,
+      "evidence_refs": [],
+      "row_index": 1,
+      "source_document_id": null
+    }
+  ],
+  "row_count": 2,
+  "rows_artifact": {
+    "content_type": "application/json",
+    "name": "nl-query-rows",
+    "path": "langchain/nl_runs/rows/nlq-1d99dd0bf9744f21b64884cff5b135d5.json",
+    "row_count": 2
+  },
+  "run_id": "nlq:1d99dd0bf9744f21b64884cff5b135d5",
+  "status": "ok",
+  "surface": "nl",
+  "warnings": [],
+  "who": {
+    "correlation_id": "nlq:1d99dd0bf9744f21b64884cff5b135d5",
+    "key_id": "key_f59820fbb0529101",
+    "required_scope": "nl:query",
+    "scopes": [
+      "nl:query"
+    ]
+  }
+}
