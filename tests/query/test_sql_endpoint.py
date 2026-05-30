@@ -12,6 +12,7 @@ from pension_data.api.auth import SCOPE_EXPORT, SCOPE_QUERY, APIKeyStore, ScopeD
 from pension_data.api.routes.sql import run_sql_query_endpoint
 from pension_data.query.sql_service import (
     SQLExecutionAuditLog,
+    SQLExecutionRunRecord,
     SQLQueryRequest,
     execute_sql_query,
 )
@@ -288,3 +289,37 @@ def test_sql_service_rejects_explain_queries_with_paging_wrapper() -> None:
     assert response.error is not None
     assert response.error.code == "INVALID_REQUEST"
     assert "SELECT/WITH" in response.error.message
+
+
+def test_sql_service_persists_serialized_run_record(tmp_path: Path) -> None:
+    connection = _seed_connection(rows=4)
+    run_records: list[SQLExecutionRunRecord] = []
+    try:
+        response = execute_sql_query(
+            connection=connection,
+            request=SQLQueryRequest(
+                sql="SELECT id, metric FROM sample_metrics ORDER BY id",
+                page=1,
+                page_size=2,
+            ),
+            caller_key_id="key:service-test",
+            run_record_store=run_records,
+            run_record_root=tmp_path,
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "ok"
+    assert len(run_records) == 1
+    payload = run_records[0].to_dict()
+    assert payload["run_id"] == response.metadata.query_id
+    assert payload["who"]["key_id"] == "key:service-test"
+    assert payload["columns"] == ["id", "metric"]
+    assert payload["rows_artifact"]["path"].startswith("query/sql_runs/rows/")
+    assert payload["provenance"] == []
+    assert payload["record_artifact"]["path"].startswith("query/sql_runs/runs/")
+
+    rows_path = tmp_path / payload["rows_artifact"]["path"]
+    rows_payload = json.loads(rows_path.read_text(encoding="utf-8"))
+    assert rows_payload["columns"] == ["id", "metric"]
+    assert rows_payload["rows"] == [[1, "m-001"], [2, "m-002"]]

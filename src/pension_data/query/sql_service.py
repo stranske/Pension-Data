@@ -5,9 +5,19 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal, Protocol, cast
 from uuid import uuid4
+
+from pension_data.query.run_record import (
+    QueryRunActor,
+    QueryRunArtifact,
+    QueryRunRecord,
+    default_run_record_root,
+    record_relative_path,
+    write_query_run_record,
+)
 
 DatabaseDialect = Literal["sqlite", "postgresql"]
 SqlParams = Mapping[str, Any] | tuple[Any, ...] | list[Any]
@@ -85,6 +95,24 @@ class SQLExecutionAuditLog:
     status: Literal["ok", "error"]
     error_code: str | None
     error_message: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SQLExecutionRunRecord:
+    """Structured SQL run record with persisted rows and replay metadata."""
+
+    record: QueryRunRecord
+    record_artifact: QueryRunArtifact
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = self.record.to_dict()
+        payload["record_artifact"] = {
+            "name": self.record_artifact.name,
+            "path": self.record_artifact.path,
+            "content_type": self.record_artifact.content_type,
+            "row_count": self.record_artifact.row_count,
+        }
+        return payload
 
 
 class SQLExecutionValidationError(ValueError):
@@ -323,6 +351,68 @@ def _clear_timeout_handler(connection: DBConnection, *, dialect: DatabaseDialect
     setter(None, 0)
 
 
+def _build_sql_execution_run_record(
+    *,
+    request: SQLQueryRequest,
+    response: SQLQueryResponse,
+    caller_key_id: str,
+    root: Path | None,
+) -> SQLExecutionRunRecord:
+    artifact_root = root or default_run_record_root()
+    safe_run_id = "".join(
+        char if char.isalnum() or char in {"-", "_"} else "-" for char in response.metadata.query_id
+    )
+    rows_path = artifact_root / "query" / "sql_runs" / "rows" / f"{safe_run_id}.json"
+    rows_artifact = QueryRunArtifact(
+        name="sql-query-rows",
+        path=record_relative_path(rows_path, root=artifact_root),
+        content_type="application/json",
+        row_count=response.metadata.returned_rows,
+    )
+    record = QueryRunRecord(
+        run_id=response.metadata.query_id,
+        surface="sql",
+        status=response.status,
+        who=QueryRunActor(
+            key_id=caller_key_id,
+            scopes=(),
+            required_scope="query",
+            correlation_id=response.metadata.query_id,
+        ),
+        inputs={
+            "sql": request.sql,
+            "params": request.params,
+            "page": request.page,
+            "page_size": request.page_size,
+            "timeout_ms": request.timeout_ms,
+            "max_rows": request.max_rows,
+        },
+        generated_sql=None,
+        executed_sql=request.sql,
+        columns=response.columns,
+        row_count=response.metadata.returned_rows,
+        rows_artifact=rows_artifact,
+        provenance=(),
+        warnings=(),
+        error=(
+            None
+            if response.error is None
+            else {"code": response.error.code, "message": response.error.message}
+        ),
+        duration_ms=response.metadata.duration_ms,
+        cost=None,
+        artifacts=(rows_artifact,),
+    )
+    record_artifact = write_query_run_record(
+        root=artifact_root,
+        surface="sql",
+        run_id=response.metadata.query_id,
+        record=record,
+        rows=response.rows,
+    )
+    return SQLExecutionRunRecord(record=record, record_artifact=record_artifact)
+
+
 def execute_sql_query(
     *,
     connection: DBConnection,
@@ -330,6 +420,8 @@ def execute_sql_query(
     caller_key_id: str,
     dialect: DatabaseDialect = "sqlite",
     audit_log_store: list[SQLExecutionAuditLog] | None = None,
+    run_record_store: list[SQLExecutionRunRecord] | None = None,
+    run_record_root: Path | None = None,
     clock: Callable[[], float] = perf_counter,
 ) -> SQLQueryResponse:
     """Execute one SQL request with auditing, guardrails, and stable envelopes."""
@@ -371,6 +463,15 @@ def execute_sql_query(
                     status=status,
                     error_code=error.code if error is not None else None,
                     error_message=error.message if error is not None else None,
+                )
+            )
+        if run_record_store is not None:
+            run_record_store.append(
+                _build_sql_execution_run_record(
+                    request=request,
+                    response=response,
+                    caller_key_id=caller_key_id,
+                    root=run_record_root,
                 )
             )
         return response

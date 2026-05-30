@@ -22,6 +22,7 @@ from pension_data.query.sql_safety import (
 )
 from pension_data.query.sql_service import (
     SQLExecutionAuditLog,
+    SQLExecutionRunRecord,
     SQLQueryError,
     SQLQueryMetadata,
     SQLQueryRequest,
@@ -36,6 +37,7 @@ __all__ = [
     "MetricHistoryResponse",
     "MetricHistoryRow",
     "SQLExecutionAuditLog",
+    "SQLExecutionRunRecord",
     "SQLQueryError",
     "SQLQueryMetadata",
     "SQLQueryRequest",
