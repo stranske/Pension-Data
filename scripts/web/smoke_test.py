@@ -65,7 +65,8 @@ def _assert_workspace_bundle(
         )
     if require_fixture and data_origin != "fixture":
         raise ValueError(
-            f"Refusing to deploy non-synthetic bundle to external Cloudflare Pages: {path_label}"
+            "Refusing to deploy non-synthetic bundle to external Cloudflare Pages: "
+            f"{path_label} (data_origin={data_origin})"
         )
     if reject_fixture and data_origin == "fixture":
         raise ValueError(f"fixture workspace bundle is not allowed for runtime smoke: {path_label}")
