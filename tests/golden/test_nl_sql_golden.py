@@ -8,6 +8,7 @@ from pathlib import Path
 from tools.golden_nl.nl_sql_golden import (
     _seed_replay_fixture,
     diff_snapshot,
+    run,
     run_corpus,
 )
 
@@ -68,3 +69,52 @@ def test_recorded_request_replays_deterministically(tmp_path: Path) -> None:
     assert expected["returned_rows"] == 2
     assert (tmp_path / "seed.db").exists()
     assert (tmp_path / "nl_operations.jsonl").exists()
+
+
+def test_run_cli_produces_snapshot_diff_and_replay_artifacts(tmp_path: Path) -> None:
+    """run() is the entry point the CI workflow invokes; verify it emits required artifacts."""
+    rc = run(
+        [
+            "--corpus",
+            str(_CORPUS),
+            "--baseline",
+            str(_BASELINE),
+            "--emit-root",
+            str(tmp_path),
+        ]
+    )
+
+    assert rc == 0, "clean corpus against matching baseline must return 0"
+    assert (tmp_path / "snapshot.json").exists()
+    assert (tmp_path / "diff_report.json").exists()
+    assert (tmp_path / "replay_expected.json").exists()
+    assert (tmp_path / "seed.db").exists()
+    assert (tmp_path / "nl_operations.jsonl").exists()
+
+    diff = json.loads((tmp_path / "diff_report.json").read_text())
+    assert diff["unexpected_changes"] == 0
+
+
+def test_run_cli_returns_two_when_baseline_drifts(tmp_path: Path) -> None:
+    """run() returns exit code 2 (drift) when the baseline does not match current output."""
+    drifted = tmp_path / "drifted_baseline.json"
+    baseline = json.loads(_BASELINE.read_text())
+    for row in baseline["queries"]:
+        if row["id"] == "funded_ratio_with_provenance":
+            row["returned_rows"] = row["returned_rows"] + 999
+    drifted.write_text(json.dumps(baseline) + "\n", encoding="utf-8")
+
+    rc = run(
+        [
+            "--corpus",
+            str(_CORPUS),
+            "--baseline",
+            str(drifted),
+            "--emit-root",
+            str(tmp_path),
+        ]
+    )
+
+    assert rc == 2
+    diff = json.loads((tmp_path / "diff_report.json").read_text())
+    assert diff["unexpected_changes"] > 0

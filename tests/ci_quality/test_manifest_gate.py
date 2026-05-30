@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
-from tools.ci_quality.manifest_gate import diff_manifest, extract_snapshot
+from tools.ci_quality.manifest_gate import diff_manifest, extract_snapshot, run
 
 _BASELINE = {
     "artifact_files_keys": ["alpha_json", "beta_json", "gamma_json"],
@@ -67,3 +70,74 @@ def test_report_summary_counts_are_consistent() -> None:
     # 2 removed keys + 1 ledger status change
     assert report["total_changes"] == 3
     assert report["unexpected_changes"] == len(report["changes"])
+
+
+def _write(path: Path, payload: object) -> None:
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+
+def test_run_returns_zero_when_manifest_matches_baseline(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "run_manifest.json"
+    baseline_path = tmp_path / "baseline.json"
+    _write(
+        manifest_path,
+        _manifest(keys=["alpha_json", "beta_json", "gamma_json"], ledger_status="success"),
+    )
+    _write(baseline_path, _BASELINE)
+
+    rc = run(
+        [
+            "--manifest",
+            str(manifest_path),
+            "--baseline",
+            str(baseline_path),
+            "--snapshot-out",
+            str(tmp_path / "snapshot.json"),
+            "--report-out",
+            str(tmp_path / "report.json"),
+        ]
+    )
+
+    assert rc == 0
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert report["unexpected_changes"] == 0
+    snapshot = json.loads((tmp_path / "snapshot.json").read_text())
+    assert sorted(snapshot["artifact_files_keys"]) == ["alpha_json", "beta_json", "gamma_json"]
+
+
+def test_run_returns_two_when_manifest_drifts_from_baseline(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "run_manifest.json"
+    baseline_path = tmp_path / "baseline.json"
+    _write(manifest_path, _manifest(keys=["alpha_json", "new_key_json"], ledger_status="success"))
+    _write(baseline_path, _BASELINE)
+
+    rc = run(
+        [
+            "--manifest",
+            str(manifest_path),
+            "--baseline",
+            str(baseline_path),
+            "--report-out",
+            str(tmp_path / "report.json"),
+        ]
+    )
+
+    assert rc == 2
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert report["unexpected_changes"] > 0
+
+
+def test_run_omits_snapshot_and_report_when_paths_not_given(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "run_manifest.json"
+    baseline_path = tmp_path / "baseline.json"
+    _write(
+        manifest_path,
+        _manifest(keys=["alpha_json", "beta_json", "gamma_json"], ledger_status="success"),
+    )
+    _write(baseline_path, _BASELINE)
+
+    rc = run(["--manifest", str(manifest_path), "--baseline", str(baseline_path)])
+
+    assert rc == 0
+    assert not (tmp_path / "snapshot.json").exists()
+    assert not (tmp_path / "report.json").exists()
