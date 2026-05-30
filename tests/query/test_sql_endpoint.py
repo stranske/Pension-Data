@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,18 @@ def test_sql_endpoint_returns_standardized_success_envelope_and_audit_log(
     assert result.audit_event["operation"] == "query.run"
     assert result.audit_event["api_key_id"] == record.key_id
     assert result.audit_event["query_status"] == "ok"
+
+
+def test_sql_execution_audit_log_shape_is_back_compat() -> None:
+    assert tuple(field.name for field in fields(SQLExecutionAuditLog)) == (
+        "query_id",
+        "caller_key_id",
+        "duration_ms",
+        "row_count",
+        "status",
+        "error_code",
+        "error_message",
+    )
 
 
 def test_sql_endpoint_writes_run_record_with_null_cost(tmp_path: Path) -> None:

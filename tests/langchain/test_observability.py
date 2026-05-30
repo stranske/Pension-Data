@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Mapping
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
@@ -153,6 +154,26 @@ def test_append_log_enforces_retention(tmp_path: Path) -> None:
     )
     entries = load_nl_operation_logs(log_path)
     assert tuple(entry.request_id for entry in entries) == ("r2", "r3")
+
+
+def test_nl_operation_log_entry_shape_is_back_compat() -> None:
+    assert tuple(field.name for field in fields(NLOperationLogEntry)) == (
+        "timestamp",
+        "request_id",
+        "correlation_id",
+        "provider",
+        "model",
+        "question",
+        "generated_sql",
+        "status",
+        "latency_ms",
+        "returned_rows",
+        "trace_event_count",
+        "error_code",
+        "error_message",
+        "max_rows",
+        "timeout_ms",
+    )
 
 
 def test_summarize_logs_reports_failure_and_latency() -> None:
