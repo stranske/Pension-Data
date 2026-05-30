@@ -6,6 +6,7 @@ import argparse
 import sys
 
 from pension_data.langchain.review_artifact import (
+    REVIEWABLE_FINDINGS_FIRST_SLICE_ID,
     REVIEWABLE_FINDINGS_ARTIFACT_PATH,
     ReviewableFindingsArtifactError,
     build_extraction_quality_dashboard_artifact,
@@ -19,6 +20,12 @@ DEFAULT_READINESS_CSV_PATH = "coverage/readiness_rows.csv"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate the extraction quality dashboard reviewable findings artifact."
+    )
+    parser.add_argument(
+        "--slice",
+        default=REVIEWABLE_FINDINGS_FIRST_SLICE_ID,
+        choices=[REVIEWABLE_FINDINGS_FIRST_SLICE_ID],
+        help="Artifact slice to generate. Currently only extraction_quality_dashboard is supported.",
     )
     parser.add_argument(
         "--output",

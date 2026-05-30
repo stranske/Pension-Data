@@ -56,7 +56,7 @@ Non-Goals
 - Implementing broad conversational memory.
 
 Tasks
-- [ ] Choose the first artifact slice: funding trend, allocation peer compare, holdings overlap, or extraction quality dashboard.
+- [x] Choose the first artifact slice: funding trend, allocation peer compare, holdings overlap, or extraction quality dashboard.
 - [ ] Define the minimal findings JSON schema consumed by the static UI and LangChain explainers.
 - [ ] Add a generation command or documented artifact path under `docs/data/` or a release artifact plan.
 - [ ] Add tests or schema validation for the artifact contract.
