@@ -56,12 +56,17 @@ def run_sql_query_endpoint(
         caller_key_id=auth_context.key_id,
         audit_log_store=audit_log_store,
     )
+    resolved_correlation_id = _resolve_correlation_id(
+        event=event,
+        fallback=response.metadata.query_id,
+    )
     with suppress(Exception):
         _persist_sql_query_run_record(
             request=request,
             response=response,
             key_id=auth_context.key_id,
             scopes=auth_context.scopes,
+            correlation_id=resolved_correlation_id,
             root=run_record_root,
         )
     event_payload = dict(event or {})
@@ -89,6 +94,7 @@ def _persist_sql_query_run_record(
     response: SQLQueryResponse,
     key_id: str,
     scopes: tuple[str, ...],
+    correlation_id: str,
     root: Path | None,
 ) -> None:
     artifact_root = root or default_run_record_root()
@@ -110,7 +116,7 @@ def _persist_sql_query_run_record(
             key_id=key_id,
             scopes=scopes,
             required_scope=SCOPE_QUERY,
-            correlation_id=None,
+            correlation_id=correlation_id,
         ),
         inputs={
             "sql": request.sql,
@@ -143,3 +149,14 @@ def _persist_sql_query_run_record(
         record=record,
         rows=response.rows,
     )
+
+
+def _resolve_correlation_id(*, event: Mapping[str, Any] | None, fallback: str) -> str:
+    if event is None:
+        return fallback
+    value = event.get("correlation_id")
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized:
+            return normalized
+    return fallback

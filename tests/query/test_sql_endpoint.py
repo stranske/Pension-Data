@@ -89,6 +89,7 @@ def test_sql_endpoint_writes_run_record_with_null_cost(tmp_path: Path) -> None:
                 max_rows=50,
             ),
             run_record_root=artifact_root,
+            event={"correlation_id": "corr:sql-unit-test"},
         )
     finally:
         connection.close()
@@ -97,10 +98,14 @@ def test_sql_endpoint_writes_run_record_with_null_cost(tmp_path: Path) -> None:
     payload = json.loads(record_path.read_text(encoding="utf-8"))
     assert payload["run_id"] == result.response.metadata.query_id
     assert payload["who"]["key_id"] == record.key_id
+    assert payload["who"]["scopes"] == [SCOPE_QUERY]
     assert payload["who"]["required_scope"] == SCOPE_QUERY
+    assert payload["who"]["correlation_id"] == "corr:sql-unit-test"
     assert payload["executed_sql"] == "SELECT id, metric, value FROM sample_metrics ORDER BY id"
     assert payload["row_count"] == 2
     assert payload["rows_artifact"]["row_count"] == 2
+    assert payload["rows_artifact"]["path"].startswith("query/sql_runs/rows/")
+    assert payload["artifacts"][0]["path"] == payload["rows_artifact"]["path"]
     assert payload["cost"] is None
 
 
