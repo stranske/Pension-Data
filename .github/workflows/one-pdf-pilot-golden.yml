@@ -1,0 +1,70 @@
+name: One-PDF Pilot Golden
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  one-pdf-pilot-golden:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run one-PDF pilot on synthetic golden fixture
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/golden_pilot
+          PYTHONPATH=src:. python scripts/run_one_pdf_pilot.py \
+            --pdf-path tests/golden/one_pdf_pilot/fixture_synthetic.pdf \
+            --plan-id CA-PERS \
+            --plan-period FY2024 \
+            --effective-date 2024-06-30 \
+            --ingestion-date 2026-03-03 \
+            --output-root artifacts/golden_pilot/run \
+            --run-id pilot-golden
+
+      - name: Build pilot manifest diff against committed baseline
+        run: |
+          set -euo pipefail
+          set +e
+          PYTHONPATH=src:. python tools/ci_quality/manifest_gate.py \
+            --manifest artifacts/golden_pilot/run/one_pdf_pilot/pilot-golden/run_manifest.json \
+            --baseline tests/golden/one_pdf_pilot/run_manifest_baseline.json \
+            --snapshot-out artifacts/golden_pilot/current_snapshot.json \
+            --report-out artifacts/golden_pilot/diff_report.json
+          diff_exit=$?
+          set -e
+          if [ "$diff_exit" -ne 0 ] && [ "$diff_exit" -ne 2 ]; then
+            exit "$diff_exit"
+          fi
+
+      - name: Gate pilot manifest drift
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src:. python tools/ci_quality/replay_gate.py \
+            --diff artifacts/golden_pilot/diff_report.json \
+            --max-unexpected 0 \
+            --report-out artifacts/golden_pilot/replay_gate_report.json
+
+      - name: Upload one-PDF pilot golden artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: one-pdf-pilot-golden
+          path: |
+            artifacts/golden_pilot/current_snapshot.json
+            artifacts/golden_pilot/diff_report.json
+            artifacts/golden_pilot/replay_gate_report.json
+          if-no-files-found: warn
