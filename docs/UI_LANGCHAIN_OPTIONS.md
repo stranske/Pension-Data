@@ -12,7 +12,7 @@ This document compares practical options for adding a higher-quality UI and a La
 ### Shape
 - Run the existing `apps/web/` browser workspace against a user-selected local JSON bundle, or package the same workflow with stlite/Pyodide/JupyterLite so analysis executes in the work browser.
 - For shared access to `data_origin: live` bundles, serve the static assets and deterministic API routes from an internal/on-prem host such as the Issue-2 `pension-data-serve` FastAPI app bound to the organization network.
-- Keep public GitHub Pages or Cloudflare Pages deployments limited to fixture/synthetic-data demos.
+- Treat the prior GitHub Pages/Cloudflare + Actions model as fixture/synthetic demo-only; it is not the recommended path for real pension data.
 - Generate findings JSON artifacts inside the organization boundary and publish them only to approved internal artifact locations.
 
 ### Pros
