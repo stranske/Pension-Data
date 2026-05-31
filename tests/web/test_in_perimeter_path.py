@@ -83,8 +83,10 @@ def test_local_server_serves_generated_bundle_and_non_external_config(tmp_path: 
     assert workspace["datasets"]
     assert served_config["apiBaseUrl"] == ""
     assert served_config["artifactBaseUrl"] == "/artifacts"
+    assert served_config["enableQueryOverrides"] is False
     assert not serve_local.is_external_url(str(served_config["apiBaseUrl"]))
     assert not serve_local.is_external_url(str(served_config["artifactBaseUrl"]))
+    assert serve_local.DISALLOWED_LLM_CONFIG_KEYS.isdisjoint(served_config)
 
 
 def test_fixture_bundle_is_rejected_for_real_data_path(tmp_path: Path) -> None:
@@ -100,3 +102,8 @@ def test_fixture_bundle_is_rejected_for_real_data_path(tmp_path: Path) -> None:
 def test_external_artifact_url_is_rejected() -> None:
     with pytest.raises(ValueError, match="artifactBaseUrl"):
         serve_local.build_runtime_config(artifact_base_url="https://example.test/artifacts")
+
+
+def test_runtime_config_has_no_llm_endpoint_keys() -> None:
+    config = serve_local.build_runtime_config(artifact_base_url="/artifacts")
+    assert serve_local.DISALLOWED_LLM_CONFIG_KEYS.isdisjoint(config)

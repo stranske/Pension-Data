@@ -4,7 +4,9 @@ Use this path when a reviewer needs to open a generated or live Pension-Data wor
 
 ## Decision
 
-The supported real-data path is an internal host or loopback browser session using the existing static `apps/web/` workspace and an operator-supplied `data_origin: "generated"` or `data_origin: "live"` bundle. Public Cloudflare Pages and GitHub Pages remain fixture/synthetic demo surfaces only.
+Chosen delivery option: **internal host** (including localhost loopback) serving the existing static SPA at `apps/web/`.
+
+The SPA already uses client-side bundle loading (`loadJson(WORKSPACE_DATA_PATH)` in `apps/web/app.js`) and does not require an external API transport for this review path. Public Cloudflare Pages and GitHub Pages remain fixture/synthetic demo surfaces only.
 
 ## Zero-Egress Guarantee
 

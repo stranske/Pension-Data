@@ -14,6 +14,15 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 WEB_ROOT = ROOT / "apps" / "web"
 ALLOWED_ORIGINS = frozenset({"generated", "live"})
+DISALLOWED_LLM_CONFIG_KEYS = frozenset(
+    {
+        "llmBaseUrl",
+        "llmEndpoint",
+        "openaiBaseUrl",
+        "anthropicBaseUrl",
+        "langchainEndpoint",
+    }
+)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -70,6 +79,10 @@ def build_runtime_config(*, artifact_base_url: str) -> dict[str, Any]:
     for key in ("apiBaseUrl", "artifactBaseUrl"):
         if is_external_url(str(config[key])):
             raise ValueError(f"{key} must be empty, relative, localhost, or loopback")
+    overlap = DISALLOWED_LLM_CONFIG_KEYS.intersection(config)
+    if overlap:
+        labels = ", ".join(sorted(overlap))
+        raise ValueError(f"runtime config must not include LLM endpoint keys: {labels}")
     return config
 
 
