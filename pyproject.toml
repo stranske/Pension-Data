@@ -48,6 +48,12 @@ dev = [
     "ruff>=0.15.13",
     "mypy>=2.1.0",
     "black==26.3.1",
+    # app behavior baseline kit (tests/baseline/) -- shared core + golden-master glue.
+    # pytest-regressions' num_regression fixture needs numpy AND pandas.
+    "app-baseline-kit @ git+https://github.com/stranske/Workflows.git#subdirectory=packages/app-baseline-kit",
+    "pytest-regressions==2.11.0",
+    "numpy>=2.2.0",
+    "pandas>=2.2.0",
 ]
 
 [project.urls]
@@ -122,6 +128,11 @@ show_error_codes = true
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+# app-baseline-kit ships no type stubs; don't fail strict mypy on import-untyped.
+[[tool.mypy.overrides]]
+module = ["baseline_kit", "baseline_kit.*"]
+ignore_missing_imports = true
 
 [tool.black]
 line-length = 100

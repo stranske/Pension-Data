@@ -1,0 +1,175 @@
+# Pension-Data scenario catalog -- quant deterministic-compute surfaces.
+#
+# Surfaces:
+#   pension_data.quant.scenarios.run_deterministic_scenario
+#     baseline-metrics dict + scenario knobs -> per metric: baseline/value/delta.
+#   pension_data.quant.metric_engine.compute_derived_metrics
+#     staged plan facts (AAL/AVA + cash flow) -> derived economic metrics.
+#
+# Same shape as the Counter_Risk / TMP kits. A "scenario" is the BASE fixture
+# with an optional ordered `patch` applied (see adapter.apply_patch for the
+# patch DSL). Directional checks compare a variant scenario to `base` on a flat
+# metric key.
+
+# ---------------------------------------------------------------------------
+# Base fixture (one plan/period). Values mirror the realistic figures in the
+# existing quant unit tests (CA-PERS / FY2024).
+#
+#   deterministic-scenario baseline_metrics:
+#     funded_ratio=0.784, employer_contributions=18, employee_contributions=9,
+#     fee_rate=0.0055, net_return=0.061  (no knobs set -> scenario == baseline).
+#
+#   derived-metric facts:
+#     aal=640.0, ava=501.8       -> funded_gap = 138.2, unfunded_ratio = 0.215938
+#     employer=18, employee=9,
+#     benefit=-5, refunds=-1     -> net_cash_flow = 21.0, contrib/benefit = 5.4
+# ---------------------------------------------------------------------------
+base:
+  plan_id: CA-PERS
+  plan_period: FY2024
+  module_version: v0.1.0
+  source_snapshot_id: snapshot:baseline
+  baseline_metrics:
+    funded_ratio: 0.784
+    employer_contributions: 18.0
+    employee_contributions: 9.0
+    fee_rate: 0.0055
+    net_return: 0.061
+  scenario:
+    name: base
+    macro_shocks: {}
+    contribution_delta: 0.0
+    fee_delta_bps: 0.0
+    return_override: null
+  facts:
+    core_metric_rows:
+      - {fact_id: fact:aal, plan_id: CA-PERS, plan_period: FY2024, metric_name: aal_usd, normalized_value: 640.0, confidence: 0.92, evidence_refs: ["p.40"]}
+      - {fact_id: fact:ava, plan_id: CA-PERS, plan_period: FY2024, metric_name: ava_usd, normalized_value: 501.8, confidence: 0.88, evidence_refs: ["p.40"]}
+    cash_flow_rows:
+      - {cash_flow_id: flow:2024, plan_id: CA-PERS, plan_period: FY2024, employer_contributions_normalized: 18.0, employee_contributions_normalized: 9.0, benefit_payments_normalized: -5.0, refunds_normalized: -1.0, confidence: 0.72, evidence_refs: ["p.55"]}
+
+# ---------------------------------------------------------------------------
+# Scenarios (each = base + optional patch). `base` is listed explicitly so the
+# golden / invariant tests parametrize over it.
+# ---------------------------------------------------------------------------
+scenarios:
+  - id: base
+    patch: []
+
+  # Raise the contribution knob: contribution_delta is ADDED to employer and
+  # employee contributions in run_deterministic_scenario.
+  - id: contrib_up
+    patch:
+      - {op: set_knob, knob: contribution_delta, value: 5.0}
+
+  # Negative macro shock on funded_ratio: ADDED to the baseline -> lower level.
+  - id: funded_ratio_shock_down
+    patch:
+      - {op: set_shock, metric: funded_ratio, value: -0.05}
+
+  # Raise the fee knob: fee_delta_bps / 10000 is ADDED to fee_rate.
+  - id: fee_up
+    patch:
+      - {op: set_knob, knob: fee_delta_bps, value: 25.0}
+
+  # Override net_return below the baseline (0.061): return_override REPLACES it.
+  - id: return_override_low
+    patch:
+      - {op: set_knob, knob: return_override, value: 0.02}
+
+  # Widen the actuarial value of assets (AVA) toward the liability (AAL):
+  # funded_gap = aal - ava shrinks, and so does the unfunded ratio.
+  - id: wider_ava
+    patch:
+      - {op: set_fact, kind: core, key: ava_usd, field: normalized_value, value: 560.0}
+
+  # Larger employer contributions in the cash-flow facts: net_cash_flow rises
+  # and the contribution-to-benefit coverage ratio rises.
+  - id: more_employer_cash
+    patch:
+      - {op: set_fact, kind: cash, key: flow:2024, field: employer_contributions_normalized, value: 30.0}
+
+# ---------------------------------------------------------------------------
+# Directional checks: variant vs control (base) on a flat metric key.
+# direction is from baseline_kit.DIRECTIONS (left=variant, right=control).
+# Each is grounded in the surface economics, not boilerplate.
+# ---------------------------------------------------------------------------
+directionals:
+  # Adding a positive contribution_delta raises the scenario employer level.
+  - id: contrib_up_raises_employer
+    scenario: contrib_up
+    control: base
+    metric: det.employer_contributions.value
+    direction: increase
+    enforce: true
+  # ...and raises the employee level too (same knob feeds both).
+  - id: contrib_up_raises_employee
+    scenario: contrib_up
+    control: base
+    metric: det.employee_contributions.value
+    direction: increase
+    enforce: true
+  # A negative funded_ratio shock lowers the scenario funded ratio.
+  - id: funded_shock_lowers_funded_ratio
+    scenario: funded_ratio_shock_down
+    control: base
+    metric: det.funded_ratio.value
+    direction: decrease
+    enforce: true
+  # A positive fee delta raises the scenario fee rate.
+  - id: fee_up_raises_fee_rate
+    scenario: fee_up
+    control: base
+    metric: det.fee_rate.value
+    direction: increase
+    enforce: true
+  # Overriding net_return below baseline lowers the scenario net return.
+  - id: return_override_lowers_net_return
+    scenario: return_override_low
+    control: base
+    metric: det.net_return.value
+    direction: decrease
+    enforce: true
+  # Widening AVA toward AAL shrinks the funded gap.
+  - id: wider_ava_lowers_funded_gap
+    scenario: wider_ava
+    control: base
+    metric: derived.CA-PERS.FY2024.funded_gap_usd
+    direction: decrease
+    enforce: true
+  # ...and lowers the unfunded ratio (same numerator shrinks, denominator fixed).
+  - id: wider_ava_lowers_unfunded_ratio
+    scenario: wider_ava
+    control: base
+    metric: derived.CA-PERS.FY2024.unfunded_ratio
+    direction: decrease
+    enforce: true
+  # More employer cash raises net cash flow.
+  - id: more_cash_raises_net_cash_flow
+    scenario: more_employer_cash
+    control: base
+    metric: derived.CA-PERS.FY2024.net_cash_flow_usd
+    direction: increase
+    enforce: true
+  # ...and raises the contribution-to-benefit coverage ratio.
+  - id: more_cash_raises_coverage_ratio
+    scenario: more_employer_cash
+    control: base
+    metric: derived.CA-PERS.FY2024.contribution_to_benefit_ratio
+    direction: increase
+    enforce: true
+
+# ---------------------------------------------------------------------------
+# Coverage manifest: priority metric keys that must be exercised by a
+# directional check. Keys are flat metric keys.
+# ---------------------------------------------------------------------------
+priority_metrics:
+  - det.funded_ratio.value
+  - det.employer_contributions.value
+  - det.employee_contributions.value
+  - det.fee_rate.value
+  - det.net_return.value
+  - derived.CA-PERS.FY2024.funded_gap_usd
+  - derived.CA-PERS.FY2024.unfunded_ratio
+  - derived.CA-PERS.FY2024.net_cash_flow_usd
+  - derived.CA-PERS.FY2024.contribution_to_benefit_ratio

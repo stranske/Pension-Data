@@ -12,6 +12,8 @@ anyio==4.12.1
     #   httpx
     #   openai
     #   starlette
+app-baseline-kit @ git+https://github.com/stranske/Workflows.git@13f94883220bbfb0ca69a4666fb44a49e0ae8172#subdirectory=packages/app-baseline-kit
+    # via pension-data (pyproject.toml)
 ast-serialize==0.3.0
     # via mypy
 black==26.3.1
@@ -109,7 +111,9 @@ mypy-extensions==1.1.0
     #   black
     #   mypy
 numpy==2.4.2
-    # via pandas
+    # via
+    #   pension-data (pyproject.toml)
+    #   pandas
 openai==2.24.0
     # via langchain-openai
 openpyxl==3.1.5
@@ -161,15 +165,27 @@ pypdf==6.7.5
 pytest==9.0.3
     # via
     #   pension-data (pyproject.toml)
+    #   app-baseline-kit
     #   pytest-cov
+    #   pytest-datadir
+    #   pytest-regressions
 pytest-cov==7.1.0
     # via pension-data (pyproject.toml)
+pytest-datadir==1.8.0
+    # via pytest-regressions
+pytest-regressions==2.11.0
+    # via
+    #   pension-data (pyproject.toml)
+    #   app-baseline-kit
 python-dateutil==2.9.0.post0
     # via pandas
 pytokens==0.4.1
     # via black
 pyyaml==6.0.3
-    # via langchain-core
+    # via
+    #   app-baseline-kit
+    #   langchain-core
+    #   pytest-regressions
 regex==2026.2.28
     # via tiktoken
 requests==2.32.5
