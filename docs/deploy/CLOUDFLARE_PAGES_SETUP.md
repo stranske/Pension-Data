@@ -66,3 +66,16 @@ Workflow: `.github/workflows/web-cloudflare-pages.yml`
   - API and artifact endpoints show expected values.
   - Data origin badge shows the fixture/demo classification for the Pages deployment.
   - Access policy blocks unauthorized users.
+
+## 8. Reviewer Gate
+
+Run this check during review and confirm no public-hosting guidance points to publishing live bundles:
+
+```bash
+grep -rniE "data_origin.*live" docs apps/web
+```
+
+Expected review outcome:
+- `docs/deploy/CLOUDFLARE_PAGES_SETUP.md` includes the fixture-only warning banner.
+- Any `data_origin.*live` hits in docs are prohibition language or internal-hosting guidance, not public-hosting instructions.
+- `apps/web/data/workspace.json` remains `data_origin: fixture` for the public demo bundle.

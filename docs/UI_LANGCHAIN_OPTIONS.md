@@ -29,7 +29,7 @@ This document compares practical options for adding a higher-quality UI and a La
 - Internal hosting requires the organization's normal access-control and network review.
 - LLM-dependent interactions require an authorized no-train endpoint or must be disabled.
 
-### Data Zones & LLM Boundary
+### Data zones & LLM boundary
 
 - `data_origin: fixture` is safe for public demo hosting when the bundle contains only checked-in fixture data.
 - `data_origin: generated` and `data_origin: live` remain inside the organization boundary: browser-local file loading, client-side WASM/stlite/Pyodide, JupyterLite, or an internal host.
