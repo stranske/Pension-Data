@@ -85,8 +85,8 @@ This document compares practical options for adding a higher-quality UI and a La
 
 ## Recommended Path
 
-1. Start with **Option 1** for real work: browser-local/WASM or internal hosting for `generated` and `live` bundles. Use `docs/deploy/IN_PERIMETER_REAL_DATA_REVIEW.md` as the click-to-open review runbook.
-2. Keep GitHub Pages / Cloudflare Pages as a fixture-only external demo surface.
+1. Canonical for proprietary real-data hosting: **Option 1** only (browser-local/WASM or internal hosting) for `generated` and `live` bundles, with zero egress beyond localhost/internal infrastructure. Use `docs/deploy/IN_PERIMETER_REAL_DATA_REVIEW.md` as the click-to-open review runbook.
+2. Keep GitHub Pages / Cloudflare Pages as a fixture-only external demo surface; do not use external SaaS hosting for proprietary pension data.
 3. Add **Option 3** over time by introducing a Mac desktop power-client when UX depth is needed.
 4. Keep LLM execution behind authorized no-train endpoints; disable LLM features in the proprietary zone until that endpoint is configured.
 
