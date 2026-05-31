@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from pension_data.db.models.provenance import EvidenceReference
+from pension_data.db.models.provenance import EvidenceMethod, EvidenceReference
 from pension_data.extract.common.ids import stable_id
 
 _PAGE_REF_PATTERN = re.compile(
@@ -53,13 +53,51 @@ def table_evidence_ref(raw_ref: str | None) -> str:
     return f"table:{normalized}"
 
 
+def _section_implies_table(section_hint: str | None) -> bool:
+    if section_hint is None:
+        return False
+    normalized = section_hint.strip().lower()
+    return normalized == "table" or normalized.startswith("table ")
+
+
+def _method_from_ref(
+    *,
+    normalized_ref: str,
+    page_number: int | None,
+    section_hint: str | None,
+) -> EvidenceMethod | None:
+    """Infer the extraction method from the canonical anchor form.
+
+    ``table:`` anchors come from the table-extraction path, ``text:`` anchors and
+    page locators from the text path. Free-form section hints leave the method
+    unset so callers can override with a more precise value.
+    """
+    if normalized_ref.startswith("table:"):
+        return "table"
+    if normalized_ref.startswith("text:"):
+        return "text"
+    if _section_implies_table(section_hint):
+        return "table"
+    if page_number is not None:
+        return "text"
+    return None
+
+
 def build_evidence_reference(
     *,
     report_id: str,
     source_document_id: str,
     evidence_ref: str,
+    excerpt: str | None = None,
+    method: EvidenceMethod | None = None,
 ) -> EvidenceReference:
-    """Parse one evidence ref into structured page/anchor fields."""
+    """Parse one evidence ref into structured page/anchor fields.
+
+    ``excerpt`` (the quoted supporting text) and ``method`` (the extraction path)
+    are optional enrichment. When ``method`` is not supplied it is inferred from
+    the canonical anchor form. Neither field participates in ``evidence_ref_id``,
+    so enriching an existing locator never changes its stable identity.
+    """
     normalized_ref = canonicalize_evidence_ref(evidence_ref)
     if not normalized_ref:
         raise ValueError("evidence_ref must be non-empty")
@@ -80,6 +118,13 @@ def build_evidence_reference(
         else:
             section_hint = normalized_ref
 
+    resolved_method = method or _method_from_ref(
+        normalized_ref=normalized_ref,
+        page_number=page_number,
+        section_hint=section_hint,
+    )
+    resolved_excerpt = excerpt.strip() if excerpt and excerpt.strip() else None
+
     return EvidenceReference(
         evidence_ref_id=stable_id(
             "evidence",
@@ -96,4 +141,6 @@ def build_evidence_reference(
         page_number=page_number,
         section_hint=section_hint,
         snippet_anchor=snippet_anchor,
+        excerpt=resolved_excerpt,
+        method=resolved_method,
     )

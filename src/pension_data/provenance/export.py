@@ -51,6 +51,9 @@ def export_citation_ready_provenance_payload(
                     "page_number": evidence.page_number,
                     "section_hint": evidence.section_hint,
                     "snippet_anchor": evidence.snippet_anchor,
+                    "excerpt": evidence.excerpt,
+                    "method": evidence.method,
+                    "confidence": link.confidence,
                     "artifact_locator": _artifact_locator(evidence),
                 }
             )
