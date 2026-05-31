@@ -13,6 +13,7 @@ The SPA already uses client-side bundle loading (`loadJson(WORKSPACE_DATA_PATH)`
 - The server binds to `127.0.0.1` by default and uses only Python stdlib HTTP serving.
 - `/data/workspace.json` is served from the local generated/live bundle provided with `--bundle`.
 - `/config/default.json` and `/config/runtime.json` expose `apiBaseUrl: ""`, so the SPA does not call an external API host for this bundle-only review path.
+- The local server emits a restrictive `Content-Security-Policy` with `script-src 'self'` and `connect-src 'self'`, blocking the public Plotly CDN tag in the static SPA during real-data review.
 - `artifactBaseUrl` must be relative, localhost, or loopback. External hosts are rejected before serving.
 - LLM-backed routes are absent from this static path. For `pension-data-serve`, `PENSION_DATA_DATA_ZONE=proprietary` keeps LLM routes disabled unless `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL` points to an approved no-train endpoint.
 

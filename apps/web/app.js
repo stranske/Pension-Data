@@ -72,8 +72,10 @@ function assertConfig(config) {
       throw new Error(`missing required config key: ${key}`);
     }
   }
-  if (!normalizeText(config.environment) || !normalizeText(config.artifactBaseUrl)) {
-    throw new Error("missing required non-empty config key");
+  for (const key of ["environment", "artifactBaseUrl"]) {
+    if (!normalizeText(config[key])) {
+      throw new Error(`missing required non-empty config key: ${key}`);
+    }
   }
 }
 

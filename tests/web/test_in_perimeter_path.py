@@ -60,6 +60,12 @@ def _fetch_json(url: str) -> dict[str, object]:
     return payload
 
 
+def _fetch_header(url: str, header: str) -> str:
+    with urlopen(url, timeout=5) as response:  # noqa: S310 - local test server
+        value = response.headers.get(header, "")
+    return value
+
+
 def test_local_server_serves_generated_bundle_and_non_external_config(tmp_path: Path) -> None:
     bundle = serve_local.load_workspace_bundle(_generated_bundle(tmp_path))
     config = serve_local.build_runtime_config(artifact_base_url="/artifacts")
@@ -75,12 +81,16 @@ def test_local_server_serves_generated_bundle_and_non_external_config(tmp_path: 
         base_url = f"http://127.0.0.1:{server.server_port}"
         workspace = _fetch_json(f"{base_url}/data/workspace.json")
         served_config = _fetch_json(f"{base_url}/config/default.json")
+        csp = _fetch_header(f"{base_url}/", "Content-Security-Policy")
     finally:
         server.shutdown()
         thread.join(timeout=5)
+        server.server_close()
 
     assert workspace["data_origin"] == "generated"
     assert workspace["datasets"]
+    assert "script-src 'self'" in csp
+    assert "connect-src 'self'" in csp
     assert served_config["apiBaseUrl"] == ""
     assert served_config["artifactBaseUrl"] == "/artifacts"
     assert served_config["enableQueryOverrides"] is False

@@ -14,6 +14,15 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 WEB_ROOT = ROOT / "apps" / "web"
 ALLOWED_ORIGINS = frozenset({"generated", "live"})
+CSP_HEADER = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "connect-src 'self'; "
+    "img-src 'self' data: blob:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "object-src 'none'; "
+    "base-uri 'self'"
+)
 DISALLOWED_LLM_CONFIG_KEYS = frozenset(
     {
         "llmBaseUrl",
@@ -99,6 +108,11 @@ def make_handler(
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, directory=str(web_root), **kwargs)
 
+        def end_headers(self) -> None:
+            self.send_header("Content-Security-Policy", CSP_HEADER)
+            self.send_header("Referrer-Policy", "no-referrer")
+            super().end_headers()
+
         def _send_json(self, payload: bytes) -> None:
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -157,7 +171,12 @@ def main() -> int:
     server = ThreadingHTTPServer((args.host, args.port), handler)
     print(f"serving in-perimeter workspace at http://{args.host}:{args.port}/")
     print(f"bundle: {args.bundle} (data_origin={bundle['data_origin']})")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nshutting down in-perimeter workspace server")
+    finally:
+        server.server_close()
     return 0
 
 
