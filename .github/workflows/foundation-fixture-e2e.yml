@@ -36,6 +36,49 @@ jobs:
             --fixture "${FIXTURE_PATH:-tests/e2e/foundation/fixtures/foundation_fixture_success.json}" \
             --output-root artifacts
 
+      - name: Run one-PDF pilot against committed CalPERS excerpt fixture
+        run: |
+          set -euo pipefail
+          one-pdf-pilot \
+            --pdf-path tests/parser/fixtures/calpers_fy2024_excerpt.pdf \
+            --plan-id CA-PERS \
+            --plan-period FY2024 \
+            --effective-date 2024-06-30 \
+            --ingestion-date 2026-01-01 \
+            --output-root artifacts/one_pdf_pilot_calpers_excerpt
+
+      - name: Validate one-PDF pilot CalPERS excerpt run
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          run_root = Path("artifacts/one_pdf_pilot_calpers_excerpt/one_pdf_pilot")
+          manifests = sorted(run_root.glob("*/run_manifest.json"))
+          if len(manifests) != 1:
+              raise SystemExit(
+                  f"expected exactly one one-PDF pilot run manifest, found {manifests}"
+              )
+          run_dir = manifests[0].parent
+
+          manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+          if manifest.get("ledger_status") != "success":
+              raise SystemExit(
+                  f"CalPERS excerpt pilot ledger_status was {manifest.get('ledger_status')!r}, "
+                  "expected 'success'"
+              )
+
+          parser_result = json.loads(
+              (run_dir / "parser_result.json").read_text(encoding="utf-8")
+          )
+          if parser_result.get("missing_metrics"):
+              raise SystemExit(
+                  "CalPERS excerpt pilot reported missing funded metrics: "
+                  f"{parser_result['missing_metrics']}"
+              )
+          PY
+
       - name: Validate foundation fixture artifacts
         run: |
           set -euo pipefail
@@ -123,7 +166,7 @@ jobs:
       - name: Run foundation fixture tests
         run: |
           set -euo pipefail
-          pytest -q --no-cov tests/ops/test_foundation_ledger.py tests/e2e/foundation/test_fixture_pipeline.py
+          pytest -q --no-cov tests/ops/test_foundation_ledger.py tests/e2e/foundation/test_fixture_pipeline.py tests/ops/test_one_pdf_pilot_real_pdf.py
 
       - name: Upload foundation fixture artifacts
         if: always()
@@ -139,4 +182,12 @@ jobs:
         with:
           name: reviewable-findings-artifacts
           path: artifacts/reviewable-findings
+          if-no-files-found: warn
+
+      - name: Upload one-PDF pilot CalPERS excerpt artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: one-pdf-pilot-calpers-excerpt-artifacts
+          path: artifacts/one_pdf_pilot_calpers_excerpt
           if-no-files-found: warn
