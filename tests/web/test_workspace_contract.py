@@ -120,6 +120,85 @@ def test_remote_expect_runtime_rejects_fixture_bundle(monkeypatch: pytest.Monkey
         web_smoke_test._smoke_url("https://example.test", expect_runtime=True, headers=None)
 
 
+def test_remote_public_deploy_rejects_live_bundle(monkeypatch: pytest.MonkeyPatch) -> None:
+    live_workspace = json.loads((WEB_DIR / "data" / "workspace.json").read_text(encoding="utf-8"))
+    live_workspace["data_origin"] = "live"
+
+    def fake_fetch_text(url: str, *, headers: dict[str, str] | None = None) -> str:
+        del headers
+        if url.endswith("/"):
+            return (
+                "<html><body>Cloudflare Web Workspace Foundation"
+                '<span data-testid="environment-badge"></span>'
+                '<span data-testid="data-origin-badge"></span></body></html>'
+            )
+        if url.endswith("config/default.json"):
+            return json.dumps(
+                {
+                    "environment": "prod",
+                    "apiBaseUrl": "https://api.example.test",
+                    "artifactBaseUrl": "https://artifacts.example.test",
+                }
+            )
+        if url.endswith("manifest.webmanifest"):
+            return json.dumps({"name": "Pension Data", "start_url": "/"})
+        if (
+            url.endswith("sw.js")
+            or url.endswith("icons/pension-data-mark-192.png")
+            or url.endswith("icons/pension-data-mark-512.png")
+        ):
+            return "ok"
+        if url.endswith("data/workspace.json"):
+            return json.dumps(live_workspace)
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(web_smoke_test, "_fetch_text", fake_fetch_text)
+
+    with pytest.raises(
+        ValueError,
+        match=r"Refusing to deploy non-synthetic bundle to external Cloudflare Pages: .*data/workspace\.json",
+    ):
+        web_smoke_test._smoke_url("https://example.test", expect_runtime=False, headers=None)
+
+
+def test_remote_public_deploy_accepts_fixture_bundle(monkeypatch: pytest.MonkeyPatch) -> None:
+    fixture_workspace = json.loads(
+        (WEB_DIR / "data" / "workspace.json").read_text(encoding="utf-8")
+    )
+
+    def fake_fetch_text(url: str, *, headers: dict[str, str] | None = None) -> str:
+        del headers
+        if url.endswith("/"):
+            return (
+                "<html><body>Cloudflare Web Workspace Foundation"
+                '<span data-testid="environment-badge"></span>'
+                '<span data-testid="data-origin-badge"></span></body></html>'
+            )
+        if url.endswith("config/default.json"):
+            return json.dumps(
+                {
+                    "environment": "prod",
+                    "apiBaseUrl": "https://api.example.test",
+                    "artifactBaseUrl": "https://artifacts.example.test",
+                }
+            )
+        if url.endswith("manifest.webmanifest"):
+            return json.dumps({"name": "Pension Data", "start_url": "/"})
+        if (
+            url.endswith("sw.js")
+            or url.endswith("icons/pension-data-mark-192.png")
+            or url.endswith("icons/pension-data-mark-512.png")
+        ):
+            return "ok"
+        if url.endswith("data/workspace.json"):
+            return json.dumps(fixture_workspace)
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(web_smoke_test, "_fetch_text", fake_fetch_text)
+
+    web_smoke_test._smoke_url("https://example.test", expect_runtime=False, headers=None)
+
+
 def test_missing_or_unknown_origin_fails_workspace_validation() -> None:
     workspace = json.loads((WEB_DIR / "data" / "workspace.json").read_text())
     workspace.pop("data_origin")

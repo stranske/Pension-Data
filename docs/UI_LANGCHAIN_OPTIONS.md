@@ -1,4 +1,4 @@
-# UI + LangChain Options (No Dedicated Paid Server)
+# UI + LangChain Options (Privacy-Safe Browser Access)
 
 This document compares practical options for adding a higher-quality UI and a LangChain findings interaction layer under these constraints:
 
@@ -7,26 +7,35 @@ This document compares practical options for adding a higher-quality UI and a La
 - Mac installs are possible, but Mac cannot fully cover work usage.
 - Avoid paying for a separate server.
 
-## Option 1: Static Web UI on GitHub Pages + LangChain via GitHub Actions (Recommended)
+## Option 1: Zero-Egress Browser UI or Internal Hosting (Recommended for Real Data)
 
 ### Shape
-- Build a static frontend (React/Vite or SvelteKit static export).
-- Publish to GitHub Pages.
-- Generate findings JSON artifacts from CI/workflows and publish to `docs/data/` or release assets.
-- Trigger LangChain workflows from issue comments/PR comments or manual dispatch.
-- Write LangChain outputs back as JSON summaries and PR/issue comments.
+- Run the existing `apps/web/` browser workspace against a user-selected local JSON bundle, or package the same workflow with stlite/Pyodide/JupyterLite so analysis executes in the work browser.
+- For shared access to `data_origin: live` bundles, serve the static assets and deterministic API routes from an internal/on-prem host such as the Issue-2 `pension-data-serve` FastAPI app bound to the organization network.
+- Treat the prior GitHub Pages/Cloudflare + Actions model as fixture/synthetic demo-only; it is not the recommended path for real pension data.
+- Generate findings JSON artifacts inside the organization boundary and publish them only to approved internal artifact locations.
 
 ### Pros
 - No local install needed for end users.
 - Works on locked-down work PCs (browser only).
 - No separate hosting bill.
+- Real pension data stays in the browser session or on an internal host.
 - Easy audit trail (GitHub history + workflow logs).
 - Can still be a high-quality, modern interface (advanced design system, rich charts,
   responsive layouts, keyboard-first interactions, and polished motion in a static SPA).
 
 ### Cons
-- No always-on conversational backend; interactions are asynchronous.
-- Rate limits/token limits depend on workflow execution budgets.
+- Public Pages can demonstrate only fixture/synthetic data.
+- Internal hosting requires the organization's normal access-control and network review.
+- LLM-dependent interactions require an authorized no-train endpoint or must be disabled.
+
+### Data zones & LLM boundary
+
+- `data_origin: fixture` is safe for public demo hosting when the bundle contains only checked-in fixture data.
+- `data_origin: generated` and `data_origin: live` remain inside the organization boundary: browser-local file loading, client-side WASM/stlite/Pyodide, JupyterLite, or an internal host.
+- Deterministic analysis routes, including `run_saved_view_endpoint` and `run_metric_history_endpoint`, may run on real data in the browser or on internal hosting because they do not require LLM egress.
+- LLM-backed NL/query/findings features must either target an authorized no-train provider endpoint through `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`, or remain disabled in `PENSION_DATA_DATA_ZONE=proprietary`.
+- A public-hosted app must refuse to pass deployment smoke checks if its served `workspace.json` declares `data_origin: live`.
 
 ## Option 2: Packaged Mac Desktop App + Embedded Local LangChain
 
@@ -44,10 +53,11 @@ This document compares practical options for adding a higher-quality UI and a La
 - Limited at work if Mac use is restricted.
 - Ongoing desktop packaging/signing maintenance.
 
-## Option 3: Hybrid Model (Pages UI for Work + Mac Pro App for Power Use)
+## Option 3: Hybrid Model (Fixture Demo + Internal App + Mac Pro App)
 
 ### Shape
-- Option 1 as the baseline for universal access.
+- Option 1 as the baseline for real-data work access.
+- Public Pages/Cloudflare as a fixture-only product demo.
 - Option 2 as an advanced client for deeper analyst workflows.
 - Keep shared schema for findings so both UIs read the same data model.
 
@@ -61,23 +71,24 @@ This document compares practical options for adding a higher-quality UI and a La
 ## Option 4: Internal Network Share Build (No Install, Local Browser App)
 
 ### Shape
-- Build static app assets and distribute via shared drive or internal artifact channel.
+- Build static app assets and distribute via shared drive, internal artifact channel, or internal web host.
 - Users open `index.html` locally; data files updated by export scripts.
-- LangChain interactions run via workflow_dispatch and write result files.
+- Optional LangChain interactions run only through authorized no-train endpoints or are disabled.
 
 ### Pros
 - No installer needed.
 - Minimal infrastructure cost.
 
 ### Cons
-- Harder update/version discipline than GitHub Pages.
+- Harder update/version discipline than managed internal hosting.
 - Cross-origin and file-access browser constraints can be finicky.
 
 ## Recommended Path
 
-1. Start with **Option 1** to satisfy work constraints quickly.
-2. Add **Option 3** over time by introducing a Mac desktop power-client when UX depth is needed.
-3. Keep LangChain execution in CI first; only move to local embedded inference if latency becomes a hard blocker.
+1. Start with **Option 1** for real work: browser-local/WASM or internal hosting for `generated` and `live` bundles.
+2. Keep GitHub Pages / Cloudflare Pages as a fixture-only external demo surface.
+3. Add **Option 3** over time by introducing a Mac desktop power-client when UX depth is needed.
+4. Keep LLM execution behind authorized no-train endpoints; disable LLM features in the proprietary zone until that endpoint is configured.
 
 ## First Reviewable Artifact
 

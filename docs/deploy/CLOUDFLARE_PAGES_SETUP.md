@@ -1,6 +1,8 @@
-# Cloudflare Pages Setup (Private Access)
+# Synthetic-Data Demo Hosting (Cloudflare Pages)
 
-This guide configures the `apps/web` scaffold for Cloudflare Pages deployment with private access controls.
+> For fixture/synthetic data only. Do not publish bundles whose `data_origin` is `live`.
+
+This guide configures the `apps/web` scaffold for a Cloudflare Pages synthetic/demo deployment with private access controls. Cloudflare Pages is not the real-data hosting path.
 
 ## 1. Create Cloudflare Pages Project
 
@@ -64,3 +66,16 @@ Workflow: `.github/workflows/web-cloudflare-pages.yml`
   - API and artifact endpoints show expected values.
   - Data origin badge shows the fixture/demo classification for the Pages deployment.
   - Access policy blocks unauthorized users.
+
+## 8. Reviewer Gate
+
+Run this check during review and confirm no public-hosting guidance points to publishing live bundles:
+
+```bash
+grep -rniE "data_origin.*live" docs apps/web
+```
+
+Expected review outcome:
+- `docs/deploy/CLOUDFLARE_PAGES_SETUP.md` includes the fixture-only warning banner.
+- Any `data_origin.*live` hits in docs are prohibition language or internal-hosting guidance, not public-hosting instructions.
+- `apps/web/data/workspace.json` remains `data_origin: fixture` for the public demo bundle.

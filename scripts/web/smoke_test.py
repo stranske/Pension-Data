@@ -210,6 +210,7 @@ def _smoke_url(base_url: str, *, expect_runtime: bool, headers: dict[str, str] |
         workspace_payload,
         path_label="data/workspace.json",
         reject_fixture=expect_runtime,
+        require_fixture=not expect_runtime,
     )
 
     if expect_runtime:
