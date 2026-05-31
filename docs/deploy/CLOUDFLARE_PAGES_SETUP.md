@@ -1,6 +1,8 @@
-# Cloudflare Pages Setup (Private Access)
+# Synthetic-Data Demo Hosting (Cloudflare Pages)
 
-This guide configures the `apps/web` scaffold for Cloudflare Pages deployment with private access controls.
+> For fixture/synthetic data only. Do not publish bundles whose `data_origin` is `live`.
+
+This guide configures the `apps/web` scaffold for a Cloudflare Pages synthetic/demo deployment with private access controls. Cloudflare Pages is not the real-data hosting path.
 
 ## 1. Create Cloudflare Pages Project
 

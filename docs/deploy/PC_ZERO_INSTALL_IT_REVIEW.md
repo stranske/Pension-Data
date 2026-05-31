@@ -20,6 +20,8 @@ This guide describes the browser-only mode for Pension-Data in locked-down PC en
 
 ## Internal API Host
 
+Use the internal host for `data_origin: live` bundles and any shared real-data browser session. It serves the same `apps/web/` assets inside the organization perimeter and keeps deterministic saved-view / metric-history analysis in-process instead of moving pension data to public Pages.
+
 Start the internal host from an approved workstation or server:
 
 ```bash
