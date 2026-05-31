@@ -74,7 +74,10 @@ def test_local_server_serves_generated_bundle_and_non_external_config(tmp_path: 
         workspace_bundle=bundle,
         runtime_config=config,
     )
-    server = serve_local.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    try:
+        server = serve_local.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    except PermissionError as exc:
+        pytest.skip(f"socket bind not permitted in this environment: {exc}")
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
