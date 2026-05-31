@@ -39,9 +39,10 @@ with an excerpt or method never changes its stable identity.
 `build_evidence_reference(...)` accepts optional `excerpt=` and `method=`
 keyword arguments. When `method` is not supplied it is **inferred from the
 canonical anchor form**: `table:` anchors → `"table"`, `text:` anchors and page
-locators → `"text"`, free-form section hints leave `method` unset for the
-caller to override. This makes table-derived metrics surface `method="table"`
-and text-block metrics surface `method="text"` automatically.
+locators → `"text"`, and parser table locators such as `p.40#table` →
+`"table"`. Free-form section hints leave `method` unset for the caller to
+override. This makes table-derived metrics surface `method="table"` and
+text-block metrics surface `method="text"` automatically.
 
 `LLM`-sourced excerpts must originate from the deterministic parser's source
 text — do not add a network LLM call to produce excerpts.

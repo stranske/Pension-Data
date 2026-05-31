@@ -121,16 +121,15 @@ def test_builder_threads_per_link_confidence_from_fact() -> None:
 
 
 def test_table_derived_finding_populates_method_table() -> None:
-    # A table-anchored evidence ref (as produced by ``table_evidence_ref``) must
-    # surface method="table" through the real artifact builder path that flows
-    # from document_orchestration's table-derived metrics.
+    # Parser table rows emit page locators with a table section marker. That
+    # must surface method="table" through the real artifact builder path.
     funded_facts = (
         FundedStatusFact(
             context=_context(source_document_id="doc:ca:2025:funded"),
             metric_name="funded_ratio",
             metric_value=_value(),
             confidence=0.93,
-            evidence_refs=("table:funded ratio schedule", "text:2"),
+            evidence_refs=("p.40#table", "text:2"),
         ),
     )
     artifacts = build_core_metric_evidence_artifacts(funded_facts=funded_facts)
@@ -147,7 +146,7 @@ def test_citation_export_surfaces_excerpt_method_and_confidence() -> None:
             metric_name="funded_ratio",
             metric_value=_value(),
             confidence=0.88,
-            evidence_refs=("table:funded ratio schedule",),
+            evidence_refs=("p.40#table",),
         ),
     )
     artifacts = build_core_metric_evidence_artifacts(funded_facts=funded_facts)

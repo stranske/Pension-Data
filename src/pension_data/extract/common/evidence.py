@@ -53,7 +53,19 @@ def table_evidence_ref(raw_ref: str | None) -> str:
     return f"table:{normalized}"
 
 
-def _method_from_ref(*, normalized_ref: str, page_number: int | None) -> EvidenceMethod | None:
+def _section_implies_table(section_hint: str | None) -> bool:
+    if section_hint is None:
+        return False
+    normalized = section_hint.strip().lower()
+    return normalized == "table" or normalized.startswith("table ")
+
+
+def _method_from_ref(
+    *,
+    normalized_ref: str,
+    page_number: int | None,
+    section_hint: str | None,
+) -> EvidenceMethod | None:
     """Infer the extraction method from the canonical anchor form.
 
     ``table:`` anchors come from the table-extraction path, ``text:`` anchors and
@@ -64,6 +76,8 @@ def _method_from_ref(*, normalized_ref: str, page_number: int | None) -> Evidenc
         return "table"
     if normalized_ref.startswith("text:"):
         return "text"
+    if _section_implies_table(section_hint):
+        return "table"
     if page_number is not None:
         return "text"
     return None
@@ -105,7 +119,9 @@ def build_evidence_reference(
             section_hint = normalized_ref
 
     resolved_method = method or _method_from_ref(
-        normalized_ref=normalized_ref, page_number=page_number
+        normalized_ref=normalized_ref,
+        page_number=page_number,
+        section_hint=section_hint,
     )
     resolved_excerpt = excerpt.strip() if excerpt and excerpt.strip() else None
 

@@ -205,6 +205,14 @@ class TestEvidenceExcerptAndMethod:
         )
         assert ref.method == "table"
 
+    def test_method_inferred_from_parser_table_page_locator(self) -> None:
+        ref = build_evidence_reference(
+            report_id="r1", source_document_id="d1", evidence_ref="p.40#table"
+        )
+        assert ref.method == "table"
+        assert ref.page_number == 40
+        assert ref.section_hint == "table"
+
     def test_method_inferred_from_text_anchor(self) -> None:
         ref = build_evidence_reference(
             report_id="r1", source_document_id="d1", evidence_ref="text: paragraph 3"
