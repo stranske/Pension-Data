@@ -10,6 +10,11 @@ _OPERATORS = ("==", ">=", "<=", "~=", "!=", ">", "<", "===")
 
 def _split_spec(raw: str) -> str:
     entry = raw.strip().strip(",").strip('"')
+    # Direct references ("name @ git+https://...") declare the package name before
+    # the " @ "; there is no version operator to split on.
+    if " @ " in entry:
+        name, _ = entry.split(" @ ", 1)
+        return name.strip().split("[")[0]
     for operator in _OPERATORS:
         if operator in entry:
             name, _ = entry.split(operator, 1)
@@ -24,6 +29,12 @@ def _load_lock_versions(path: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#"):
             continue
         if stripped.startswith("--"):
+            continue
+        # Direct references in the lock ("name @ git+https://...") have no pinned
+        # "==" version; record them so the presence check still passes.
+        if " @ " in stripped:
+            name, _ = stripped.split(" @ ", 1)
+            versions[name.strip().lower()] = "<direct-reference>"
             continue
         if "==" not in stripped:
             continue
