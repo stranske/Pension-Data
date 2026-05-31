@@ -159,3 +159,84 @@ class TestBuildEvidenceReference:
             report_id="r1", source_document_id="d1", evidence_ref="page 6"
         )
         assert ref1.evidence_ref_id != ref2.evidence_ref_id
+
+
+# ── excerpt / method enrichment ─────────────────────────────────────
+
+
+class TestEvidenceExcerptAndMethod:
+    def test_evidence_reference_carries_excerpt_and_method(self) -> None:
+        ref = build_evidence_reference(
+            report_id="r1",
+            source_document_id="d1",
+            evidence_ref="table:schedule of investments",
+            excerpt="Funded ratio 80.0% per the schedule of investments.",
+            method="table",
+        )
+        # Round-trips through the builder onto the EvidenceReference.
+        assert ref.excerpt == "Funded ratio 80.0% per the schedule of investments."
+        assert ref.method == "table"
+        # Round-trips through serialization (dataclasses.asdict).
+        from dataclasses import asdict
+
+        serialized = asdict(ref)
+        assert serialized["excerpt"] == ref.excerpt
+        assert serialized["method"] == "table"
+
+    def test_adding_excerpt_does_not_change_evidence_ref_id(self) -> None:
+        plain = build_evidence_reference(
+            report_id="r1", source_document_id="d1", evidence_ref="table:schedule"
+        )
+        enriched = build_evidence_reference(
+            report_id="r1",
+            source_document_id="d1",
+            evidence_ref="table:schedule",
+            excerpt="some supporting quote",
+            method="table",
+        )
+        # Stable-ID regression guard: enrichment must not perturb identity.
+        assert plain.evidence_ref_id == enriched.evidence_ref_id
+        assert plain.excerpt is None
+        assert plain.method == "table"  # still inferred from the anchor
+
+    def test_method_inferred_from_table_anchor(self) -> None:
+        ref = build_evidence_reference(
+            report_id="r1", source_document_id="d1", evidence_ref="table:funded schedule"
+        )
+        assert ref.method == "table"
+
+    def test_method_inferred_from_text_anchor(self) -> None:
+        ref = build_evidence_reference(
+            report_id="r1", source_document_id="d1", evidence_ref="text: paragraph 3"
+        )
+        assert ref.method == "text"
+
+    def test_method_inferred_as_text_for_page_locator(self) -> None:
+        ref = build_evidence_reference(
+            report_id="r1", source_document_id="d1", evidence_ref="page 5"
+        )
+        assert ref.method == "text"
+
+    def test_method_none_for_freeform_section(self) -> None:
+        ref = build_evidence_reference(
+            report_id="r1", source_document_id="d1", evidence_ref="Financial Summary"
+        )
+        assert ref.method is None
+
+    def test_explicit_method_overrides_inference(self) -> None:
+        ref = build_evidence_reference(
+            report_id="r1",
+            source_document_id="d1",
+            evidence_ref="page 5",
+            method="ocr",
+        )
+        assert ref.method == "ocr"
+
+    def test_blank_excerpt_normalized_to_none(self) -> None:
+        ref = build_evidence_reference(
+            report_id="r1",
+            source_document_id="d1",
+            evidence_ref="text:2",
+            excerpt="   ",
+        )
+        assert ref.excerpt is None

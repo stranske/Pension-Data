@@ -29,6 +29,7 @@ class _MetricEvidenceSource:
     report_id: str
     source_document_id: str
     evidence_refs: tuple[str, ...]
+    confidence: float | None = None
 
 
 _HIGH_IMPACT_FAMILIES: frozenset[str] = frozenset(
@@ -93,6 +94,7 @@ def _gather_metric_sources(
                 report_id=funded_fact.context.source_document_id,
                 source_document_id=funded_fact.context.source_document_id,
                 evidence_refs=funded_fact.evidence_refs,
+                confidence=funded_fact.confidence,
             )
         )
     for actuarial_fact in actuarial_facts:
@@ -108,6 +110,7 @@ def _gather_metric_sources(
                 report_id=actuarial_fact.context.source_document_id,
                 source_document_id=actuarial_fact.context.source_document_id,
                 evidence_refs=actuarial_fact.evidence_refs,
+                confidence=actuarial_fact.confidence,
             )
         )
     for allocation_fact in allocation_facts:
@@ -123,6 +126,7 @@ def _gather_metric_sources(
                 report_id=allocation_fact.context.source_document_id,
                 source_document_id=allocation_fact.context.source_document_id,
                 evidence_refs=allocation_fact.evidence_refs,
+                confidence=allocation_fact.confidence,
             )
         )
     for holding_fact in holding_facts:
@@ -141,6 +145,7 @@ def _gather_metric_sources(
                 report_id=holding_fact.context.source_document_id,
                 source_document_id=holding_fact.context.source_document_id,
                 evidence_refs=holding_fact.evidence_refs,
+                confidence=holding_fact.confidence,
             )
         )
     for fee_fact in fee_facts:
@@ -157,6 +162,7 @@ def _gather_metric_sources(
                 report_id=fee_fact.context.source_document_id,
                 source_document_id=fee_fact.context.source_document_id,
                 evidence_refs=fee_fact.evidence_refs,
+                confidence=fee_fact.confidence,
             )
         )
     return sorted(
@@ -217,6 +223,7 @@ def build_core_metric_evidence_artifacts(
                 metric_family=source.metric_family,
                 metric_name=source.metric_name,
                 evidence_ref_id=evidence.evidence_ref_id,
+                confidence=source.confidence,
             )
             links_by_id[link.link_id] = link
 
