@@ -68,9 +68,12 @@ async function loadJson(path) {
 
 function assertConfig(config) {
   for (const key of REQUIRED_CONFIG_KEYS) {
-    if (!normalizeText(config[key])) {
+    if (!(key in config) || typeof config[key] !== "string") {
       throw new Error(`missing required config key: ${key}`);
     }
+  }
+  if (!normalizeText(config.environment) || !normalizeText(config.artifactBaseUrl)) {
+    throw new Error("missing required non-empty config key");
   }
 }
 

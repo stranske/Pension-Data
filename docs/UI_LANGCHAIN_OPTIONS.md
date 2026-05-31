@@ -11,7 +11,7 @@ This document compares practical options for adding a higher-quality UI and a La
 
 ### Shape
 - Run the existing `apps/web/` browser workspace against a user-selected local JSON bundle, or package the same workflow with stlite/Pyodide/JupyterLite so analysis executes in the work browser.
-- For shared access to `data_origin: live` bundles, serve the static assets and deterministic API routes from an internal/on-prem host such as the Issue-2 `pension-data-serve` FastAPI app bound to the organization network.
+- For shared access to `data_origin: generated` or `data_origin: live` bundles, serve the static assets from `scripts/web/serve_local.py --bundle <workspace.json>` or serve deterministic API routes from the `pension-data-serve` FastAPI app bound to the organization network.
 - Treat the prior GitHub Pages/Cloudflare + Actions model as fixture/synthetic demo-only; it is not the recommended path for real pension data.
 - Generate findings JSON artifacts inside the organization boundary and publish them only to approved internal artifact locations.
 
@@ -85,7 +85,7 @@ This document compares practical options for adding a higher-quality UI and a La
 
 ## Recommended Path
 
-1. Start with **Option 1** for real work: browser-local/WASM or internal hosting for `generated` and `live` bundles.
+1. Start with **Option 1** for real work: browser-local/WASM or internal hosting for `generated` and `live` bundles. Use `docs/deploy/IN_PERIMETER_REAL_DATA_REVIEW.md` as the click-to-open review runbook.
 2. Keep GitHub Pages / Cloudflare Pages as a fixture-only external demo surface.
 3. Add **Option 3** over time by introducing a Mac desktop power-client when UX depth is needed.
 4. Keep LLM execution behind authorized no-train endpoints; disable LLM features in the proprietary zone until that endpoint is configured.

@@ -37,8 +37,11 @@ def _load_json(path: Path) -> dict[str, object]:
 def _assert_config(payload: dict[str, object], *, path_label: str) -> None:
     for key in REQUIRED_CONFIG_KEYS:
         value = payload.get(key)
-        if not isinstance(value, str) or not value.strip():
+        if not isinstance(value, str):
             raise ValueError(f"missing required config key '{key}' in {path_label}")
+    for key in ("environment", "artifactBaseUrl"):
+        if not payload[key].strip():
+            raise ValueError(f"missing required non-empty config key '{key}' in {path_label}")
 
 
 def _assert_workspace_bundle(

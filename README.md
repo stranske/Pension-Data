@@ -36,6 +36,19 @@ by the LangChain runtime (`OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`) points at
 an approved no-train endpoint. Use `PENSION_DATA_DATA_ZONE=fixture` only for
 synthetic/demo data.
 
+For a bundle-only, zero-install real-data browser review, build a generated
+workspace bundle and serve it with the stdlib local host:
+
+```bash
+python scripts/web/build_workspace_bundle.py --pilot-run-dir outputs/one_pdf_pilot/<run-id> --out outputs/web/workspace.generated.json
+python scripts/web/serve_local.py --bundle outputs/web/workspace.generated.json
+```
+
+This path serves `apps/web/` with `apiBaseUrl` intentionally empty, keeps
+artifact links relative or loopback, and rejects fixture bundles unless
+explicitly run as a demo dry run. See
+[docs/deploy/IN_PERIMETER_REAL_DATA_REVIEW.md](docs/deploy/IN_PERIMETER_REAL_DATA_REVIEW.md).
+
 Run local checks:
 
 ```bash
@@ -91,7 +104,9 @@ Two intentionally incomplete components are tracked:
 - A LangChain interaction layer for findings exploration from repo outputs.
 - A packaged Mac desktop app path (scaffold now present under `apps/mac-desktop/`).
 
-See [docs/UI_LANGCHAIN_OPTIONS.md](docs/UI_LANGCHAIN_OPTIONS.md) for deployment options and tradeoffs under your environment constraints.
+See [docs/UI_LANGCHAIN_OPTIONS.md](docs/UI_LANGCHAIN_OPTIONS.md) and
+[docs/deploy/IN_PERIMETER_REAL_DATA_REVIEW.md](docs/deploy/IN_PERIMETER_REAL_DATA_REVIEW.md)
+for deployment options and tradeoffs under your environment constraints.
 
 ## Additional Docs
 

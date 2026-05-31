@@ -31,12 +31,19 @@ Open `apps/web/index.html` in a browser or run a static file server.
 - Build a generated workspace bundle from a one-PDF pilot run with
   `python scripts/web/build_workspace_bundle.py --pilot-run-dir <run-dir> --out apps/web/data/workspace.json`.
   The generator reads `run_manifest.json` and `staging_core_metrics.json`, emits `data_origin: "generated"`, and validates the bundle before writing.
+- Serve a generated or live bundle without copying it over the checked-in
+  fixture with `python scripts/web/serve_local.py --bundle <workspace.generated.json>`.
+  This in-perimeter path returns an empty `apiBaseUrl` and relative artifact
+  links so the browser does not call an external API host.
 
 ## Zero-Install Usage
 
 - Open the hosted web app in a browser.
 - If available, use `Install App` for PWA mode.
 - Use `Load Local Bundle` to open a workspace JSON export directly from disk.
+- Use `scripts/web/serve_local.py --bundle <generated-or-live-workspace.json>` for
+  a loopback/internal-host review where the app loads the generated bundle at
+  `/data/workspace.json`.
 - If network access is unavailable, the app falls back to the last cached workspace bundle.
 - Treat the packaged `apps/web/data/workspace.json` bundle as demo data, not a live or generated review artifact.
 
