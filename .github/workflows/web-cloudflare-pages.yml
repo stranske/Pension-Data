@@ -34,7 +34,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       - name: Local smoke check
         run: python scripts/web/smoke_test.py --base-dir apps/web
@@ -63,7 +63,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       - name: Validate deploy prerequisites and write runtime config
         run: |
