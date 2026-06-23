@@ -20,6 +20,20 @@ def test_offline_web_bundle_uses_no_external_scripts_or_styles() -> None:
         assert "cdn.plot.ly" not in content
 
 
+def test_offline_web_styles_and_worker_have_no_external_urls() -> None:
+    # Defense-in-depth for the confidential-data offline posture: the served
+    # stylesheet and service worker are first-party code (not config), so they
+    # must contain no external URL at all — this catches CSS ``@import``/``url()``
+    # font/asset refs and any future external fetch in the worker, which the
+    # script/link-tag scan above (index.html + app.js only) would miss.
+    for name in ("styles.css", "sw.js"):
+        content = (WEB_ROOT / name).read_text(encoding="utf-8")
+        assert "http://" not in content and "https://" not in content, (
+            f"apps/web/{name} references an external URL; the offline bundle "
+            "must be fully self-contained"
+        )
+
+
 def test_plotly_is_vendored_and_precached_for_offline_chart_studio() -> None:
     index_html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
     app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
