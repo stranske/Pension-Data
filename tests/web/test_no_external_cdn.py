@@ -28,7 +28,11 @@ def test_offline_web_styles_and_worker_have_no_external_urls() -> None:
     # script/link-tag scan above (index.html + app.js only) would miss.
     for name in ("styles.css", "sw.js"):
         content = (WEB_ROOT / name).read_text(encoding="utf-8")
-        assert "http://" not in content and "https://" not in content, (
+        normalized_content = content.lower()
+        assert (
+            "http://" not in normalized_content
+            and "https://" not in normalized_content
+        ), (
             f"apps/web/{name} references an external URL; the offline bundle "
             "must be fully self-contained"
         )
