@@ -6,10 +6,10 @@ tasks:
   - id: task-01
     title: Add `tokens.css` and `components.css` to the served offline bundle in `apps/web/`
       and link them in `apps/web/index.html` as same-origin assets.
-    status: doing
+    status: done
     started_at: '2026-06-23T16:08:48Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-06-23T16:09:03Z'
+    commit: 07ae64f52ae003f80093ae3daf798cb8bf415bdf
     notes: []
   - id: task-02
     title: 'Copy or reference tokens.css (verify: confirm completion in repo)'
