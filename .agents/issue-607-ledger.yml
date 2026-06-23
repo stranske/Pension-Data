@@ -1,0 +1,150 @@
+version: 1
+issue: 607
+base: main
+branch: codex/issue-607
+tasks:
+  - id: task-01
+    title: Add `tokens.css` and `components.css` to the served offline bundle in `apps/web/`
+      and link them in `apps/web/index.html` as same-origin assets.
+    status: doing
+    started_at: '2026-06-23T16:08:48Z'
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-02
+    title: 'Copy or reference tokens.css (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: 'components.css into the apps/web directory structure for offline serving
+      (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: 'Configure the build or serve process to include the CSS files in the offline
+      bundle (verify: config validated)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: 'Add link tags in apps/web/index.html that reference the local CSS files
+      using relative paths (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: Update the app root in `apps/web/index.html` to apply `class="ds theme-air"`
+      and map the most-visible bespoke styles to shared tokens.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: 'Add the class attributes ds (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: 'theme-air to the root container element in apps/web/index.html (verify:
+      confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: 'Identify the most-visible bespoke CSS rules that should be replaced with
+      design-system tokens (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: 'Replace identified bespoke styles with references to shared design-system
+      token variables (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: Update `tests/web/test_no_external_cdn.py` (or a sibling test) to assert
+      `apps/web/index.html` links local `tokens.css` and `components.css`, applies
+      `.ds` and `theme-air`, and references no external stylesheet.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: Test failure is reproducible by removing a stylesheet link and passes again
+      after reverting the change.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: When serving `apps/web` with network blocked, the shared theme renders
+      and there are zero external requests.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: Make `tokens.css` + `components.css` part of the served offline bundle
+      (copy/reference into `apps/web/` so they load same-origin) and link them in
+      `apps/web/index.html`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: Apply `class="ds theme-air"` at the app root; reconcile the most-visible
+      bespoke styles to the shared tokens.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: "Named test gate: extend `tests/web/test_no_external_cdn.py` (or a sibling)\
+      \ \u2014 assert `index.html` links the **local** `tokens.css` + `components.css`,\
+      \ applies `.ds`/`theme-air`, and references **no external** stylesheet."
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: '**Deliberate-break -> revert:** remove the stylesheet link -> the test
+      **FAILS** -> revert -> passes. Capture both runs.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: 'Live offline: serve `apps/web` with the network blocked; the shared theme
+      renders and the network panel shows zero external requests (screenshot).'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
