@@ -4,6 +4,7 @@ const CORE_ASSETS = [
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./vendor/plotly-2.35.2.min.js",
   "./manifest.webmanifest",
   "./config/default.json",
   "./data/workspace.json",
