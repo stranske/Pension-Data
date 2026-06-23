@@ -5,6 +5,9 @@ const SAVED_VIEWS_KEY = "pension-data.saved-views.v1";
 const OFFLINE_WORKSPACE_KEY = "pension-data.offline-workspace.v1";
 const OFFLINE_WORKSPACE_SOURCE_KEY = "pension-data.offline-workspace-source.v1";
 const SERVICE_WORKER_PATH = "./sw.js";
+const PLOTLY_VENDOR_PATH = "./vendor/plotly-2.35.2.min.js";
+const PLOTLY_LOAD_ERROR_TEXT =
+  "Chart rendering unavailable because the offline Plotly bundle did not load. Rebuild or re-serve the web bundle with apps/web/vendor/plotly-2.35.2.min.js included.";
 const RUNTIME_CONTRACT_VERSION = "1.0.0";
 const REQUIRED_CONFIG_KEYS = ["environment", "apiBaseUrl", "artifactBaseUrl"];
 const DATA_ORIGIN_LABELS = {
@@ -879,8 +882,7 @@ function renderChartSpec(spec) {
   state.currentChartSpec = normalized;
   document.getElementById("chart-spec").value = `${JSON.stringify(normalized, null, 2)}\n`;
   if (!window.Plotly || typeof window.Plotly.react !== "function") {
-    document.getElementById("chart-preview").textContent =
-      "Chart rendering unavailable because Plotly failed to load.";
+    document.getElementById("chart-preview").textContent = PLOTLY_LOAD_ERROR_TEXT;
     return;
   }
   window.Plotly.react("chart-preview", normalized.data, normalized.layout, {
@@ -904,6 +906,21 @@ function scheduleChartRefresh() {
   }, 180);
 }
 
+async function loadVendoredPlotlySource() {
+  const response = await fetch(PLOTLY_VENDOR_PATH, { cache: "force-cache" });
+  if (!response.ok) {
+    throw new Error(`failed to load ${PLOTLY_VENDOR_PATH}`);
+  }
+  return response.text();
+}
+
+function escapeInlineScript(source) {
+  return source
+    .replace(/<\/script/gi, "<\\/script")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
 function bindChartStudio() {
   document.getElementById("chart-build").addEventListener("click", buildChartFromTemplate);
   document.getElementById("chart-template").addEventListener("change", buildChartFromTemplate);
@@ -924,7 +941,7 @@ function bindChartStudio() {
   });
   document.getElementById("chart-export-png").addEventListener("click", async () => {
     if (!window.Plotly || typeof window.Plotly.toImage !== "function") {
-      window.alert("Chart export unavailable because Plotly failed to load.");
+      window.alert(PLOTLY_LOAD_ERROR_TEXT);
       return;
     }
     const dataUrl = await window.Plotly.toImage("chart-preview", {
@@ -937,7 +954,7 @@ function bindChartStudio() {
   });
   document.getElementById("chart-export-svg").addEventListener("click", async () => {
     if (!window.Plotly || typeof window.Plotly.toImage !== "function") {
-      window.alert("Chart export unavailable because Plotly failed to load.");
+      window.alert(PLOTLY_LOAD_ERROR_TEXT);
       return;
     }
     const dataUrl = await window.Plotly.toImage("chart-preview", {
@@ -947,16 +964,23 @@ function bindChartStudio() {
     });
     downloadFile("pension-data-chart.svg", dataUrl, "image/svg+xml");
   });
-  document.getElementById("chart-export-html").addEventListener("click", () => {
+  document.getElementById("chart-export-html").addEventListener("click", async () => {
     const spec = state.currentChartSpec || { data: [], layout: {} };
     const embeddedSpec = JSON.stringify(spec).replace(/</g, "\\u003c");
+    let plotlySource;
+    try {
+      plotlySource = await loadVendoredPlotlySource();
+    } catch {
+      window.alert(PLOTLY_LOAD_ERROR_TEXT);
+      return;
+    }
     const html = `<!doctype html>
 <html lang=\"en\">
   <head>
     <meta charset=\"UTF-8\" />
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
     <title>Pension-Data Chart Export</title>
-    <script src=\"https://cdn.plot.ly/plotly-2.35.2.min.js\"></script>
+    <script>${escapeInlineScript(plotlySource)}</script>
   </head>
   <body>
     <div id=\"chart\" style=\"width:100%;height:100vh;\"></div>
