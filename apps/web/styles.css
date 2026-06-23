@@ -1,13 +1,18 @@
 :root {
-  --bg-top: #edf7f4;
-  --bg-bottom: #d3e8e5;
-  --ink: #122321;
-  --muted: #355856;
-  --card-bg: rgba(255, 255, 255, 0.82);
-  --card-border: rgba(18, 35, 33, 0.12);
+  --bg-top: var(--bg, #edf7f4);
+  --bg-bottom: var(--panel, #d3e8e5);
+  --ink: var(--text, #122321);
+  --card-bg: color-mix(in srgb, var(--surface, #ffffff) 88%, transparent);
+  --card-border: var(--border, rgba(18, 35, 33, 0.12));
+  --accent-soft: var(--accent-weak, #d8f5f1);
+  --highlight: var(--warn, #f06f42);
+}
+
+.theme-air {
   --accent: #0f766e;
-  --accent-soft: #d8f5f1;
-  --highlight: #f06f42;
+  --accent-weak: #d8f5f1;
+  --accent-line: #9bd8d0;
+  --btn-primary-bg: #0f766e;
 }
 
 * {

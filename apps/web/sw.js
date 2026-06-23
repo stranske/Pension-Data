@@ -2,6 +2,8 @@ const CACHE_NAME = "pension-data-web-v1";
 const CORE_ASSETS = [
   "./",
   "./index.html",
+  "./tokens.css",
+  "./components.css",
   "./styles.css",
   "./app.js",
   "./vendor/plotly-2.35.2.min.js",
