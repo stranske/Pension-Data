@@ -488,6 +488,9 @@ def test_run_nl_query_endpoint_emits_fleet_artifact_when_category_set(
     connection = _seed_connection()
     log_path = tmp_path / "nl_operations.jsonl"
     fleet_path = tmp_path / "langsmith" / langsmith_fleet.ARTIFACT_NAME
+    fleet_github_pr = _ci_github_pr_ref()
+    if fleet_github_pr is None and not _is_github_actions():
+        fleet_github_pr = "stranske/Pension-Data#999"
     try:
         result = run_nl_query_endpoint(
             api_key_header=secret,
@@ -508,7 +511,7 @@ def test_run_nl_query_endpoint_emits_fleet_artifact_when_category_set(
             fleet_artifact_path=fleet_path,
             fleet_trace_id="trace-xyz",
             fleet_trace_url="https://smith.langchain.com/r/trace-xyz",
-            fleet_github_pr="stranske/Pension-Data#999",
+            fleet_github_pr=fleet_github_pr,
         )
     finally:
         connection.close()
@@ -534,8 +537,15 @@ def test_run_nl_query_endpoint_emits_fleet_artifact_when_category_set(
         assert record["domain"]["row_count"] == 2
         assert record["trace_id"] == "trace-xyz"
         assert record["trace_url"] == "https://smith.langchain.com/r/trace-xyz"
-        assert record["github_pr"] == "stranske/Pension-Data#999"
+        if fleet_github_pr is not None:
+            assert record["github_pr"] == fleet_github_pr
+        else:
+            assert "github_pr" not in record
     assert records[3]["status"] == "skipped"
+    ci_artifact_path = _write_ci_langsmith_fleet_artifact(records)
+    if ci_artifact_path is not None:
+        assert ci_artifact_path.exists()
+        assert len(ci_artifact_path.read_text(encoding="utf-8").splitlines()) == len(records)
     assert result.audit_event["langsmith_query_category"] == "funded_ratio_lookup"
     assert result.audit_event["langsmith_trace_id"] == "trace-xyz"
 
@@ -844,6 +854,30 @@ def test_default_fleet_artifact_path_env_override(
     assert result == (tmp_path / "custom" / "fleet.ndjson")
 
 
+def test_ci_langsmith_fleet_artifact_writer_uses_canonical_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+
+    artifact_path = _write_ci_langsmith_fleet_artifact(
+        [{"schema_version": langsmith_fleet.SCHEMA_VERSION, "run_id": "nlq:1"}],
+        root=tmp_path,
+    )
+
+    assert artifact_path == tmp_path / "artifacts" / "langsmith" / langsmith_fleet.ARTIFACT_NAME
+    assert artifact_path.read_text(encoding="utf-8").splitlines() == [
+        '{"run_id":"nlq:1","schema_version":"langsmith-fleet/v1"}'
+    ]
+
+
+def test_ci_github_pr_ref_uses_pull_request_ref(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "stranske/Pension-Data")
+    monkeypatch.setenv("GITHUB_REF", "refs/pull/665/merge")
+
+    assert _ci_github_pr_ref() == "stranske/Pension-Data#665"
+
+
 def test_append_fleet_records_rejects_invalid_retention_limit(tmp_path: Path) -> None:
     path = tmp_path / langsmith_fleet.ARTIFACT_NAME
     with pytest.raises(ValueError, match="retention_limit must be >= 1"):
@@ -876,3 +910,33 @@ def test_build_fleet_records_unknown_error_code_skips_all_stages(
     )
     statuses = {record["operation"]: record["status"] for record in records}
     assert all(s == "skipped" for s in statuses.values())
+
+
+def _is_github_actions() -> bool:
+    return os.getenv("GITHUB_ACTIONS", "").lower() == "true"
+
+
+def _ci_github_pr_ref() -> str | None:
+    ref = os.getenv("GITHUB_REF", "").strip()
+    prefix = "refs/pull/"
+    if not ref.startswith(prefix):
+        return None
+    number = ref[len(prefix) :].split("/", 1)[0]
+    if not number.isdigit():
+        return None
+    repository = os.getenv("GITHUB_REPOSITORY", langsmith_fleet.REPO).strip()
+    return f"{repository or langsmith_fleet.REPO}#{int(number)}"
+
+
+def _write_ci_langsmith_fleet_artifact(
+    records: list[dict[str, Any]],
+    *,
+    root: Path | None = None,
+) -> Path | None:
+    if not _is_github_actions():
+        return None
+    repo_root = root or Path.cwd()
+    return langsmith_fleet.write_fleet_records(
+        repo_root / "artifacts" / "langsmith" / langsmith_fleet.ARTIFACT_NAME,
+        records,
+    )
