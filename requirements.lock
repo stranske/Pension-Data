@@ -199,7 +199,7 @@ requests==2.34.2
     #   tiktoken
 requests-toolbelt==1.0.0
     # via langsmith
-ruff==0.15.19
+ruff==0.15.20
     # via pension-data (pyproject.toml)
 six==1.17.0
     # via python-dateutil
