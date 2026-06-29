@@ -7,10 +7,10 @@ tasks:
     title: Update `extract/actuarial/metrics.py` `_parse_numeric_token_after_alias`
       to stop at sentence terminators or the next metric alias, and return "not disclosed"
       when no value precedes the boundary.
-    status: doing
+    status: done
     started_at: '2026-06-29T04:15:08Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-06-29T04:15:22Z'
+    commit: 105ea7498a3e9d6df871ebfa32fca8dcdc100cfc
     notes: []
   - id: task-02
     title: 'Update `_parse_numeric_token_after_alias` to detect and stop scanning
