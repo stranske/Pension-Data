@@ -1,0 +1,224 @@
+version: 1
+issue: 639
+base: main
+branch: codex/issue-639
+tasks:
+  - id: task-01
+    title: Add `scripts/web/workspace_contract.py` with canonical validation for contract
+      version, `data_origin` allowlist, datasets, and fixture policy, sourced from
+      `apps/contracts/runtime-contract.json`.
+    status: doing
+    started_at: '2026-06-29T04:06:36Z'
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-02
+    title: Update `scripts/web/smoke_test.py`, `scripts/web/serve_local.py`, and `scripts/web/build_workspace_bundle.py`
+      to call `scripts/web/workspace_contract.py` and delete their local contract-validation
+      logic.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: Fix `apps/web/app.js` to reject contract-version mismatches instead of
+      warning, or load allowlist/version from `apps/contracts/runtime-contract.json`
+      at build time.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: 'Decide whether app.js should reject mismatches immediately or load validation
+      rules from runtime-contract.json at build time (verify: confirm completion in
+      repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: 'Implement the chosen approach to make app.js enforce contract version
+      validation consistently with Python validators (verify: confirm completion in
+      repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: 'Update app.js to load the contract version (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: 'data_origin allowlist from apps/contracts/runtime-contract.json during
+      the build process (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: 'Remove the warn-only behavior for contractVersion mismatches in apps/web/app.js
+      lines 120-123 (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: Extend `tests/web/test_workspace_contract.py` under the `pytest tests/web
+      -q` gate to assert all three consumers agree on a known-good and known-bad bundle.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: 'Create or extend tests/web/test_workspace_contract.py with fixtures for
+      known-good (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: 'Create or extend tests/web/test_workspace_contract.py with known-bad bundle
+      examples (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: 'Write test cases that invoke smoke_test.py validation logic with known-good
+      (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: 'Write test cases that invoke smoke_test.py validation logic with known-bad
+      bundles (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: 'Write test cases that invoke serve_local.py validation logic with the
+      same bundle fixtures (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: _(2 further sub-tasks elided; split this issue)_
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: _(2 further sub-tasks elided; split this issue)_
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: A bundle rejected by `scripts/web/smoke_test.py` is also rejected by `scripts/web/serve_local.py`
+      and is not served.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: '`apps/web/app.js` refuses to render a bundle with a mismatched `contractVersion`.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: One Python module owns the rules, and `scripts/web/smoke_test.py`, `scripts/web/serve_local.py`,
+      and `scripts/web/build_workspace_bundle.py` contain no parallel contract logic.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: '`pytest tests/web -q` passes with coverage in `tests/web/test_workspace_contract.py`
+      asserting all three consumers agree on a known-good and known-bad bundle.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-21
+    title: Deliberately bumping a bundle's `contractVersion` causes all paths to reject
+      it, and reverting the change restores passing behavior.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-22
+    title: Add `scripts/web/workspace_contract.py` with the canonical validation (contract
+      version + `data_origin` allowlist + datasets + fixture policy), sourced from
+      `apps/contracts/runtime-contract.json`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-23
+    title: Make `smoke_test.py`, `serve_local.py`, `build_workspace_bundle.py` call
+      it (delete their local copies).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-24
+    title: Make `app.js` reject (not just warn) on contract-version mismatch, or load
+      the allowlist/version from the shared JSON contract at build time.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-25
+    title: A bundle rejected by `smoke_test.py` is also rejected by `serve_local.py`
+      (no serve).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-26
+    title: '`app.js` refuses to render a contract-version-mismatched bundle (consistent
+      with Python).'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-27
+    title: One Python module owns the rules; the three scripts contain no parallel
+      contract logic.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
