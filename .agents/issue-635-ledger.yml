@@ -1,0 +1,131 @@
+version: 1
+issue: 635
+base: main
+branch: codex/issue-635
+tasks:
+  - id: task-01
+    title: Run `black tests/web/test_no_external_cdn.py` with black 26.5.1 and commit
+      the formatting-only diff.
+    status: done
+    started_at: '2026-06-29T02:26:10Z'
+    finished_at: '2026-06-29T02:26:20Z'
+    commit: 258a310565993018b2d1318b4efa450da4061883
+    notes: []
+  - id: task-02
+    title: 'Run `black tests/web/test_no_external_cdn.py` with black 26.5.1 (verify:
+      tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: 'Run `black tests/web/test_no_external_cdn.py` with commit the formatting-only
+      diff. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: 'Update `.github/workflows/pr-00-gate.yml` to set the reusable CI call
+      `format_check: true` at line ~72, matching `ci.yml`.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: 'matching `ci.yml`. (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: Verify `black --check .` passes repo-wide with the CI-pinned black.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: '`black --check . --exclude ''/(\.venv|node_modules|\.git)/''` exits 0
+      with the CI-pinned black version.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: '`.github/workflows/pr-00-gate.yml` runs the black format check on `pull_request`,
+      and a deliberately mis-formatted file in a test branch fails the Gate format
+      job.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: '`main` `ci.yml` `lint-format` job is green on the merge commit.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: Run `black tests/web/test_no_external_cdn.py` (black 26.5.1) and commit
+      the formatting-only diff.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: 'In `.github/workflows/pr-00-gate.yml`, set the reusable CI call `format_check:
+      true` (line ~72) so PRs run black, matching `ci.yml`. Confirm this repo is a
+      CUSTOM_GATE repo (local edit is correct here, not an upstream Workflows change).'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: Verify `black --check .` passes repo-wide with the CI-pinned black.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: '`black --check . --exclude ''/(\.venv|node_modules|\.git)/''` exits 0
+      with the CI-pinned black version.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: '`pr-00-gate.yml` runs the black format check on pull_request (a deliberately
+      mis-formatted file in a test branch fails the Gate, not just post-merge `ci.yml`).'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: '`main` `ci.yml` `lint-format` job is green on the merge commit.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: 'Update `.github/workflows/pr-00-gate.yml` to set the reusable CI call
+      `format_check: true` at line ~72, matching `ci.yml`. (Requires workflow changes,
+      which are protected | Request a human to apply workflow updates)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
