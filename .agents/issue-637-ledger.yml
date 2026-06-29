@@ -1,0 +1,311 @@
+version: 1
+issue: 637
+base: main
+branch: codex/issue-637
+tasks:
+  - id: task-01
+    title: Update `extract/actuarial/metrics.py` `_parse_numeric_token_after_alias`
+      to stop at sentence terminators or the next metric alias, and return "not disclosed"
+      when no value precedes the boundary.
+    status: doing
+    started_at: '2026-06-29T04:15:08Z'
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-02
+    title: 'Update `_parse_numeric_token_after_alias` to detect and stop scanning
+      at sentence terminators for period (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: 'Update `_parse_numeric_token_after_alias` to detect and stop scanning
+      at sentence terminators for question mark (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: 'Update `_parse_numeric_token_after_alias` to detect (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: 'stop scanning when encountering another metric alias keyword (verify:
+      confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: 'Update `_parse_numeric_token_after_alias` to return a not-disclosed indicator
+      when no numeric value is found before a boundary (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: Update `ops/document_orchestration.py:271` to match the `_parse_numeric_token_after_alias`
+      boundary-stop fix, or consolidate the duplicated number-token parser first.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: Update `parser/pdf_pipeline.py` `_extract_table_rows` to use header awareness
+      or plan-period selection instead of a fixed column index, select the requested
+      period or latest value, and skip year-like tokens.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: 'Implement header-aware column detection in `_extract_table_rows` to identify
+      column purposes from table headers (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: 'Add plan-period selection logic to `_extract_table_rows` to match requested
+      fiscal periods against available columns (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: 'Implement fallback logic in `_extract_table_rows` to select the latest
+      period when the requested period is unavailable (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: 'Add year-token detection (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: 'filtering to `_extract_table_rows` to skip columns containing only year
+      values (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: Fix numeric parsing in `extract/actuarial/metrics.py:22,67` to detect decimal-comma
+      vs thous-dot locale separators, instead of blind comma stripping.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: 'Implement locale separator detection heuristics in numeric parsing to
+      distinguish decimal-comma from thousands-dot formats (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: 'Update numeric parsing at line 22 to apply locale-aware separator handling
+      instead of unconditional comma removal (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: Add golden fixtures covering alias-with-no-value, multi-year columns, and
+      European separators, and wire them into the extraction-golden regression suite.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: 'Create golden fixture files covering alias-with-no-value scenarios for
+      boundary-stop validation (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: 'Create golden fixture files covering multi-year table columns with various
+      header formats (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: 'Create golden fixture files covering European numeric separator formats
+      for decimal comma (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-21
+    title: 'Create golden fixture files covering European numeric separator formats
+      for thousands dot (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-22
+    title: 'Wire the new golden fixtures into the extraction-golden regression test
+      suite configuration (verify: config validated)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-23
+    title: Test `pytest tests/extract/actuarial -q` and the extraction-golden-regression
+      suite, including the deliberate-break check for the boundary-stop fix.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-24
+    title: '`"Funded ratio not disclosed. AAL was $410.5 million."` does not produce
+      a `funded_ratio` fact.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-25
+    title: '`"Funded Ratio | 78.4% | 81.2%"` and `"Funded Ratio | 2023 | 2024 | 78.4%
+      | 81.2%"` select the correct period value and do not return a year token.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-26
+    title: European-format inputs such as `"1.234,56 million"`, `"81,2%"`, and `"325.000"`
+      parse to the correct magnitude.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-27
+    title: New golden fixtures cover alias-with-no-value, multi-year columns, and
+      European separators.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-28
+    title: '`pytest tests/extract/actuarial -q` passes.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-29
+    title: The extraction-golden regression CI includes the new fixtures and passes.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-30
+    title: Reverting the boundary-stop fix causes the alias-no-value test to fail,
+      and restoring the fix makes it pass.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-31
+    title: '`_parse_numeric_token_after_alias`: stop at sentence terminators / the
+      next metric alias; do not consume a number that belongs to a different metric.
+      Return "not disclosed" when no value precedes the boundary.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-32
+    title: '`_extract_table_rows`: add header awareness / plan-period selection rather
+      than a fixed column index; select the column matching the requested period (or
+      the latest), and skip year-like tokens.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-33
+    title: 'Numeric parsing: detect decimal-comma vs thous-dot locale (or require
+      an explicit format), instead of blind comma-strip.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-34
+    title: 'Add golden fixtures covering: alias-with-no-value, multi-year columns,
+      European separators.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-35
+    title: '`"Funded ratio not disclosed. AAL was $410.5 million."` does NOT produce
+      a `funded_ratio` fact.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-36
+    title: '`"Funded Ratio | 78.4% | 81.2%"` (and the 4-column variant) selects the
+      correct period''s value, not a year token.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-37
+    title: European-format inputs parse to the correct magnitude.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-38
+    title: New golden fixtures exercise all three and are wired into the existing
+      extraction-golden regression CI.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
