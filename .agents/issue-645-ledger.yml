@@ -6,10 +6,10 @@ tasks:
   - id: task-01
     title: Add a PPD API client in `sources/` or `ingest/` for `GET https://publicplansdata.org/api/?q=QVariables&variables=...&filterfystart=..&filterfyend=..&format=json`
       and pull the codebook once from `https://publicplansdata.org/api/?q=gettemplate&template=data-codebook&format=csv...`.
-    status: doing
+    status: done
     started_at: '2026-06-29T04:21:39Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-06-29T04:21:48Z'
+    commit: 29b7003eb1f5b36ba1ae58f99389b492b4769b97
     notes: []
   - id: task-02
     title: 'Create a PPD API client module in sources/ or ingest/ with base HTTP request
