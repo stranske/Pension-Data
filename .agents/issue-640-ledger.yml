@@ -1,0 +1,307 @@
+version: 1
+issue: 640
+base: main
+branch: codex/issue-640
+tasks:
+  - id: task-01
+    title: Add per-column/per-metric formatting in `apps/web` for currency `$`/scale
+      K/M/B, `%` for ratios, and thousands separators, driven from dataset/metric
+      metadata; keep raw value available for export.
+    status: doing
+    started_at: '2026-06-29T04:07:26Z'
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-02
+    title: 'Define the metadata schema for column formatting rules including currency
+      (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: 'Define the metadata schema for column formatting rules including scale
+      (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: 'Define the metadata schema for column formatting rules including percentage
+      (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: 'Define the metadata schema for column formatting rules including and separator
+      specifications (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: 'Implement formatting utility functions that convert raw numeric values
+      to display strings using metadata rules (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: _(2 further sub-tasks elided; split this issue)_
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: Add "Showing N of M records", a zero-match empty-state in the table body,
+      and a one-click "Reset filters" in `apps/web`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: 'Add a result counter component displaying the current filtered count (verify:
+      confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: 'total record count (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: 'Implement an empty-state component that renders in the table body when
+      no records match filters (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: 'Add a reset filters button that clears all active filters (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: 'restores the full dataset view (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: Update the API chip in `apps/web` to derive from the same source as `api/app.py`
+      `DEFAULT_PORT`, or label it "example endpoint (demo)".
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: 'Determine whether the API chip should dynamically derive the port from
+      configuration or use a static demo label (verify: config validated)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: 'Implement the chosen solution to either source the port value or add explicit
+      demo labeling to the API chip (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: 'Update any related documentation to reflect the API endpoint display behavior
+      (verify: docs updated)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: Add a config-lint test that `config/default.json` `apiBaseUrl` port matches
+      `api/app.py` `DEFAULT_PORT`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: Add an inline Zero-Install Mode callout explaining how to generate a bundle
+      with `build_workspace_bundle.py` and load it.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: Extend `tests/web/test_workspace_contract.py` or add a formatting unit
+      test and a config-port-parity test.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-21
+    title: 'Add unit tests for the formatting utility functions covering currency,
+      percentage, (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-22
+    title: 'scale transformations (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-23
+    title: 'Implement a config-port-parity test that validates the apiBaseUrl port
+      matches the DEFAULT_PORT constant (verify: config validated)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-24
+    title: 'Extend test_workspace_contract.py with assertions for the formatted value
+      display contract (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-25
+    title: Add a smoke test asserting the Record Details pane updates on row click.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-26
+    title: '`actuarial_liability` renders as e.g. `$98.1B` or `98,100,000,000`, and
+      `funded_ratio` renders as `81%`.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-27
+    title: Filtering to no matches shows an empty-state and reset control, and a result
+      counter is always visible.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-28
+    title: The displayed API endpoint matches the real server default or is explicitly
+      labeled demo.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-29
+    title: A test fails if `config/default.json` `apiBaseUrl` uses a different port
+      than `api/app.py` `DEFAULT_PORT`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-30
+    title: The test suite includes `tests/web/test_workspace_contract.py` coverage
+      or a formatting unit test, a config-port-parity test, and a smoke test for row
+      click updating Record Details.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-31
+    title: Add per-column/per-metric formatting (currency `$`/scale K/M/B, `%` for
+      ratios, thousands separators) driven from dataset/metric metadata; keep raw
+      value available for export.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-32
+    title: Add "Showing N of M records" + an empty-state in the table body for zero
+      matches + a one-click "Reset filters".
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-33
+    title: Make the API chip derive from the same source as the server default port,
+      OR label it "example endpoint (demo)"; add a small config-lint check that `config/default.json`
+      apiBaseUrl port matches `api/app.py` DEFAULT_PORT.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-34
+    title: 'Add an inline callout in Zero-Install Mode: how to generate a bundle (`build_workspace_bundle.py`)
+      and load it.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-35
+    title: '`actuarial_liability` renders as e.g. `$98.1B` (or `98,100,000,000`),
+      `funded_ratio` as `81%`.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-36
+    title: Filtering to no matches shows an empty-state + reset; a result counter
+      is always visible.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-37
+    title: The displayed API endpoint matches the real server default (or is explicitly
+      labeled demo).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-38
+    title: Config-lint check fails if the two ports diverge.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
