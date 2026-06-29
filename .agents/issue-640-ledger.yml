@@ -7,10 +7,10 @@ tasks:
     title: Add per-column/per-metric formatting in `apps/web` for currency `$`/scale
       K/M/B, `%` for ratios, and thousands separators, driven from dataset/metric
       metadata; keep raw value available for export.
-    status: doing
+    status: done
     started_at: '2026-06-29T04:07:26Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-06-29T04:07:37Z'
+    commit: dff5d009202c29be00a4e567294ded1fbbefb2fa
     notes: []
   - id: task-02
     title: 'Define the metadata schema for column formatting rules including currency
