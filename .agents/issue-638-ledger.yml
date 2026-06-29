@@ -6,10 +6,10 @@ tasks:
   - id: task-01
     title: Update `query/sql_service.py` to import and call `validate_read_only_sql`
       or a shared internal helper from `query/sql_safety.py`.
-    status: doing
+    status: done
     started_at: '2026-06-29T04:06:57Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-06-29T04:07:10Z'
+    commit: fe1d191e5e0446f99cffd1d9127d06b18139f018
     notes: []
   - id: task-02
     title: Delete `_enforce_read_only_sql` and the duplicated stripper/constants from
