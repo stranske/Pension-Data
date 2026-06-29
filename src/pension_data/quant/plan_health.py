@@ -215,6 +215,7 @@ def _assumed_return(inp: PlanHealthInputs, t: HealthThresholds) -> DimensionScor
         return DimensionScore(
             "assumed_return", "unknown", None, "no valid assumed return in [0, 1]"
         )
+    assert rate is not None
     peer = inp.peer_assumed_return_median
     realistic = inp.realistic_return
     reasons: list[str] = []
@@ -243,13 +244,13 @@ def _assumed_return(inp: PlanHealthInputs, t: HealthThresholds) -> DimensionScor
         return DimensionScore(
             "assumed_return",
             "unknown",
-            round(rate, 6),  # type: ignore[arg-type]
+            round(rate, 6),
             f"assumed {rate:.2%}; no peer/realistic comparator supplied",
         )
     return DimensionScore(
         "assumed_return",
         rating,
-        round(rate, 6),  # type: ignore[arg-type]
+        round(rate, 6),
         f"assumed {rate:.2%}; " + "; ".join(reasons),
     )
 
