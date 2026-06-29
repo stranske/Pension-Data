@@ -69,7 +69,7 @@ jobs:
     with:
       python-versions: '["3.12", "3.13"]'
       coverage-min: "80"
-      format_check: false  # Using ruff for formatting
+      format_check: true  # Black is the repo formatter (pyproject [tool.black]); enforce on PRs so unformatted code can't merge and redden main (issue #635)
       working-directory: "."
       artifact-prefix: "gate-"
       # Enable soft coverage gate for trend tracking and hotspot reporting
