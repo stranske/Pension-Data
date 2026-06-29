@@ -11,10 +11,10 @@ tasks:
       and `quant/metric_engine.py:134` with this shared implementation, and add or
       update tests verifying `NaN`, `+inf`, and `-inf` are not converted to `1.0`
       and all affected tests pass.
-    status: doing
+    status: done
     started_at: '2026-06-29T04:08:38Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-06-29T04:08:48Z'
+    commit: ed94c8c72c98f9a98deea062d457909e818e33b8
     notes: []
   - id: task-02
     title: 'Create a finite-aware clamp function in `quality/confidence.py` that uses
