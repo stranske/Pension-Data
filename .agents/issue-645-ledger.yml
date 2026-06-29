@@ -1,0 +1,322 @@
+version: 1
+issue: 645
+base: main
+branch: codex/issue-645
+tasks:
+  - id: task-01
+    title: Add a PPD API client in `sources/` or `ingest/` for `GET https://publicplansdata.org/api/?q=QVariables&variables=...&filterfystart=..&filterfyend=..&format=json`
+      and pull the codebook once from `https://publicplansdata.org/api/?q=gettemplate&template=data-codebook&format=csv...`.
+    status: doing
+    started_at: '2026-06-29T04:21:39Z'
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-02
+    title: 'Create a PPD API client module in sources/ or ingest/ with base HTTP request
+      handling (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: 'Create a PPD API client module in sources/ or ingest/ with error management
+      (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: 'Implement the QVariables endpoint method to fetch plan data with configurable
+      variables (verify: config validated)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: 'Implement the QVariables endpoint method to fetch plan data with fiscal
+      year filters (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: 'Implement the codebook endpoint method to fetch (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: 'parse the data dictionary CSV from the gettemplate API (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: Map PPD variables to existing `FundingTrendInput` and `AllocationPeerInput`
+      fields for funded ratio AVA & MVA, contributions, benefit payments, allocation
+      by class, and `peer_group`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: 'Create mapping functions from PPD variables to FundingTrendInput fields
+      including funded ratio AVA (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: 'Create mapping functions from PPD variables to FundingTrendInput fields
+      including contributions (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: 'Create mapping functions from PPD variables to FundingTrendInput fields
+      including and benefit payments (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: 'Create mapping functions from PPD variables to AllocationPeerInput fields
+      for allocation by asset class percentages (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: 'Implement peer_group field mapping logic that extracts or derives cohort
+      classification from PPD data (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: Persist a peer-universe dataset keyed by `ppd_id` + fy and record provenance
+      with source=PPD, as_of, and url using the existing provenance layer.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: 'Implement persistence logic to store peer-universe records keyed by ppd_id
+      (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: 'fiscal year with appropriate indexing (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: 'Integrate the existing provenance layer to attach source, as_of timestamp,
+      (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: 'API URL metadata to each persisted record (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: Implement `peer_group` derivation for plan type, size, state, and maturity
+      so `allocation_peer_compare` has real cohorts.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: 'Implement plan type classification logic to categorize plans into defined
+      peer groups based on PPD plan_type field (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-21
+    title: 'Implement plan size classification using asset thresholds to create small,
+      medium, (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-22
+    title: 'large peer cohorts (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-23
+    title: 'Implement state-based peer grouping to enable geographic comparison cohorts
+      (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-24
+    title: 'Implement maturity classification using liability-to-asset or beneficiary
+      ratios to identify mature versus growing plans (verify: confirm completion in
+      repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-25
+    title: Add cached on-disk responses so the ingestion is offline-reusable and avoids
+      repeated API calls.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-26
+    title: "Write `tests/sources/test_ppd_ingest.py` against a saved PPD API fixture\
+      \ asserting field mapping and \u2265N plans."
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-27
+    title: Test a deliberate mapped-variable rename in the fixture path so the mapping
+      test fails, then restore the correct mapping.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-28
+    title: "Running the client populates \u2265200 plans across multiple years into\
+      \ the peer dataset with cached offline-reusable data."
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-29
+    title: '`allocation_peer_compare` and `funding_trend` produce peer mean, median,
+      and delta for a chosen subject `ppd_id` without fixtures.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-30
+    title: Every ingested row includes provenance with source=PPD, as_of, and url.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-31
+    title: Re-running a refresh with the same source data is idempotent.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-32
+    title: "`tests/sources/test_ppd_ingest.py` passes against a saved PPD API fixture\
+      \ and asserts field mapping plus \u2265N plans."
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-33
+    title: Renaming a mapped variable causes the mapping test to fail.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-34
+    title: 'Add a PPD API client (`sources/` or `ingest/`): `GET https://publicplansdata.org/api/?q=QVariables&variables=...&filterfystart=..&filterfyend=..&format=json`;
+      pull the codebook once for variable names.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-35
+    title: "Map PPD variables \u2192 the existing `FundingTrendInput`/`AllocationPeerInput`\
+      \ fields (funded ratio AVA & MVA, contributions, benefit payments, allocation\
+      \ by class, peer_group) + the new metric fields from issue B."
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-36
+    title: Persist as a peer-universe dataset keyed by `ppd_id`+fy; record provenance
+      (source=PPD, as_of, url) using the existing provenance layer.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-37
+    title: A `peer_group` derivation (plan type/size/state/maturity) so `allocation_peer_compare`
+      has real cohorts.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-38
+    title: "Running the client populates \u2265200 plans \xD7 multiple years into\
+      \ the peer dataset, offline-reusable (cached)."
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-39
+    title: '`allocation_peer_compare` and `funding_trend` produce real peer mean/median/delta
+      for a chosen subject `ppd_id` (no fixtures).'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-40
+    title: Every ingested row carries PPD provenance; a refresh is idempotent.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
