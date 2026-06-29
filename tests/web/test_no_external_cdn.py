@@ -16,9 +16,9 @@ EXTERNAL_ASSET_RE = re.compile(
 def test_offline_web_bundle_uses_no_external_scripts_or_styles() -> None:
     for path in [WEB_ROOT / "index.html", WEB_ROOT / "app.js"]:
         content = path.read_text(encoding="utf-8")
-        assert not EXTERNAL_ASSET_RE.search(content), (
-            f"{path} references an external script/style asset"
-        )
+        assert not EXTERNAL_ASSET_RE.search(
+            content
+        ), f"{path} references an external script/style asset"
         assert "cdn.plot.ly" not in content
 
 
