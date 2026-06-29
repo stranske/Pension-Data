@@ -7,10 +7,10 @@ tasks:
     title: Add `scripts/web/workspace_contract.py` with canonical validation for contract
       version, `data_origin` allowlist, datasets, and fixture policy, sourced from
       `apps/contracts/runtime-contract.json`.
-    status: doing
+    status: done
     started_at: '2026-06-29T04:06:36Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-06-29T04:06:46Z'
+    commit: a207898e89cd0758b444b3196c39ff1a99ebf663
     notes: []
   - id: task-02
     title: Update `scripts/web/smoke_test.py`, `scripts/web/serve_local.py`, and `scripts/web/build_workspace_bundle.py`
