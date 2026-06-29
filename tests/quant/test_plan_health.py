@@ -96,6 +96,37 @@ def test_assumed_return_reasonableness() -> None:
         "assumed_return",
     )
     assert r.rating == "red"
+    # peer comparator alone can trigger the red band when realistic return is absent
+    peer_red = _dim(
+        score_plan_health(
+            PlanHealthInputs(
+                **base,
+                assumed_return=0.076,
+                peer_assumed_return_median=0.070,
+            )
+        ),
+        "assumed_return",
+    )
+    assert peer_red.rating == "red"
+
+
+def test_scorecard_rejects_out_of_range_inputs() -> None:
+    base = {"plan_id": "P", "plan_period": "FY2024"}
+    card = score_plan_health(
+        PlanHealthInputs(
+            **base,
+            funded_ratio_mva=1.2,
+            assumed_return=7.0,
+            peer_assumed_return_median=0.07,
+            realistic_return=0.06,
+            gasb_discount_rate=-0.01,
+            net_cash_flow_pct=-120.0,
+        )
+    )
+    assert _dim(card, "funded_ratio_mva").rating == "unknown"
+    assert _dim(card, "assumed_return").rating == "unknown"
+    assert _dim(card, "cash_flow_maturity").rating == "unknown"
+    assert _dim(card, "gasb_crossover").rating == "unknown"
 
 
 def test_contribution_and_tread_water_dimensions() -> None:

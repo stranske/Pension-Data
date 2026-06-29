@@ -42,6 +42,14 @@ def _is_num(value: float | None) -> bool:
     return value is not None and math.isfinite(value)
 
 
+def _is_bounded(value: float | None, *, min_value: float, max_value: float) -> bool:
+    return _is_num(value) and min_value <= value <= max_value  # type: ignore[operator]
+
+
+def _is_nonnegative(value: float | None) -> bool:
+    return _is_num(value) and value >= 0.0  # type: ignore[operator]
+
+
 @dataclass(frozen=True, slots=True)
 class HealthThresholds:
     """Configurable Green/Yellow/Red bands. Defaults are defensible public-plan
@@ -166,8 +174,10 @@ def net_cash_flow_pct(
 
 
 def _funded(value: float | None, t: HealthThresholds) -> DimensionScore:
-    if not _is_num(value):
-        return DimensionScore("funded_ratio_mva", "unknown", None, "no finite funded ratio (MVA)")
+    if not _is_bounded(value, min_value=0.0, max_value=1.0):
+        return DimensionScore(
+            "funded_ratio_mva", "unknown", None, "no valid funded ratio (MVA) in [0, 1]"
+        )
     if value >= t.funded_green:  # type: ignore[operator]
         rating: RAG = "green"
     elif value >= t.funded_yellow:  # type: ignore[operator]
@@ -183,8 +193,8 @@ def _funded(value: float | None, t: HealthThresholds) -> DimensionScore:
 
 
 def _trend(value: float | None, t: HealthThresholds) -> DimensionScore:
-    if not _is_num(value):
-        return DimensionScore("funded_ratio_trend", "unknown", None, "no finite trend")
+    if not _is_bounded(value, min_value=-1.0, max_value=1.0):
+        return DimensionScore("funded_ratio_trend", "unknown", None, "no valid trend in [-1, 1]")
     if value > t.trend_flat_band:  # type: ignore[operator]
         rating: RAG = "green"
     elif value >= -t.trend_flat_band:  # type: ignore[operator]
@@ -201,24 +211,34 @@ def _trend(value: float | None, t: HealthThresholds) -> DimensionScore:
 
 def _assumed_return(inp: PlanHealthInputs, t: HealthThresholds) -> DimensionScore:
     rate = inp.assumed_return
-    if not _is_num(rate):
-        return DimensionScore("assumed_return", "unknown", None, "no finite assumed return")
+    if not _is_bounded(rate, min_value=0.0, max_value=1.0):
+        return DimensionScore(
+            "assumed_return", "unknown", None, "no valid assumed return in [0, 1]"
+        )
     peer = inp.peer_assumed_return_median
     realistic = inp.realistic_return
     reasons: list[str] = []
     rating: RAG = "green"
-    if _is_num(realistic):
+    if realistic is not None and not _is_bounded(realistic, min_value=0.0, max_value=1.0):
+        return DimensionScore(
+            "assumed_return", "unknown", round(rate, 6), "realistic return outside [0, 1]"
+        )
+    if peer is not None and not _is_bounded(peer, min_value=0.0, max_value=1.0):
+        return DimensionScore(
+            "assumed_return", "unknown", round(rate, 6), "peer assumed return outside [0, 1]"
+        )
+    if _is_bounded(realistic, min_value=0.0, max_value=1.0):
         excess_real = rate - realistic  # type: ignore[operator]
         reasons.append(f"vs realistic {realistic:.2%}: {excess_real:+.2%}")
         if excess_real > t.assumed_red_excess_vs_realistic:
             rating = "red"
         elif excess_real > t.assumed_yellow_excess_vs_realistic:
             rating = "yellow"
-    if _is_num(peer):
+    if _is_bounded(peer, min_value=0.0, max_value=1.0):
         excess_peer = rate - peer  # type: ignore[operator]
         reasons.append(f"vs peer median {peer:.2%}: {excess_peer:+.2%}")
-        if excess_peer > t.assumed_red_excess_vs_peer and rating != "red":
-            rating = "yellow" if rating == "green" else rating
+        if excess_peer > t.assumed_red_excess_vs_peer:
+            rating = "red"
     if not reasons:
         return DimensionScore(
             "assumed_return",
@@ -236,8 +256,10 @@ def _assumed_return(inp: PlanHealthInputs, t: HealthThresholds) -> DimensionScor
 
 def _contribution(inp: PlanHealthInputs, t: HealthThresholds) -> DimensionScore:
     adc, actual = inp.adc_usd, inp.actual_contribution_usd
-    if not (_is_num(adc) and _is_num(actual)) or adc == 0.0:
-        return DimensionScore("contribution_sufficiency", "unknown", None, "no finite ADC/actual")
+    if not (_is_nonnegative(adc) and _is_nonnegative(actual)) or adc == 0.0:
+        return DimensionScore(
+            "contribution_sufficiency", "unknown", None, "no valid non-negative ADC/actual"
+        )
     ratio = actual / adc  # type: ignore[operator]
     if ratio >= t.adc_green:
         rating: RAG = "green"
@@ -254,6 +276,13 @@ def _contribution(inp: PlanHealthInputs, t: HealthThresholds) -> DimensionScore:
 
 
 def _tread_water(inp: PlanHealthInputs, t: HealthThresholds) -> DimensionScore:
+    if not (
+        _is_nonnegative(inp.actual_contribution_usd)
+        and _is_nonnegative(inp.normal_cost_usd)
+        and _is_bounded(inp.assumed_return, min_value=0.0, max_value=1.0)
+        and _is_nonnegative(inp.uaal_usd)
+    ):
+        return DimensionScore("tread_water", "unknown", None, "insufficient valid inputs")
     gap = tread_water_gap_usd(
         inp.actual_contribution_usd, inp.normal_cost_usd, inp.assumed_return, inp.uaal_usd
     )
@@ -276,6 +305,18 @@ def _tread_water(inp: PlanHealthInputs, t: HealthThresholds) -> DimensionScore:
 
 
 def _amortization(inp: PlanHealthInputs, t: HealthThresholds) -> DimensionScore:
+    if not (
+        (inp.amortization_payment_usd is None or _is_nonnegative(inp.amortization_payment_usd))
+        and (
+            inp.assumed_return is None
+            or _is_bounded(inp.assumed_return, min_value=0.0, max_value=1.0)
+        )
+        and (inp.uaal_usd is None or _is_nonnegative(inp.uaal_usd))
+        and (
+            inp.amortization_period_years is None or _is_nonnegative(inp.amortization_period_years)
+        )
+    ):
+        return DimensionScore("amortization", "unknown", None, "invalid amortization inputs")
     neg = negative_amortization(inp.amortization_payment_usd, inp.assumed_return, inp.uaal_usd)
     if neg:
         return DimensionScore(
@@ -300,8 +341,10 @@ def _amortization(inp: PlanHealthInputs, t: HealthThresholds) -> DimensionScore:
 
 def _cash_flow(inp: PlanHealthInputs, t: HealthThresholds) -> DimensionScore:
     value = inp.net_cash_flow_pct
-    if not _is_num(value):
-        return DimensionScore("cash_flow_maturity", "unknown", None, "no finite net cash flow %")
+    if not _is_bounded(value, min_value=-100.0, max_value=100.0):
+        return DimensionScore(
+            "cash_flow_maturity", "unknown", None, "no valid net cash flow % in [-100, 100]"
+        )
     if value >= t.cashflow_green_pct:  # type: ignore[operator]
         rating: RAG = "green"
     elif value >= t.cashflow_yellow_pct:  # type: ignore[operator]
@@ -318,8 +361,11 @@ def _cash_flow(inp: PlanHealthInputs, t: HealthThresholds) -> DimensionScore:
 
 def _gasb_crossover(inp: PlanHealthInputs) -> DimensionScore:
     gasb, assumed = inp.gasb_discount_rate, inp.assumed_return
-    if not (_is_num(gasb) and _is_num(assumed)):
-        return DimensionScore("gasb_crossover", "unknown", None, "no GASB/assumed rate")
+    if not (
+        _is_bounded(gasb, min_value=0.0, max_value=1.0)
+        and _is_bounded(assumed, min_value=0.0, max_value=1.0)
+    ):
+        return DimensionScore("gasb_crossover", "unknown", None, "no valid GASB/assumed rate")
     if gasb < assumed:  # type: ignore[operator]
         return DimensionScore(
             "gasb_crossover",
