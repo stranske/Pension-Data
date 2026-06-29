@@ -1,0 +1,303 @@
+version: 1
+issue: 636
+base: main
+branch: codex/issue-636
+tasks:
+  - id: task-01
+    title: Create a finite-aware clamp in `quality/confidence.py` that uses `math.isfinite()`
+      to reject or flag non-finite confidence inputs instead of clamping `NaN` to
+      `1.0`, replace the duplicated `_bounded_confidence` implementations in `quality/confidence.py:43`,
+      `extract/governance/consultants.py:127`, `extract/investment/risk_disclosures.py:81`,
+      and `quant/metric_engine.py:134` with this shared implementation, and add or
+      update tests verifying `NaN`, `+inf`, and `-inf` are not converted to `1.0`
+      and all affected tests pass.
+    status: doing
+    started_at: '2026-06-29T04:08:38Z'
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-02
+    title: 'Create a finite-aware clamp function in `quality/confidence.py` that uses
+      `math.isfinite()` to reject or flag non-finite confidence inputs instead of
+      clamping NaN to 1.0 (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: 'Replace the duplicated `_bounded_confidence` implementation in `quality/confidence.py:43`
+      with the new shared finite-aware clamp function (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: 'Replace the duplicated `_bounded_confidence` implementation in `extract/governance/consultants.py:127`
+      with the new shared finite-aware clamp function (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: 'Replace the duplicated `_bounded_confidence` implementation in `extract/investment/risk_disclosures.py:81`
+      with the new shared finite-aware clamp function (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: 'Replace the duplicated `_bounded_confidence` implementation in `quant/metric_engine.py:134`
+      with the new shared finite-aware clamp function (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: _(3 further sub-tasks elided; split this issue)_
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: Add `math.isfinite` guards at `normalize/financial_units.py:22` (`normalize_money_to_usd`),
+      `extract/funded/financial_flows.py:102+`, `normalize/investment_normalization.py:32`,
+      `quant/metric_engine.py:177+`, `quant/attribution_optimization.py`, `quant/scenarios.py`,
+      `quality/anomaly_rules.py:51+`, `quality/sla_metrics.py:144+`, `extract/persistence.py:241+`,
+      and `provenance/metrics.py:97+` to reject or flag non-finite values instead
+      of silently storing them.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: 'Add `math.isfinite` guard to `normalize/financial_units.py:22` in the
+      `normalize_money_to_usd` function to reject or flag non-finite monetary values
+      (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: 'Add `math.isfinite` guards to `extract/funded/financial_flows.py:102+`
+      to reject or flag non-finite financial flow values (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: 'Add `math.isfinite` guard to `normalize/investment_normalization.py:32`
+      to reject or flag non-finite investment values (verify: confirm completion in
+      repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: 'Add `math.isfinite` guards to `quant/metric_engine.py:177+` to reject
+      or flag non-finite metric computation inputs (verify: confirm completion in
+      repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: 'Add `math.isfinite` guards to `quant/attribution_optimization.py` to reject
+      or flag non-finite optimization inputs (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: _(5 further sub-tasks elided; split this issue)_
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: Update routing so non-finite extracted values go to `high_priority_review`
+      or blocked, never `auto_accept`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: Write `tests/quality/test_finite_bounds.py` and targeted tests in normalize/quant/extract
+      covering NaN, `+inf`, and `-inf` at each listed boundary.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: 'Create `tests/quality/test_finite_bounds.py` with test cases covering
+      NaN (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: 'Create `tests/quality/test_finite_bounds.py` with positive infinity (verify:
+      tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: 'Create `tests/quality/test_finite_bounds.py` with and negative infinity
+      for confidence clamping (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: 'Create `tests/quality/test_finite_bounds.py` with routing (verify: tests
+      pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-21
+    title: 'Write targeted tests in the normalize module covering NaN, positive infinity,
+      (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-22
+    title: _(8 further sub-tasks elided; split this issue)_
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-23
+    title: '`route_confidence_row(confidence=float("nan"))` does not return `auto_accept`,
+      and confidence is not reported as `1.0`.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-24
+    title: '`normalize_money_to_usd(float("nan"), ...)` and `extract_plan_financial_flow`
+      with NaN AUM raise or flag the value and do not store NaN.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-25
+    title: '`compute_derived_metrics`, anomaly rules, SLA ratios, and the persistence
+      boundary reject or flag non-finite inputs.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-26
+    title: '`tests/quality/test_finite_bounds.py` exists, targeted normalize/quant/extract
+      tests exist, and they cover NaN, `+inf`, and `-inf` at each listed boundary.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-27
+    title: Reverting one `math.isfinite` guard causes its corresponding test to fail,
+      and restoring the guard makes the test pass.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-28
+    title: The full test suite stays green.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-29
+    title: "Create one finite-aware clamp (e.g. in `quality/confidence.py`) that rejects/flags\
+      \ non-finite confidence instead of clamping NaN\u21921.0, and replace the 4\
+      \ duplicated `_bounded_confidence` copies (`quality/confidence.py:43`, `extract/governance/consultants.py:127`,\
+      \ `extract/investment/risk_disclosures.py:81`, `quant/metric_engine.py:134`)."
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-30
+    title: 'Add `math.isfinite` guards at: `normalize/financial_units.py:22` (`normalize_money_to_usd`),
+      `extract/funded/financial_flows.py:102+`, `normalize/investment_normalization.py:32`,
+      `quant/metric_engine.py:177+`, `quant/attribution_optimization.py`, `quant/scenarios.py`,
+      `quality/anomaly_rules.py:51+`, `quality/sla_metrics.py:144+`, `extract/persistence.py:241+`
+      (final staging boundary), `provenance/metrics.py:97+`.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-31
+    title: Route non-finite extracted values to `high_priority_review`/blocked, never
+      `auto_accept`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-32
+    title: "`route_confidence_row(confidence=float(\"nan\"))` \u2192 NOT `auto_accept`\
+      \ (review/blocked), confidence not reported as 1.0."
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-33
+    title: "`normalize_money_to_usd(float(\"nan\"), ...)` and `extract_plan_financial_flow`\
+      \ with NaN AUM \u2192 raise or flag, never store NaN."
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-34
+    title: '`compute_derived_metrics`, anomaly rules, SLA ratios, and the persistence
+      boundary reject/flag non-finite inputs.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-35
+    title: New unit tests cover NaN/+inf/-inf at each boundary above.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
