@@ -6,10 +6,10 @@ tasks:
   - id: task-01
     title: Run `black tests/web/test_no_external_cdn.py` with black 26.5.1 and commit
       the formatting-only diff.
-    status: doing
+    status: done
     started_at: '2026-06-29T02:26:10Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-06-29T02:26:20Z'
+    commit: 258a310565993018b2d1318b4efa450da4061883
     notes: []
   - id: task-02
     title: 'Run `black tests/web/test_no_external_cdn.py` with black 26.5.1 (verify:
