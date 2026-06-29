@@ -1,0 +1,251 @@
+version: 1
+issue: 638
+base: main
+branch: codex/issue-638
+tasks:
+  - id: task-01
+    title: Update `query/sql_service.py` to import and call `validate_read_only_sql`
+      or a shared internal helper from `query/sql_safety.py`.
+    status: doing
+    started_at: '2026-06-29T04:06:57Z'
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-02
+    title: Delete `_enforce_read_only_sql` and the duplicated stripper/constants from
+      `query/sql_service.py`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: Update `query/sql_safety.py` to implement and document one semicolon policy
+      in the single shared helper.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: 'Document the agreed semicolon policy in the docstring of the shared validator
+      function (verify: docs updated)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: 'Update the shared validator implementation to enforce the documented semicolon
+      policy (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: 'Add inline comments explaining why the semicolon policy was chosen for
+      security (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: Test `langchain/eval_harness.py` and `query/sql_service` with the same
+      `DELETE` and `;`-bearing inputs to verify identical accept/reject behavior.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: 'Create a test that feeds DELETE queries through both eval_harness (verify:
+      confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: 'sql_service paths (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: 'asserts both reject (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: 'Create a test that feeds semicolon-bearing queries through both code paths
+      (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: 'asserts identical behavior (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: 'Add a test case that verifies trailing semicolons are handled consistently
+      across both validators (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: Add or update SQL-safety tests to assert the documented trailing-semicolon
+      policy and cover both code paths.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: 'Add a test case in the SQL safety test suite that verifies the trailing
+      semicolon policy with valid queries (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: 'Add a test case that verifies queries with multiple semicolons are rejected
+      per the policy (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: 'Update existing SQL safety tests to cover both the eval_harness (verify:
+      tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: 'sql_service code paths (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: Run `pytest tests -k sql_safety -q` and the `sql_service` read-only tests.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: Exactly one read-only SQL validator and one comment/string stripper exist
+      in `query/`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-21
+    title: '`query/sql_service.py` no longer contains `_enforce_read_only_sql` or
+      duplicated SQL-safety constants/stripper logic.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-22
+    title: The same input string returns the same accept/reject decision through both
+      the `langchain/eval_harness.py` and `query/sql_service.execute_sql_query` paths.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-23
+    title: Existing SQL-safety tests pass.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-24
+    title: A trailing-semicolon test exists and matches the documented semicolon policy.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-25
+    title: Make `query/sql_service.py` import and call `validate_read_only_sql` (or
+      a shared internal helper) from `query/sql_safety.py`; delete the parallel `_enforce_read_only_sql`
+      + duplicated stripper/constants.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-26
+    title: 'Decide and document one semicolon policy (recommend: reject all `;` to
+      be safe) and apply it in the single helper.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-27
+    title: Ensure `langchain/eval_harness.py` and `sql_service` now share identical
+      behavior.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-28
+    title: Exactly one read-only SQL validator + one comment/string stripper in `query/`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-29
+    title: The same input string produces the same accept/reject decision via both
+      `eval_harness` and `sql_service` code paths.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-30
+    title: Existing SQL-safety tests pass; a trailing-semicolon test asserts the documented
+      policy.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-31
+    title: 'Update `query/sql_safety.py` to implement and document one semicolon policy
+      in the single shared helper. (The agent cannot make subjective design decisions
+      about which semicolon policy to choose (reject all vs. allow trailing). The
+      issue mentions ''one agreed semicolon policy'' but doesn''t specify which one.
+      | Add an Implementation Notes entry specifying: ''Semicolon policy: Reject all
+      semicolons in sanitized SQL (stricter approach) to match sql_service.py:157-158
+      behavior and maximize safety.'')'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
