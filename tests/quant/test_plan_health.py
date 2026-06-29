@@ -128,6 +128,15 @@ def test_scorecard_rejects_out_of_range_inputs() -> None:
     assert _dim(card, "cash_flow_maturity").rating == "unknown"
     assert _dim(card, "gasb_crossover").rating == "unknown"
 
+    peer_invalid = score_plan_health(
+        PlanHealthInputs(
+            **base,
+            assumed_return=0.07,
+            peer_assumed_return_median=1.1,
+        )
+    )
+    assert _dim(peer_invalid, "assumed_return").rating == "unknown"
+
 
 def test_contribution_and_tread_water_dimensions() -> None:
     base = {"plan_id": "P", "plan_period": "FY2024"}
