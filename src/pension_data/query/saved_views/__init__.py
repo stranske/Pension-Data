@@ -8,6 +8,8 @@ from pension_data.query.saved_views.definitions import (
 from pension_data.query.saved_views.models import (
     AllocationPeerInput,
     AllocationPeerRow,
+    BenchmarkPanelInput,
+    BenchmarkPanelRow,
     FundingTrendInput,
     FundingTrendRow,
     HoldingsOverlapInput,
@@ -15,6 +17,7 @@ from pension_data.query.saved_views.models import (
 )
 from pension_data.query.saved_views.service import (
     execute_allocation_peer_compare_view,
+    execute_benchmark_panel_view,
     execute_funding_trend_view,
     execute_holdings_overlap_view,
 )
@@ -22,6 +25,8 @@ from pension_data.query.saved_views.service import (
 __all__ = [
     "AllocationPeerInput",
     "AllocationPeerRow",
+    "BenchmarkPanelInput",
+    "BenchmarkPanelRow",
     "FundingTrendInput",
     "FundingTrendRow",
     "HoldingsOverlapInput",
@@ -29,6 +34,7 @@ __all__ = [
     "SavedViewDefinition",
     "SavedViewField",
     "execute_allocation_peer_compare_view",
+    "execute_benchmark_panel_view",
     "execute_funding_trend_view",
     "execute_holdings_overlap_view",
     "load_saved_view_definitions",

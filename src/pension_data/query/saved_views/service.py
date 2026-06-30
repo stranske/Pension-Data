@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import math
 import statistics
 from collections import defaultdict
+from collections.abc import Callable
 
+from pension_data.quant.peer_stats import benchmark_metric
+from pension_data.quant.plan_health import PlanHealthInputs, score_plan_health
 from pension_data.query.saved_views.models import (
     AllocationPeerInput,
     AllocationPeerRow,
+    BenchmarkPanelInput,
+    BenchmarkPanelRow,
     FundingTrendInput,
     FundingTrendRow,
     HoldingsOverlapInput,
@@ -166,5 +172,184 @@ def execute_holdings_overlap_view(
                     counterparty_disclosure_state=counterparty_state,
                 )
             )
+
+    return output
+
+
+MetricGetter = Callable[[BenchmarkPanelInput], float | None]
+
+
+_BENCHMARK_METRICS: tuple[tuple[str, MetricGetter, bool], ...] = (
+    ("funded_ratio_ava", lambda row: row.funded_ratio_ava, True),
+    ("funded_ratio_mva", lambda row: row.funded_ratio_mva, True),
+    ("aal_usd", lambda row: row.aal_usd, False),
+    ("uaal_usd", lambda row: row.uaal_usd, False),
+    ("assumed_return", lambda row: row.assumed_return, False),
+    ("discount_rate", lambda row: row.discount_rate, False),
+    ("inflation_rate", lambda row: row.inflation_rate, False),
+    ("payroll_growth_rate", lambda row: row.payroll_growth_rate, True),
+    (
+        "adc_vs_actual_contribution_ratio",
+        lambda row: _ratio(row.actual_contribution_usd, row.adc_usd),
+        True,
+    ),
+    (
+        "contribution_pct_of_payroll",
+        lambda row: _ratio(row.actual_contribution_usd, row.payroll_usd),
+        True,
+    ),
+    ("net_return_1yr", lambda row: row.net_return_1yr, True),
+    ("net_return_3yr", lambda row: row.net_return_3yr, True),
+    ("net_return_5yr", lambda row: row.net_return_5yr, True),
+    ("net_return_10yr", lambda row: row.net_return_10yr, True),
+    ("net_external_cash_flow_pct", lambda row: row.net_external_cash_flow_pct, True),
+    ("support_ratio", lambda row: row.support_ratio, True),
+    ("benefit_payments_pct", lambda row: row.benefit_payments_pct, False),
+    ("assets_payroll_ratio", lambda row: row.assets_payroll_ratio, True),
+)
+
+
+def _is_finite(value: float | None) -> bool:
+    return value is not None and math.isfinite(value)
+
+
+def _round_optional(value: float | None) -> float | None:
+    if value is None or not math.isfinite(value):
+        return None
+    return round(value, 6)
+
+
+def _ratio(numerator: float | None, denominator: float | None) -> float | None:
+    if not (_is_finite(numerator) and _is_finite(denominator)) or denominator == 0.0:
+        return None
+    return round(numerator / denominator, 6)  # type: ignore[operator]
+
+
+def _delta(value: float | None, comparator: float | None) -> float | None:
+    if not (_is_finite(value) and _is_finite(comparator)):
+        return None
+    return round(value - comparator, 6)  # type: ignore[operator]
+
+
+def _amortization_is_closed(method: str | None) -> bool | None:
+    if method is None:
+        return None
+    normalized = method.strip().lower()
+    if not normalized:
+        return None
+    if "closed" in normalized or "layer" in normalized:
+        return True
+    if "open" in normalized:
+        return False
+    return None
+
+
+def _health_by_metric(subject: BenchmarkPanelInput) -> dict[str, tuple[str, str]]:
+    scorecard = score_plan_health(
+        PlanHealthInputs(
+            plan_id=subject.plan_id,
+            plan_period=subject.plan_period,
+            funded_ratio_mva=subject.funded_ratio_mva,
+            assumed_return=subject.assumed_return,
+            peer_assumed_return_median=None,
+            realistic_return=subject.realistic_return,
+            gasb_discount_rate=subject.discount_rate,
+            adc_usd=subject.adc_usd,
+            actual_contribution_usd=subject.actual_contribution_usd,
+            normal_cost_usd=subject.normal_cost_usd,
+            uaal_usd=subject.uaal_usd,
+            amortization_payment_usd=subject.amortization_payment_usd,
+            amortization_is_closed=_amortization_is_closed(subject.amortization_method),
+            amortization_period_years=subject.amortization_period_years,
+            net_cash_flow_pct=subject.net_external_cash_flow_pct,
+            mortality_table_year=subject.mortality_table_year,
+        )
+    )
+    return {
+        "funded_ratio_mva": (
+            scorecard.dimensions[0].rating,
+            scorecard.dimensions[0].basis,
+        ),
+        "funded_ratio_trend": (
+            scorecard.dimensions[1].rating,
+            scorecard.dimensions[1].basis,
+        ),
+        "assumed_return": (
+            scorecard.dimensions[2].rating,
+            scorecard.dimensions[2].basis,
+        ),
+        "adc_vs_actual_contribution_ratio": (
+            scorecard.dimensions[3].rating,
+            scorecard.dimensions[3].basis,
+        ),
+        "net_external_cash_flow_pct": (
+            scorecard.dimensions[6].rating,
+            scorecard.dimensions[6].basis,
+        ),
+    }
+
+
+def execute_benchmark_panel_view(
+    rows: list[BenchmarkPanelInput],
+    *,
+    subject_plan_id: str,
+    plan_period: str,
+    tight_peer_group: str | None = None,
+) -> list[BenchmarkPanelRow]:
+    """Execute a subject-plan benchmark panel with peer stats and health ratings."""
+    period_rows = [row for row in rows if row.plan_period == plan_period]
+    subject = next((row for row in period_rows if row.plan_id == subject_plan_id), None)
+    if subject is None:
+        return []
+
+    broad_peers = [row for row in period_rows if row.plan_id != subject_plan_id]
+    tight_group = tight_peer_group or subject.peer_group
+    tight_peers = [row for row in broad_peers if row.peer_group == tight_group]
+    health_by_metric = _health_by_metric(subject)
+
+    output: list[BenchmarkPanelRow] = []
+    for metric_name, getter, higher_is_better in _BENCHMARK_METRICS:
+        subject_value = _round_optional(getter(subject))
+        peer_values = [value for row in broad_peers if (value := getter(row)) is not None]
+        tight_values = [value for row in tight_peers if (value := getter(row)) is not None]
+        peer_result = benchmark_metric(
+            metric_name,
+            subject_value,
+            peer_values,
+            higher_is_better=higher_is_better,
+        )
+        tight_result = benchmark_metric(
+            metric_name,
+            subject_value,
+            tight_values,
+            higher_is_better=higher_is_better,
+        )
+        health_rating, health_basis = health_by_metric.get(metric_name, (None, None))
+        output.append(
+            BenchmarkPanelRow(
+                plan_id=subject.plan_id,
+                plan_period=subject.plan_period,
+                metric_name=metric_name,
+                metric_value=subject_value,
+                peer_percentile=peer_result.percentile,
+                peer_z_score=peer_result.z_score,
+                peer_median=peer_result.peer_median,
+                delta_vs_peer_median=_delta(subject_value, peer_result.peer_median),
+                delta_vs_assumed_return=(
+                    _delta(subject_value, subject.assumed_return)
+                    if metric_name.startswith("net_return_")
+                    else None
+                ),
+                delta_vs_policy_benchmark=(
+                    _delta(subject_value, subject.policy_benchmark_return)
+                    if metric_name.startswith("net_return_")
+                    else None
+                ),
+                tight_peer_percentile=tight_result.percentile,
+                tight_peer_z_score=tight_result.z_score,
+                health_rating=health_rating,
+                health_basis=health_basis,
+            )
+        )
 
     return output

@@ -81,3 +81,58 @@ class HoldingsOverlapRow:
     overlap_usd: float | None
     subject_disclosure_state: DisclosureState
     counterparty_disclosure_state: DisclosureState
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkPanelInput:
+    """Input row for a plan benchmark panel."""
+
+    plan_id: str
+    plan_period: str
+    peer_group: str
+    funded_ratio_ava: float | None = None
+    funded_ratio_mva: float | None = None
+    aal_usd: float | None = None
+    uaal_usd: float | None = None
+    assumed_return: float | None = None
+    discount_rate: float | None = None
+    inflation_rate: float | None = None
+    payroll_growth_rate: float | None = None
+    amortization_method: str | None = None
+    amortization_period_years: float | None = None
+    mortality_table_year: int | None = None
+    adc_usd: float | None = None
+    actual_contribution_usd: float | None = None
+    payroll_usd: float | None = None
+    normal_cost_usd: float | None = None
+    amortization_payment_usd: float | None = None
+    net_return_1yr: float | None = None
+    net_return_3yr: float | None = None
+    net_return_5yr: float | None = None
+    net_return_10yr: float | None = None
+    net_external_cash_flow_pct: float | None = None
+    support_ratio: float | None = None
+    benefit_payments_pct: float | None = None
+    assets_payroll_ratio: float | None = None
+    policy_benchmark_return: float | None = None
+    realistic_return: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkPanelRow:
+    """One benchmark metric with peer statistics and health-score context."""
+
+    plan_id: str
+    plan_period: str
+    metric_name: str
+    metric_value: float | None
+    peer_percentile: float | None
+    peer_z_score: float | None
+    peer_median: float | None
+    delta_vs_peer_median: float | None
+    delta_vs_assumed_return: float | None
+    delta_vs_policy_benchmark: float | None
+    tight_peer_percentile: float | None
+    tight_peer_z_score: float | None
+    health_rating: str | None
+    health_basis: str | None
