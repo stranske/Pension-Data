@@ -376,6 +376,9 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
             uaal_usd=26.0,
             assumed_return=0.07,
             discount_rate=0.07,
+            amortization_method="open layered",
+            amortization_period_years=25.0,
+            mortality_table_year=2010,
             payroll_usd=60.0,
             adc_usd=9.0,
             actual_contribution_usd=8.0,
@@ -403,6 +406,9 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
             uaal_usd=18.0,
             assumed_return=0.069,
             discount_rate=0.069,
+            amortization_method="closed layered",
+            amortization_period_years=15.0,
+            mortality_table_year=2020,
             payroll_usd=75.0,
             adc_usd=11.0,
             actual_contribution_usd=11.5,
@@ -444,8 +450,17 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
     assert metrics["funded_ratio_trend"].health_rating == "green"
     assert metrics["funded_ratio_trend"].health_dimension_name == "funded_ratio_trend"
     assert metrics["amortization_period_years"].metric_value == pytest.approx(18.0)
+    assert metrics["amortization_period_years"].peer_percentile == pytest.approx(50.0)
+    assert metrics["amortization_period_years"].peer_median == pytest.approx(20.0)
+    assert metrics["amortization_period_years"].peer_z_score == pytest.approx(-0.4)
     assert metrics["amortization_method_closed"].metric_value == pytest.approx(1.0)
+    assert metrics["amortization_method_closed"].peer_percentile == pytest.approx(100.0)
+    assert metrics["amortization_method_closed"].peer_median == pytest.approx(0.5)
+    assert metrics["amortization_method_closed"].peer_z_score == pytest.approx(1.0)
     assert metrics["mortality_table_year"].metric_value == pytest.approx(2015.0)
+    assert metrics["mortality_table_year"].peer_percentile == pytest.approx(50.0)
+    assert metrics["mortality_table_year"].peer_median == pytest.approx(2015.0)
+    assert metrics["mortality_table_year"].peer_z_score == pytest.approx(0.0)
     assert metrics["adc_vs_actual_contribution_ratio"].metric_value == pytest.approx(0.95)
     assert metrics["adc_vs_actual_contribution_ratio"].health_rating == "yellow"
     assert (
