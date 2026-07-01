@@ -8,7 +8,7 @@ from collections import defaultdict
 from collections.abc import Callable
 
 from pension_data.quant.peer_stats import benchmark_metric
-from pension_data.quant.plan_health import PlanHealthInputs, score_plan_health
+from pension_data.quant.plan_health import DimensionScore, PlanHealthInputs, score_plan_health
 from pension_data.query.saved_views.models import (
     AllocationPeerInput,
     AllocationPeerRow,
@@ -248,7 +248,7 @@ def _health_by_metric(
     subject: BenchmarkPanelInput,
     *,
     peer_assumed_return_median: float | None = None,
-) -> dict[str, tuple[str, str]]:
+) -> tuple[dict[str, DimensionScore], tuple[DimensionScore, ...]]:
     scorecard = score_plan_health(
         PlanHealthInputs(
             plan_id=subject.plan_id,
@@ -269,28 +269,17 @@ def _health_by_metric(
             mortality_table_year=subject.mortality_table_year,
         )
     )
-    return {
-        "funded_ratio_mva": (
-            scorecard.dimensions[0].rating,
-            scorecard.dimensions[0].basis,
-        ),
-        "funded_ratio_trend": (
-            scorecard.dimensions[1].rating,
-            scorecard.dimensions[1].basis,
-        ),
-        "assumed_return": (
-            scorecard.dimensions[2].rating,
-            scorecard.dimensions[2].basis,
-        ),
-        "adc_vs_actual_contribution_ratio": (
-            scorecard.dimensions[3].rating,
-            scorecard.dimensions[3].basis,
-        ),
-        "net_external_cash_flow_pct": (
-            scorecard.dimensions[6].rating,
-            scorecard.dimensions[6].basis,
-        ),
-    }
+    dimensions_by_name = {dimension.name: dimension for dimension in scorecard.dimensions}
+    return (
+        {
+            "funded_ratio_mva": dimensions_by_name["funded_ratio_mva"],
+            "funded_ratio_trend": dimensions_by_name["funded_ratio_trend"],
+            "assumed_return": dimensions_by_name["assumed_return"],
+            "adc_vs_actual_contribution_ratio": dimensions_by_name["contribution_sufficiency"],
+            "net_external_cash_flow_pct": dimensions_by_name["cash_flow_maturity"],
+        },
+        scorecard.dimensions,
+    )
 
 
 def execute_benchmark_panel_view(
@@ -317,7 +306,7 @@ def execute_benchmark_panel_view(
     peer_assumed_return_median = (
         round(statistics.median(peer_assumed_returns), 6) if peer_assumed_returns else None
     )
-    health_by_metric = _health_by_metric(
+    health_by_metric, health_dimensions = _health_by_metric(
         subject,
         peer_assumed_return_median=peer_assumed_return_median,
     )
@@ -339,7 +328,7 @@ def execute_benchmark_panel_view(
             tight_values,
             higher_is_better=higher_is_better,
         )
-        health_rating, health_basis = health_by_metric.get(metric_name, (None, None))
+        health_dimension = health_by_metric.get(metric_name)
         output.append(
             BenchmarkPanelRow(
                 plan_id=subject.plan_id,
@@ -362,8 +351,32 @@ def execute_benchmark_panel_view(
                 ),
                 tight_peer_percentile=tight_result.percentile,
                 tight_peer_z_score=tight_result.z_score,
-                health_rating=health_rating,
-                health_basis=health_basis,
+                health_rating=health_dimension.rating if health_dimension else None,
+                health_basis=health_dimension.basis if health_dimension else None,
+                health_dimension_name=health_dimension.name if health_dimension else None,
+                health_dimension_value=health_dimension.value if health_dimension else None,
+            )
+        )
+
+    for dimension in health_dimensions:
+        output.append(
+            BenchmarkPanelRow(
+                plan_id=subject.plan_id,
+                plan_period=subject.plan_period,
+                metric_name=f"health_scorecard.{dimension.name}",
+                metric_value=dimension.value,
+                peer_percentile=None,
+                peer_z_score=None,
+                peer_median=None,
+                delta_vs_peer_median=None,
+                delta_vs_assumed_return=None,
+                delta_vs_policy_benchmark=None,
+                tight_peer_percentile=None,
+                tight_peer_z_score=None,
+                health_rating=dimension.rating,
+                health_basis=dimension.basis,
+                health_dimension_name=dimension.name,
+                health_dimension_value=dimension.value,
             )
         )
 

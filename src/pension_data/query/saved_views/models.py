@@ -136,3 +136,5 @@ class BenchmarkPanelRow:
     tight_peer_z_score: float | None
     health_rating: str | None
     health_basis: str | None
+    health_dimension_name: str | None = None
+    health_dimension_value: float | None = None

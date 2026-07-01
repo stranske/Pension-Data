@@ -424,14 +424,38 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
     assert metrics["funded_ratio_mva"].peer_percentile == pytest.approx(50.0)
     assert metrics["funded_ratio_mva"].health_rating == "yellow"
     assert "MVA funded ratio" in (metrics["funded_ratio_mva"].health_basis or "")
+    assert metrics["funded_ratio_mva"].health_dimension_name == "funded_ratio_mva"
     assert metrics["adc_vs_actual_contribution_ratio"].metric_value == pytest.approx(0.95)
     assert metrics["adc_vs_actual_contribution_ratio"].health_rating == "yellow"
+    assert (
+        metrics["adc_vs_actual_contribution_ratio"].health_dimension_name
+        == "contribution_sufficiency"
+    )
     assert "vs peer median 6.90%" in (metrics["assumed_return"].health_basis or "")
     assert metrics["net_return_1yr"].delta_vs_assumed_return == pytest.approx(0.0085)
     assert metrics["net_return_1yr"].delta_vs_policy_benchmark == pytest.approx(0.005)
     assert metrics["net_return_1yr"].tight_peer_percentile == pytest.approx(100.0)
     assert metrics["net_return_1yr"].tight_peer_z_score == pytest.approx(1.2667)
     assert metrics["net_external_cash_flow_pct"].health_rating == "green"
+    assert {
+        row.health_dimension_name
+        for row in output
+        if row.metric_name.startswith("health_scorecard.")
+    } == {
+        "funded_ratio_mva",
+        "funded_ratio_trend",
+        "assumed_return",
+        "contribution_sufficiency",
+        "tread_water",
+        "amortization",
+        "cash_flow_maturity",
+        "gasb_crossover",
+        "mortality_currency",
+    }
+    assert metrics["health_scorecard.tread_water"].health_rating == "green"
+    assert metrics["health_scorecard.amortization"].health_rating == "green"
+    assert metrics["health_scorecard.gasb_crossover"].health_rating == "red"
+    assert metrics["health_scorecard.mortality_currency"].health_dimension_value == 2015.0
 
 
 def test_benchmark_panel_view_filters_non_finite_metrics() -> None:
