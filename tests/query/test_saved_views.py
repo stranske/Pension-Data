@@ -339,6 +339,7 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
             peer_group="large_public",
             funded_ratio_ava=0.82,
             funded_ratio_mva=0.78,
+            funded_ratio_trend=0.015,
             aal_usd=100.0,
             uaal_usd=22.0,
             assumed_return=0.0725,
@@ -370,6 +371,7 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
             peer_group="regional_public",
             funded_ratio_ava=0.75,
             funded_ratio_mva=0.72,
+            funded_ratio_trend=-0.02,
             aal_usd=95.0,
             uaal_usd=26.0,
             assumed_return=0.07,
@@ -396,6 +398,7 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
             peer_group="large_public",
             funded_ratio_ava=0.88,
             funded_ratio_mva=0.84,
+            funded_ratio_trend=0.0,
             aal_usd=110.0,
             uaal_usd=18.0,
             assumed_return=0.069,
@@ -420,7 +423,11 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
     assert set(metrics) >= {
         "funded_ratio_ava",
         "funded_ratio_mva",
+        "funded_ratio_trend",
         "assumed_return",
+        "amortization_period_years",
+        "amortization_method_closed",
+        "mortality_table_year",
         "adc_vs_actual_contribution_ratio",
         "net_return_1yr",
         "net_external_cash_flow_pct",
@@ -432,6 +439,13 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
     assert metrics["funded_ratio_mva"].health_rating == "yellow"
     assert "MVA funded ratio" in (metrics["funded_ratio_mva"].health_basis or "")
     assert metrics["funded_ratio_mva"].health_dimension_name == "funded_ratio_mva"
+    assert metrics["funded_ratio_trend"].metric_value == pytest.approx(0.015)
+    assert metrics["funded_ratio_trend"].peer_percentile == pytest.approx(100.0)
+    assert metrics["funded_ratio_trend"].health_rating == "green"
+    assert metrics["funded_ratio_trend"].health_dimension_name == "funded_ratio_trend"
+    assert metrics["amortization_period_years"].metric_value == pytest.approx(18.0)
+    assert metrics["amortization_method_closed"].metric_value == pytest.approx(1.0)
+    assert metrics["mortality_table_year"].metric_value == pytest.approx(2015.0)
     assert metrics["adc_vs_actual_contribution_ratio"].metric_value == pytest.approx(0.95)
     assert metrics["adc_vs_actual_contribution_ratio"].health_rating == "yellow"
     assert (

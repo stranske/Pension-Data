@@ -92,6 +92,7 @@ class BenchmarkPanelInput:
     peer_group: str
     funded_ratio_ava: float | None = None
     funded_ratio_mva: float | None = None
+    funded_ratio_trend: float | None = None
     aal_usd: float | None = None
     uaal_usd: float | None = None
     assumed_return: float | None = None
