@@ -10,6 +10,8 @@ from pension_data.api.auth import SCOPE_QUERY, APIKeyStore, authenticate_request
 from pension_data.query.saved_views.models import (
     AllocationPeerInput,
     AllocationPeerRow,
+    BenchmarkPanelInput,
+    BenchmarkPanelRow,
     FundingTrendInput,
     FundingTrendRow,
     HoldingsOverlapInput,
@@ -17,6 +19,7 @@ from pension_data.query.saved_views.models import (
 )
 from pension_data.query.saved_views.service import (
     execute_allocation_peer_compare_view,
+    execute_benchmark_panel_view,
     execute_funding_trend_view,
     execute_holdings_overlap_view,
 )
@@ -27,7 +30,12 @@ class SavedViewRouteResult:
     """Route response bundle for saved analytical views."""
 
     view_name: str
-    rows: list[FundingTrendRow] | list[AllocationPeerRow] | list[HoldingsOverlapRow]
+    rows: (
+        list[FundingTrendRow]
+        | list[AllocationPeerRow]
+        | list[HoldingsOverlapRow]
+        | list[BenchmarkPanelRow]
+    )
     audit_event: dict[str, Any]
 
 
@@ -36,9 +44,15 @@ def run_saved_view_endpoint(
     api_key_header: str | None,
     key_store: APIKeyStore,
     view_name: str,
-    view_inputs: list[FundingTrendInput] | list[AllocationPeerInput] | list[HoldingsOverlapInput],
+    view_inputs: (
+        list[FundingTrendInput]
+        | list[AllocationPeerInput]
+        | list[HoldingsOverlapInput]
+        | list[BenchmarkPanelInput]
+    ),
     subject_plan_id: str | None = None,
     plan_period: str | None = None,
+    tight_peer_group: str | None = None,
     event: Mapping[str, Any] | None = None,
 ) -> SavedViewRouteResult:
     """Execute one authenticated saved analytical view and return rows + audit event."""
@@ -48,7 +62,12 @@ def run_saved_view_endpoint(
         key_store=key_store,
     )
 
-    rows: list[FundingTrendRow] | list[AllocationPeerRow] | list[HoldingsOverlapRow]
+    rows: (
+        list[FundingTrendRow]
+        | list[AllocationPeerRow]
+        | list[HoldingsOverlapRow]
+        | list[BenchmarkPanelRow]
+    )
 
     if view_name == "funding_trend":
         rows = execute_funding_trend_view(view_inputs)  # type: ignore[arg-type]
@@ -69,6 +88,16 @@ def run_saved_view_endpoint(
             view_inputs,  # type: ignore[arg-type]
             subject_plan_id=subject_plan_id,
             plan_period=plan_period,
+        )
+    elif view_name == "benchmark_panel":
+        if subject_plan_id is None or plan_period is None:
+            msg = "benchmark_panel requires subject_plan_id and plan_period"
+            raise ValueError(msg)
+        rows = execute_benchmark_panel_view(
+            view_inputs,  # type: ignore[arg-type]
+            subject_plan_id=subject_plan_id,
+            plan_period=plan_period,
+            tight_peer_group=tight_peer_group,
         )
     else:
         msg = f"unknown saved view: {view_name}"

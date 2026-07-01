@@ -231,6 +231,18 @@ def _delta(value: float | None, comparator: float | None) -> float | None:
     return round(value - comparator, 6)  # type: ignore[operator]
 
 
+def _quartile_rank(percentile: float | None) -> int | None:
+    if percentile is None or not math.isfinite(percentile):
+        return None
+    if percentile <= 25.0:
+        return 1
+    if percentile <= 50.0:
+        return 2
+    if percentile <= 75.0:
+        return 3
+    return 4
+
+
 def _amortization_is_closed(method: str | None) -> bool | None:
     if method is None:
         return None
@@ -336,6 +348,7 @@ def execute_benchmark_panel_view(
                 metric_name=metric_name,
                 metric_value=subject_value,
                 peer_percentile=peer_result.percentile,
+                peer_quartile_rank=_quartile_rank(peer_result.percentile),
                 peer_z_score=peer_result.z_score,
                 peer_median=peer_result.peer_median,
                 delta_vs_peer_median=_delta(subject_value, peer_result.peer_median),
@@ -350,6 +363,7 @@ def execute_benchmark_panel_view(
                     else None
                 ),
                 tight_peer_percentile=tight_result.percentile,
+                tight_peer_quartile_rank=_quartile_rank(tight_result.percentile),
                 tight_peer_z_score=tight_result.z_score,
                 health_rating=health_dimension.rating if health_dimension else None,
                 health_basis=health_dimension.basis if health_dimension else None,
@@ -366,12 +380,14 @@ def execute_benchmark_panel_view(
                 metric_name=f"health_scorecard.{dimension.name}",
                 metric_value=dimension.value,
                 peer_percentile=None,
+                peer_quartile_rank=None,
                 peer_z_score=None,
                 peer_median=None,
                 delta_vs_peer_median=None,
                 delta_vs_assumed_return=None,
                 delta_vs_policy_benchmark=None,
                 tight_peer_percentile=None,
+                tight_peer_quartile_rank=None,
                 tight_peer_z_score=None,
                 health_rating=dimension.rating,
                 health_basis=dimension.basis,

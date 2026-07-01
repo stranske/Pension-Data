@@ -131,6 +131,7 @@ def test_load_saved_view_definitions_and_validate_schema() -> None:
 
     assert sorted(definitions) == [
         "allocation_peer_compare:v1",
+        "benchmark_panel:v1",
         "funding_trend:v1",
         "holdings_overlap:v1",
     ]
@@ -141,6 +142,11 @@ def test_load_saved_view_definitions_and_validate_schema() -> None:
 
     overlap = definitions["holdings_overlap:v1"]
     assert any("not_disclosed" in item.lower() for item in overlap.assumptions)
+
+    benchmark = definitions["benchmark_panel:v1"]
+    assert benchmark.output_schema[0].name == "plan_id"
+    assert any(field.name == "peer_quartile_rank" for field in benchmark.output_schema)
+    assert any(field.name == "tight_peer_quartile_rank" for field in benchmark.output_schema)
 
 
 def test_saved_view_sql_definitions_execute_against_seeded_data() -> None:
@@ -422,6 +428,7 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
     assert metrics["funded_ratio_mva"].metric_value == 0.78
     assert metrics["funded_ratio_mva"].peer_median == pytest.approx(0.78)
     assert metrics["funded_ratio_mva"].peer_percentile == pytest.approx(50.0)
+    assert metrics["funded_ratio_mva"].peer_quartile_rank == 2
     assert metrics["funded_ratio_mva"].health_rating == "yellow"
     assert "MVA funded ratio" in (metrics["funded_ratio_mva"].health_basis or "")
     assert metrics["funded_ratio_mva"].health_dimension_name == "funded_ratio_mva"
@@ -435,6 +442,7 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
     assert metrics["net_return_1yr"].delta_vs_assumed_return == pytest.approx(0.0085)
     assert metrics["net_return_1yr"].delta_vs_policy_benchmark == pytest.approx(0.005)
     assert metrics["net_return_1yr"].tight_peer_percentile == pytest.approx(100.0)
+    assert metrics["net_return_1yr"].tight_peer_quartile_rank == 4
     assert metrics["net_return_1yr"].tight_peer_z_score == pytest.approx(1.2667)
     assert metrics["net_external_cash_flow_pct"].health_rating == "green"
     assert {
@@ -485,6 +493,7 @@ def test_benchmark_panel_view_filters_non_finite_metrics() -> None:
     metrics = {row.metric_name: row for row in output}
     assert metrics["funded_ratio_mva"].metric_value is None
     assert metrics["funded_ratio_mva"].peer_percentile is None
+    assert metrics["funded_ratio_mva"].peer_quartile_rank is None
     assert metrics["funded_ratio_mva"].health_rating == "unknown"
     assert metrics["assumed_return"].peer_median is None
 
