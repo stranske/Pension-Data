@@ -182,12 +182,26 @@ MetricGetter = Callable[[BenchmarkPanelInput], float | None]
 _BENCHMARK_METRICS: tuple[tuple[str, MetricGetter, bool], ...] = (
     ("funded_ratio_ava", lambda row: row.funded_ratio_ava, True),
     ("funded_ratio_mva", lambda row: row.funded_ratio_mva, True),
+    ("funded_ratio_trend", lambda row: row.funded_ratio_trend, True),
     ("aal_usd", lambda row: row.aal_usd, False),
     ("uaal_usd", lambda row: row.uaal_usd, False),
     ("assumed_return", lambda row: row.assumed_return, False),
     ("discount_rate", lambda row: row.discount_rate, False),
     ("inflation_rate", lambda row: row.inflation_rate, False),
     ("payroll_growth_rate", lambda row: row.payroll_growth_rate, True),
+    ("amortization_period_years", lambda row: row.amortization_period_years, False),
+    (
+        "amortization_method_closed",
+        lambda row: _amortization_method_score(row.amortization_method),
+        True,
+    ),
+    (
+        "mortality_table_year",
+        lambda row: (
+            float(row.mortality_table_year) if row.mortality_table_year is not None else None
+        ),
+        True,
+    ),
     (
         "adc_vs_actual_contribution_ratio",
         lambda row: _ratio(row.actual_contribution_usd, row.adc_usd),
@@ -256,6 +270,13 @@ def _amortization_is_closed(method: str | None) -> bool | None:
     return None
 
 
+def _amortization_method_score(method: str | None) -> float | None:
+    is_closed = _amortization_is_closed(method)
+    if is_closed is None:
+        return None
+    return 1.0 if is_closed else 0.0
+
+
 def _health_by_metric(
     subject: BenchmarkPanelInput,
     *,
@@ -266,6 +287,7 @@ def _health_by_metric(
             plan_id=subject.plan_id,
             plan_period=subject.plan_period,
             funded_ratio_mva=subject.funded_ratio_mva,
+            funded_ratio_trend=subject.funded_ratio_trend,
             assumed_return=subject.assumed_return,
             peer_assumed_return_median=peer_assumed_return_median,
             realistic_return=subject.realistic_return,
