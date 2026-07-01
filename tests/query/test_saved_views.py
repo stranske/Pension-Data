@@ -361,7 +361,7 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
         BenchmarkPanelInput(
             plan_id="TX-ERS",
             plan_period="FY2025",
-            peer_group="large_public",
+            peer_group="regional_public",
             funded_ratio_ava=0.75,
             funded_ratio_mva=0.72,
             aal_usd=95.0,
@@ -374,6 +374,15 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
             net_return_1yr=0.064,
             net_return_3yr=0.061,
             net_external_cash_flow_pct=-4.5,
+        ),
+        BenchmarkPanelInput(
+            plan_id="OR-PERS",
+            plan_period="FY2025",
+            peer_group="regional_public",
+            assumed_return=0.068,
+            net_return_1yr=0.079,
+            net_return_3yr=0.066,
+            net_external_cash_flow_pct=-2.8,
         ),
         BenchmarkPanelInput(
             plan_id="WA-RETIRE",
@@ -398,6 +407,7 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
         rows,
         subject_plan_id="CA-PERS",
         plan_period="FY2025",
+        tight_peer_group="regional_public",
     )
 
     metrics = {row.metric_name: row for row in output}
@@ -416,8 +426,11 @@ def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
     assert "MVA funded ratio" in (metrics["funded_ratio_mva"].health_basis or "")
     assert metrics["adc_vs_actual_contribution_ratio"].metric_value == pytest.approx(0.95)
     assert metrics["adc_vs_actual_contribution_ratio"].health_rating == "yellow"
+    assert "vs peer median 6.90%" in (metrics["assumed_return"].health_basis or "")
     assert metrics["net_return_1yr"].delta_vs_assumed_return == pytest.approx(0.0085)
     assert metrics["net_return_1yr"].delta_vs_policy_benchmark == pytest.approx(0.005)
+    assert metrics["net_return_1yr"].tight_peer_percentile == pytest.approx(100.0)
+    assert metrics["net_return_1yr"].tight_peer_z_score == pytest.approx(1.2667)
     assert metrics["net_external_cash_flow_pct"].health_rating == "green"
 
 

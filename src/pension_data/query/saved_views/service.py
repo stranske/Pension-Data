@@ -237,21 +237,25 @@ def _amortization_is_closed(method: str | None) -> bool | None:
     normalized = method.strip().lower()
     if not normalized:
         return None
-    if "closed" in normalized or "layer" in normalized:
-        return True
     if "open" in normalized:
         return False
+    if "closed" in normalized or "layer" in normalized:
+        return True
     return None
 
 
-def _health_by_metric(subject: BenchmarkPanelInput) -> dict[str, tuple[str, str]]:
+def _health_by_metric(
+    subject: BenchmarkPanelInput,
+    *,
+    peer_assumed_return_median: float | None = None,
+) -> dict[str, tuple[str, str]]:
     scorecard = score_plan_health(
         PlanHealthInputs(
             plan_id=subject.plan_id,
             plan_period=subject.plan_period,
             funded_ratio_mva=subject.funded_ratio_mva,
             assumed_return=subject.assumed_return,
-            peer_assumed_return_median=None,
+            peer_assumed_return_median=peer_assumed_return_median,
             realistic_return=subject.realistic_return,
             gasb_discount_rate=subject.discount_rate,
             adc_usd=subject.adc_usd,
@@ -305,7 +309,18 @@ def execute_benchmark_panel_view(
     broad_peers = [row for row in period_rows if row.plan_id != subject_plan_id]
     tight_group = tight_peer_group or subject.peer_group
     tight_peers = [row for row in broad_peers if row.peer_group == tight_group]
-    health_by_metric = _health_by_metric(subject)
+    peer_assumed_returns = [
+        value
+        for row in broad_peers
+        if (value := row.assumed_return) is not None and math.isfinite(value)
+    ]
+    peer_assumed_return_median = (
+        round(statistics.median(peer_assumed_returns), 6) if peer_assumed_returns else None
+    )
+    health_by_metric = _health_by_metric(
+        subject,
+        peer_assumed_return_median=peer_assumed_return_median,
+    )
 
     output: list[BenchmarkPanelRow] = []
     for metric_name, getter, higher_is_better in _BENCHMARK_METRICS:
