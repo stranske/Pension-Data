@@ -10,9 +10,11 @@ import pytest
 
 from pension_data.query.saved_views import (
     AllocationPeerInput,
+    BenchmarkPanelInput,
     FundingTrendInput,
     HoldingsOverlapInput,
     execute_allocation_peer_compare_view,
+    execute_benchmark_panel_view,
     execute_funding_trend_view,
     execute_holdings_overlap_view,
     load_saved_view_definitions,
@@ -321,6 +323,170 @@ def test_holdings_overlap_view_is_coverage_aware() -> None:
     assert wa_mercer.counterparty_disclosure_state == "known_not_invested"
     assert wa_aon.overlap_status == "unknown_due_to_non_disclosure"
     assert wa_aon.counterparty_disclosure_state == "not_disclosed"
+
+
+def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
+    rows = [
+        BenchmarkPanelInput(
+            plan_id="CA-PERS",
+            plan_period="FY2025",
+            peer_group="large_public",
+            funded_ratio_ava=0.82,
+            funded_ratio_mva=0.78,
+            aal_usd=100.0,
+            uaal_usd=22.0,
+            assumed_return=0.0725,
+            discount_rate=0.07,
+            inflation_rate=0.025,
+            payroll_growth_rate=0.03,
+            amortization_method="closed layered",
+            amortization_period_years=18.0,
+            mortality_table_year=2015,
+            adc_usd=10.0,
+            actual_contribution_usd=9.5,
+            payroll_usd=80.0,
+            normal_cost_usd=6.0,
+            amortization_payment_usd=4.0,
+            net_return_1yr=0.081,
+            net_return_3yr=0.07,
+            net_return_5yr=0.068,
+            net_return_10yr=0.071,
+            net_external_cash_flow_pct=-2.5,
+            support_ratio=1.8,
+            benefit_payments_pct=0.07,
+            assets_payroll_ratio=3.1,
+            policy_benchmark_return=0.076,
+            realistic_return=0.068,
+        ),
+        BenchmarkPanelInput(
+            plan_id="TX-ERS",
+            plan_period="FY2025",
+            peer_group="regional_public",
+            funded_ratio_ava=0.75,
+            funded_ratio_mva=0.72,
+            aal_usd=95.0,
+            uaal_usd=26.0,
+            assumed_return=0.07,
+            discount_rate=0.07,
+            payroll_usd=60.0,
+            adc_usd=9.0,
+            actual_contribution_usd=8.0,
+            net_return_1yr=0.064,
+            net_return_3yr=0.061,
+            net_external_cash_flow_pct=-4.5,
+        ),
+        BenchmarkPanelInput(
+            plan_id="OR-PERS",
+            plan_period="FY2025",
+            peer_group="regional_public",
+            assumed_return=0.068,
+            net_return_1yr=0.079,
+            net_return_3yr=0.066,
+            net_external_cash_flow_pct=-2.8,
+        ),
+        BenchmarkPanelInput(
+            plan_id="WA-RETIRE",
+            plan_period="FY2025",
+            peer_group="large_public",
+            funded_ratio_ava=0.88,
+            funded_ratio_mva=0.84,
+            aal_usd=110.0,
+            uaal_usd=18.0,
+            assumed_return=0.069,
+            discount_rate=0.069,
+            payroll_usd=75.0,
+            adc_usd=11.0,
+            actual_contribution_usd=11.5,
+            net_return_1yr=0.09,
+            net_return_3yr=0.073,
+            net_external_cash_flow_pct=-1.0,
+        ),
+    ]
+
+    output = execute_benchmark_panel_view(
+        rows,
+        subject_plan_id="CA-PERS",
+        plan_period="FY2025",
+        tight_peer_group="regional_public",
+    )
+
+    metrics = {row.metric_name: row for row in output}
+    assert set(metrics) >= {
+        "funded_ratio_ava",
+        "funded_ratio_mva",
+        "assumed_return",
+        "adc_vs_actual_contribution_ratio",
+        "net_return_1yr",
+        "net_external_cash_flow_pct",
+    }
+    assert metrics["funded_ratio_mva"].metric_value == 0.78
+    assert metrics["funded_ratio_mva"].peer_median == pytest.approx(0.78)
+    assert metrics["funded_ratio_mva"].peer_percentile == pytest.approx(50.0)
+    assert metrics["funded_ratio_mva"].health_rating == "yellow"
+    assert "MVA funded ratio" in (metrics["funded_ratio_mva"].health_basis or "")
+    assert metrics["funded_ratio_mva"].health_dimension_name == "funded_ratio_mva"
+    assert metrics["adc_vs_actual_contribution_ratio"].metric_value == pytest.approx(0.95)
+    assert metrics["adc_vs_actual_contribution_ratio"].health_rating == "yellow"
+    assert (
+        metrics["adc_vs_actual_contribution_ratio"].health_dimension_name
+        == "contribution_sufficiency"
+    )
+    assert "vs peer median 6.90%" in (metrics["assumed_return"].health_basis or "")
+    assert metrics["net_return_1yr"].delta_vs_assumed_return == pytest.approx(0.0085)
+    assert metrics["net_return_1yr"].delta_vs_policy_benchmark == pytest.approx(0.005)
+    assert metrics["net_return_1yr"].tight_peer_percentile == pytest.approx(100.0)
+    assert metrics["net_return_1yr"].tight_peer_z_score == pytest.approx(1.2667)
+    assert metrics["net_external_cash_flow_pct"].health_rating == "green"
+    assert {
+        row.health_dimension_name
+        for row in output
+        if row.metric_name.startswith("health_scorecard.")
+    } == {
+        "funded_ratio_mva",
+        "funded_ratio_trend",
+        "assumed_return",
+        "contribution_sufficiency",
+        "tread_water",
+        "amortization",
+        "cash_flow_maturity",
+        "gasb_crossover",
+        "mortality_currency",
+    }
+    assert metrics["health_scorecard.tread_water"].health_rating == "green"
+    assert metrics["health_scorecard.amortization"].health_rating == "green"
+    assert metrics["health_scorecard.gasb_crossover"].health_rating == "red"
+    assert metrics["health_scorecard.mortality_currency"].health_dimension_value == 2015.0
+
+
+def test_benchmark_panel_view_filters_non_finite_metrics() -> None:
+    rows = [
+        BenchmarkPanelInput(
+            plan_id="CA-PERS",
+            plan_period="FY2025",
+            peer_group="large_public",
+            funded_ratio_mva=float("nan"),
+            assumed_return=0.07,
+        ),
+        BenchmarkPanelInput(
+            plan_id="TX-ERS",
+            plan_period="FY2025",
+            peer_group="large_public",
+            funded_ratio_mva=0.80,
+            assumed_return=float("inf"),
+        ),
+    ]
+
+    output = execute_benchmark_panel_view(
+        rows,
+        subject_plan_id="CA-PERS",
+        plan_period="FY2025",
+    )
+
+    metrics = {row.metric_name: row for row in output}
+    assert metrics["funded_ratio_mva"].metric_value is None
+    assert metrics["funded_ratio_mva"].peer_percentile is None
+    assert metrics["funded_ratio_mva"].health_rating == "unknown"
+    assert metrics["assumed_return"].peer_median is None
 
 
 def test_load_saved_view_definitions_raises_when_config_dir_missing(tmp_path: Path) -> None:
