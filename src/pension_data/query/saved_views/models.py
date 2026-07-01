@@ -127,12 +127,14 @@ class BenchmarkPanelRow:
     metric_name: str
     metric_value: float | None
     peer_percentile: float | None
+    peer_quartile_rank: int | None
     peer_z_score: float | None
     peer_median: float | None
     delta_vs_peer_median: float | None
     delta_vs_assumed_return: float | None
     delta_vs_policy_benchmark: float | None
     tight_peer_percentile: float | None
+    tight_peer_quartile_rank: int | None
     tight_peer_z_score: float | None
     health_rating: str | None
     health_basis: str | None
