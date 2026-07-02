@@ -72,7 +72,7 @@ class BitemporalFactContext:
     @property
     def is_restated(self) -> bool:
         """Whether this fact row has been superseded by a later assertion."""
-        return self.superseded_at is not None
+        return bool(self.superseded_at and self.superseded_at.strip())
 
 
 class _HasBitemporalContext(Protocol):
@@ -93,6 +93,13 @@ def _parse_iso_temporal(value: str, *, field_name: str) -> datetime:
     if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _nonblank(value: str | None) -> str | None:
+    if value is None:
+        return None
+    candidate = value.strip()
+    return candidate or None
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,19 +227,21 @@ def query_bitemporal_as_of[TFact: _HasBitemporalContext](
         )
         if row_effective > as_of_effective or row_ingestion > as_of_ingestion:
             continue
+        valid_to = _nonblank(row.context.valid_to)
         if (
-            row.context.valid_to is not None
+            valid_to is not None
             and _parse_iso_temporal(
-                row.context.valid_to,
+                valid_to,
                 field_name="row.context.valid_to",
             )
             <= as_of_effective
         ):
             continue
+        superseded_at = _nonblank(row.context.superseded_at)
         if (
-            row.context.superseded_at is not None
+            superseded_at is not None
             and _parse_iso_temporal(
-                row.context.superseded_at,
+                superseded_at,
                 field_name="row.context.superseded_at",
             )
             <= as_of_ingestion

@@ -241,3 +241,31 @@ def test_security_position_migration_rejects_active_overlaps() -> None:
             f"INSERT INTO plan_security_positions ({', '.join(columns)}) VALUES ({placeholders})",
             tuple(overlapping.values()),
         )
+
+    superseded_overlap = dict(overlapping)
+    superseded_overlap["provenance_ref"] = "13f:superseded"
+    superseded_overlap["superseded_at"] = "2025-05-20T00:00:00Z"
+    connection.execute(
+        f"INSERT INTO plan_security_positions ({', '.join(columns)}) VALUES ({placeholders})",
+        tuple(superseded_overlap.values()),
+    )
+
+    non_overlapping = dict(base_row)
+    non_overlapping["provenance_ref"] = "13f:next-quarter"
+    non_overlapping["valid_from"] = "2025-07-01"
+    non_overlapping["valid_to"] = "2025-09-30"
+    non_overlapping["asserted_at"] = "2025-08-15T00:00:00Z"
+    connection.execute(
+        f"INSERT INTO plan_security_positions ({', '.join(columns)}) VALUES ({placeholders})",
+        tuple(non_overlapping.values()),
+    )
+
+    with pytest.raises(sqlite3.IntegrityError, match="active valid-time overlap"):
+        connection.execute(
+            """
+            UPDATE plan_security_positions
+            SET valid_from = ?, valid_to = ?
+            WHERE provenance_ref = ?
+            """,
+            ("2025-04-15", "2025-05-15", "13f:next-quarter"),
+        )

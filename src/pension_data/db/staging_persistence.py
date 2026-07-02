@@ -58,7 +58,7 @@ def _row_values(row: Mapping[str, object]) -> tuple[object, ...]:
         elif column == "asserted_at":
             values.append(raw_value or row.get("ingestion_date"))
         elif column == "restated":
-            values.append(int(bool(raw_value or row.get("superseded_at"))))
+            values.append(bool(raw_value or row.get("superseded_at")))
         else:
             values.append(raw_value)
     return tuple(values)
