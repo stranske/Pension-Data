@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS staging_core_metrics (
   evidence_refs TEXT,
   effective_date TEXT NOT NULL,
   ingestion_date TEXT NOT NULL,
+  valid_from TEXT NOT NULL,
+  valid_to TEXT,
+  asserted_at TEXT NOT NULL,
+  superseded_at TEXT,
+  restated INTEGER NOT NULL DEFAULT 0,
   benchmark_version TEXT NOT NULL,
   source_document_id TEXT NOT NULL
 );
@@ -103,6 +108,11 @@ SELECT
   vehicle_name,
   effective_date,
   ingestion_date,
+  valid_from,
+  valid_to,
+  asserted_at,
+  superseded_at,
+  restated,
   benchmark_version,
   source_document_id
 FROM staging_core_metrics

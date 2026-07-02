@@ -5,14 +5,30 @@ UPDATE staging_core_metrics
 SET
   plan_period = COALESCE(NULLIF(plan_period, ''), 'UNKNOWN'),
   benchmark_version = COALESCE(NULLIF(benchmark_version, ''), 'v1'),
-  ingestion_date = COALESCE(NULLIF(ingestion_date, ''), effective_date)
+  ingestion_date = COALESCE(NULLIF(ingestion_date, ''), effective_date),
+  valid_from = COALESCE(NULLIF(valid_from, ''), effective_date),
+  asserted_at = COALESCE(
+    NULLIF(asserted_at, ''),
+    NULLIF(ingestion_date, ''),
+    effective_date
+  ),
+  restated = CASE WHEN superseded_at IS NULL OR TRIM(superseded_at) = '' THEN 0 ELSE 1 END
 WHERE
   plan_period IS NULL
   OR plan_period = ''
   OR benchmark_version IS NULL
   OR benchmark_version = ''
   OR ingestion_date IS NULL
-  OR ingestion_date = '';
+  OR ingestion_date = ''
+  OR valid_from IS NULL
+  OR valid_from = ''
+  OR asserted_at IS NULL
+  OR asserted_at = ''
+  OR (
+    superseded_at IS NOT NULL
+    AND TRIM(superseded_at) <> ''
+    AND COALESCE(restated, 0) = 0
+  );
 
 UPDATE staging_cash_flows
 SET

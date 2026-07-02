@@ -26,6 +26,11 @@ _STAGING_CORE_METRIC_COLUMNS: tuple[str, ...] = (
     "evidence_refs",
     "effective_date",
     "ingestion_date",
+    "valid_from",
+    "valid_to",
+    "asserted_at",
+    "superseded_at",
+    "restated",
     "benchmark_version",
     "source_document_id",
 )
@@ -48,6 +53,12 @@ def _row_values(row: Mapping[str, object]) -> tuple[object, ...]:
         raw_value = row.get(column)
         if column == "evidence_refs":
             values.append(_serialize_evidence_refs(raw_value))
+        elif column == "valid_from":
+            values.append(raw_value or row.get("effective_date"))
+        elif column == "asserted_at":
+            values.append(raw_value or row.get("ingestion_date"))
+        elif column == "restated":
+            values.append(bool(raw_value or row.get("superseded_at")))
         else:
             values.append(raw_value)
     return tuple(values)

@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS staging_core_metrics (
   evidence_refs JSONB,
   effective_date TIMESTAMPTZ NOT NULL,
   ingestion_date TIMESTAMPTZ NOT NULL,
+  valid_from TIMESTAMPTZ NOT NULL,
+  valid_to TIMESTAMPTZ,
+  asserted_at TIMESTAMPTZ NOT NULL,
+  superseded_at TIMESTAMPTZ,
+  restated BOOLEAN NOT NULL DEFAULT FALSE,
   benchmark_version TEXT NOT NULL,
   source_document_id TEXT NOT NULL
 );
@@ -103,6 +108,11 @@ SELECT
   vehicle_name,
   effective_date,
   ingestion_date,
+  valid_from,
+  valid_to,
+  asserted_at,
+  superseded_at,
+  restated,
   benchmark_version,
   source_document_id
 FROM staging_core_metrics
