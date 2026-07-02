@@ -28,6 +28,53 @@ CREATE TABLE IF NOT EXISTS staging_core_metrics (
   source_document_id TEXT NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_staging_core_metrics_bitemporal
+  ON staging_core_metrics(plan_id, metric_family, metric_name, valid_from, asserted_at, superseded_at);
+
+CREATE TRIGGER IF NOT EXISTS trg_staging_core_metrics_no_active_overlap_insert
+BEFORE INSERT ON staging_core_metrics
+WHEN NEW.superseded_at IS NULL OR TRIM(NEW.superseded_at) = ''
+BEGIN
+  SELECT RAISE(ABORT, 'active valid-time overlap for staging_core_metrics')
+  WHERE EXISTS (
+    SELECT 1
+    FROM staging_core_metrics existing
+    WHERE existing.fact_id != NEW.fact_id
+      AND existing.plan_id = NEW.plan_id
+      AND existing.metric_family = NEW.metric_family
+      AND existing.metric_name = NEW.metric_name
+      AND existing.manager_name IS NEW.manager_name
+      AND existing.fund_name IS NEW.fund_name
+      AND existing.vehicle_name IS NEW.vehicle_name
+      AND existing.relationship_completeness IS NEW.relationship_completeness
+      AND (existing.superseded_at IS NULL OR TRIM(existing.superseded_at) = '')
+      AND COALESCE(existing.valid_to, '9999-12-31T23:59:59Z') > NEW.valid_from
+      AND COALESCE(NEW.valid_to, '9999-12-31T23:59:59Z') > existing.valid_from
+  );
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_staging_core_metrics_no_active_overlap_update
+BEFORE UPDATE ON staging_core_metrics
+WHEN NEW.superseded_at IS NULL OR TRIM(NEW.superseded_at) = ''
+BEGIN
+  SELECT RAISE(ABORT, 'active valid-time overlap for staging_core_metrics')
+  WHERE EXISTS (
+    SELECT 1
+    FROM staging_core_metrics existing
+    WHERE existing.rowid != OLD.rowid
+      AND existing.plan_id = NEW.plan_id
+      AND existing.metric_family = NEW.metric_family
+      AND existing.metric_name = NEW.metric_name
+      AND existing.manager_name IS NEW.manager_name
+      AND existing.fund_name IS NEW.fund_name
+      AND existing.vehicle_name IS NEW.vehicle_name
+      AND existing.relationship_completeness IS NEW.relationship_completeness
+      AND (existing.superseded_at IS NULL OR TRIM(existing.superseded_at) = '')
+      AND COALESCE(existing.valid_to, '9999-12-31T23:59:59Z') > NEW.valid_from
+      AND COALESCE(NEW.valid_to, '9999-12-31T23:59:59Z') > existing.valid_from
+  );
+END;
+
 CREATE TABLE IF NOT EXISTS staging_cash_flows (
   cash_flow_id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL,

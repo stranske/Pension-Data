@@ -28,6 +28,25 @@ CREATE TABLE IF NOT EXISTS staging_core_metrics (
   source_document_id TEXT NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_staging_core_metrics_bitemporal
+  ON staging_core_metrics(plan_id, metric_family, metric_name, valid_from, asserted_at, superseded_at);
+
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+ALTER TABLE staging_core_metrics
+  ADD CONSTRAINT staging_core_metrics_no_active_overlap
+  EXCLUDE USING gist (
+    plan_id WITH =,
+    metric_family WITH =,
+    metric_name WITH =,
+    (COALESCE(manager_name, '')) WITH =,
+    (COALESCE(fund_name, '')) WITH =,
+    (COALESCE(vehicle_name, '')) WITH =,
+    (COALESCE(relationship_completeness, '')) WITH =,
+    tstzrange(valid_from, COALESCE(valid_to, TIMESTAMPTZ 'infinity'), '[)') WITH &&
+  )
+  WHERE (superseded_at IS NULL);
+
 CREATE TABLE IF NOT EXISTS staging_cash_flows (
   cash_flow_id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL,

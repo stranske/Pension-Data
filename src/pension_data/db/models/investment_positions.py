@@ -71,8 +71,8 @@ class PlanSecurityPosition:
 
     @property
     def is_restated(self) -> bool:
-        """Whether this position was superseded by a later amendment/assertion."""
-        return self.superseded_at is not None
+        """Whether this position participates in an amendment/restatement chain."""
+        return self.superseded_at is not None or self.amendment_accession is not None
 
 
 @dataclass(frozen=True, slots=True)
