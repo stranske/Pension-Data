@@ -152,6 +152,43 @@ def _seed_history_rows() -> list[MetricHistoryRow]:
     return build_metric_history_rows(funded_facts=funded_facts, actuarial_facts=actuarial_facts)
 
 
+def test_metric_history_exposes_core_fact_restatement_metadata() -> None:
+    rows = build_metric_history_rows(
+        funded_facts=(
+            FundedStatusFact(
+                context=BitemporalFactContext(
+                    plan_id="CA-PERS",
+                    plan_period="FY2024",
+                    effective_date="2024-06-30",
+                    ingestion_date="2025-01-15T00:00:00Z",
+                    valid_from="2024-06-30",
+                    valid_to="2025-06-30",
+                    asserted_at="2025-01-15T00:00:00Z",
+                    superseded_at="2025-03-01T00:00:00Z",
+                    benchmark_version="v1",
+                    source_document_id="doc:ca:2024:funded",
+                ),
+                metric_name="funded_ratio",
+                metric_value=_value(
+                    as_reported_value=79.5,
+                    normalized_value=0.795,
+                    as_reported_unit="percent",
+                    normalized_unit="ratio",
+                ),
+                confidence=0.95,
+                evidence_refs=("p.45",),
+            ),
+        )
+    )
+
+    row = rows[0]
+    assert row.valid_from == "2024-06-30"
+    assert row.valid_to == "2025-06-30"
+    assert row.asserted_at == "2025-01-15T00:00:00Z"
+    assert row.superseded_at == "2025-03-01T00:00:00Z"
+    assert row.is_restated
+
+
 def test_metric_history_returns_ordered_series_with_provenance_and_dual_values() -> None:
     rows = _seed_history_rows()
     response = query_metric_history(

@@ -52,6 +52,11 @@ class MetricHistoryRow:
     report_id: str
     source_document_id: str
     provenance_refs: tuple[MetricHistoryProvenanceRef, ...]
+    valid_from: str = ""
+    asserted_at: str = ""
+    valid_to: str | None = None
+    superseded_at: str | None = None
+    is_restated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +153,11 @@ def build_metric_history_rows(
                     source_document_id=funded_fact.context.source_document_id,
                     evidence_refs=funded_fact.evidence_refs,
                 ),
+                valid_from=funded_fact.context.resolved_valid_from,
+                valid_to=funded_fact.context.valid_to,
+                asserted_at=funded_fact.context.resolved_asserted_at,
+                superseded_at=funded_fact.context.superseded_at,
+                is_restated=funded_fact.context.is_restated,
             )
         )
 
@@ -173,6 +183,11 @@ def build_metric_history_rows(
                     source_document_id=actuarial_fact.context.source_document_id,
                     evidence_refs=actuarial_fact.evidence_refs,
                 ),
+                valid_from=actuarial_fact.context.resolved_valid_from,
+                valid_to=actuarial_fact.context.valid_to,
+                asserted_at=actuarial_fact.context.resolved_asserted_at,
+                superseded_at=actuarial_fact.context.superseded_at,
+                is_restated=actuarial_fact.context.is_restated,
             )
         )
 
@@ -198,6 +213,11 @@ def build_metric_history_rows(
                     source_document_id=allocation_fact.context.source_document_id,
                     evidence_refs=allocation_fact.evidence_refs,
                 ),
+                valid_from=allocation_fact.context.resolved_valid_from,
+                valid_to=allocation_fact.context.valid_to,
+                asserted_at=allocation_fact.context.resolved_asserted_at,
+                superseded_at=allocation_fact.context.superseded_at,
+                is_restated=allocation_fact.context.is_restated,
             )
         )
 
@@ -223,6 +243,11 @@ def build_metric_history_rows(
                     source_document_id=holding_fact.context.source_document_id,
                     evidence_refs=holding_fact.evidence_refs,
                 ),
+                valid_from=holding_fact.context.resolved_valid_from,
+                valid_to=holding_fact.context.valid_to,
+                asserted_at=holding_fact.context.resolved_asserted_at,
+                superseded_at=holding_fact.context.superseded_at,
+                is_restated=holding_fact.context.is_restated,
             )
         )
 
@@ -248,6 +273,11 @@ def build_metric_history_rows(
                     source_document_id=fee_fact.context.source_document_id,
                     evidence_refs=fee_fact.evidence_refs,
                 ),
+                valid_from=fee_fact.context.resolved_valid_from,
+                valid_to=fee_fact.context.valid_to,
+                asserted_at=fee_fact.context.resolved_asserted_at,
+                superseded_at=fee_fact.context.superseded_at,
+                is_restated=fee_fact.context.is_restated,
             )
         )
 

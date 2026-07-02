@@ -54,6 +54,25 @@ class BitemporalFactContext:
     ingestion_date: str
     benchmark_version: str
     source_document_id: str
+    valid_from: str | None = None
+    valid_to: str | None = None
+    asserted_at: str | None = None
+    superseded_at: str | None = None
+
+    @property
+    def resolved_valid_from(self) -> str:
+        """Valid-time start, defaulting to the effective date for legacy rows."""
+        return self.valid_from or self.effective_date
+
+    @property
+    def resolved_asserted_at(self) -> str:
+        """Assertion-time start, defaulting to the ingestion date for legacy rows."""
+        return self.asserted_at or self.ingestion_date
+
+    @property
+    def is_restated(self) -> bool:
+        """Whether this fact row has been superseded by a later assertion."""
+        return self.superseded_at is not None
 
 
 class _HasBitemporalContext(Protocol):
@@ -192,15 +211,34 @@ def query_bitemporal_as_of[TFact: _HasBitemporalContext](
     eligible_rows: list[TFact] = []
     for row in facts:
         row_effective = _parse_iso_temporal(
-            row.context.effective_date,
-            field_name="row.context.effective_date",
+            row.context.resolved_valid_from,
+            field_name="row.context.valid_from",
         )
         row_ingestion = _parse_iso_temporal(
-            row.context.ingestion_date,
-            field_name="row.context.ingestion_date",
+            row.context.resolved_asserted_at,
+            field_name="row.context.asserted_at",
         )
-        if row_effective <= as_of_effective and row_ingestion <= as_of_ingestion:
-            eligible_rows.append(row)
+        if row_effective > as_of_effective or row_ingestion > as_of_ingestion:
+            continue
+        if (
+            row.context.valid_to is not None
+            and _parse_iso_temporal(
+                row.context.valid_to,
+                field_name="row.context.valid_to",
+            )
+            <= as_of_effective
+        ):
+            continue
+        if (
+            row.context.superseded_at is not None
+            and _parse_iso_temporal(
+                row.context.superseded_at,
+                field_name="row.context.superseded_at",
+            )
+            <= as_of_ingestion
+        ):
+            continue
+        eligible_rows.append(row)
 
     return sorted(
         eligible_rows,

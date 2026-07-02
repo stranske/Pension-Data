@@ -53,6 +53,11 @@ STAGING_CORE_METRICS_COLUMNS: tuple[str, ...] = (
     "evidence_refs",
     "effective_date",
     "ingestion_date",
+    "valid_from",
+    "valid_to",
+    "asserted_at",
+    "superseded_at",
+    "restated",
     "benchmark_version",
     "source_document_id",
 )
