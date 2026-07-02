@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import csv
 import math
-import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass
 from io import StringIO
+
+from defusedxml import ElementTree  # type: ignore[import-untyped]
 
 from pension_data.db.models.investment_positions import (
     HoldingsCoverageReport,
@@ -15,6 +16,8 @@ from pension_data.db.models.investment_positions import (
     SecurityDisclosureState,
     SecurityPositionSource,
 )
+
+_TOTAL_PLAN_COVERAGE_THRESHOLD = 0.95
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,12 +48,12 @@ class AcfrAllocationInput:
     provenance_ref: str
 
 
-def _text(element: ET.Element, tag_name: str) -> str | None:
+def _text(element: ElementTree.Element, tag_name: str) -> str | None:
     for child in element.iter():
         if child.tag.rsplit("}", 1)[-1] == tag_name and child.text:
             value = child.text.strip()
             if value:
-                return value
+                return str(value)
     return None
 
 
@@ -83,7 +86,8 @@ def _security_id(*, cusip: str | None, ticker: str | None, security_name: str | 
         return f"ticker:{ticker.strip().upper()}"
     if security_name:
         return "name:" + " ".join(security_name.lower().split())
-    return "unknown:security"
+    msg = "security position requires cusip, ticker, or security_name"
+    raise ValueError(msg)
 
 
 def parse_13f_information_table_xml(
@@ -98,7 +102,7 @@ def parse_13f_information_table_xml(
     13F values are reported in thousands of dollars, so `market_value_usd`
     multiplies the XML `value` field by 1,000.
     """
-    root = ET.fromstring(xml_text)
+    root = ElementTree.fromstring(xml_text)
     rows: list[SecurityPositionInput] = []
     for info_table in root.iter():
         if info_table.tag.rsplit("}", 1)[-1] != "infoTable":
@@ -215,6 +219,7 @@ def reconcile_holdings_to_acfr(
         raise ValueError(msg)
 
     collected_by_asset_class: dict[str, float] = defaultdict(float)
+    scoped_provenance_refs: list[str] = []
     for position in positions:
         if (
             position.plan_id != plan_id
@@ -224,6 +229,8 @@ def reconcile_holdings_to_acfr(
         ):
             continue
         collected_by_asset_class[position.asset_class] += position.market_value_usd
+        if position.provenance_ref:
+            scoped_provenance_refs.append(position.provenance_ref)
 
     acfr_by_asset_class = {
         row.asset_class.strip().lower(): row.market_value_usd for row in acfr_allocations
@@ -233,13 +240,15 @@ def reconcile_holdings_to_acfr(
     provenance_refs = tuple(
         dict.fromkeys(
             [
-                *(position.provenance_ref for position in positions if position.provenance_ref),
+                *scoped_provenance_refs,
                 *(row.provenance_ref for row in acfr_allocations if row.provenance_ref),
             ]
         )
     )
     coverage_ratio = round(collected_total / total_plan_assets_usd, 6)
-    scope_label = "total-plan" if coverage_ratio >= 0.95 else "equity-sleeve"
+    scope_label = (
+        "total-plan" if coverage_ratio >= _TOTAL_PLAN_COVERAGE_THRESHOLD else "equity-sleeve"
+    )
 
     return HoldingsCoverageReport(
         plan_id=plan_id,
