@@ -21,9 +21,18 @@ from pension_data.extract.investment.risk_disclosures import (
     SecuritiesLendingDisclosureInput,
     extract_risk_exposure_observations,
 )
+from pension_data.extract.investment.security_positions import (
+    AcfrAllocationInput,
+    SecurityPositionInput,
+    build_security_positions,
+    load_own_holdings_csv,
+    parse_13f_information_table_xml,
+    reconcile_holdings_to_acfr,
+)
 
 __all__ = [
     "AllocationDisclosureInput",
+    "AcfrAllocationInput",
     "DerivativesDisclosureInput",
     "FeeDisclosureInput",
     "ExplicitLifecycleSignal",
@@ -31,9 +40,14 @@ __all__ = [
     "ManagerFundDisclosureInput",
     "RiskExtractionDiagnostic",
     "SecuritiesLendingDisclosureInput",
+    "SecurityPositionInput",
     "build_manager_fund_positions",
+    "build_security_positions",
     "extract_asset_allocations",
     "extract_fee_observations",
     "extract_risk_exposure_observations",
     "infer_lifecycle_events",
+    "load_own_holdings_csv",
+    "parse_13f_information_table_xml",
+    "reconcile_holdings_to_acfr",
 ]

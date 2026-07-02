@@ -31,7 +31,11 @@ from pension_data.db.models.investment_allocations_fees import (
     InvestmentExtractionWarning,
     ManagerFeeObservation,
 )
-from pension_data.db.models.investment_positions import PlanManagerFundPosition
+from pension_data.db.models.investment_positions import (
+    HoldingsCoverageReport,
+    PlanManagerFundPosition,
+    PlanSecurityPosition,
+)
 from pension_data.db.models.manager_lifecycle import ManagerLifecycleEvent
 from pension_data.db.models.provenance import EvidenceReference, MetricEvidenceLink
 from pension_data.db.models.registry import PensionSystemRecord, V1CohortMembership
@@ -85,6 +89,7 @@ __all__ = [
     "FundedActuarialStagingFact",
     "FundedStatusFact",
     "HoldingFact",
+    "HoldingsCoverageReport",
     "IngestionRunMetrics",
     "InvestmentExtractionWarning",
     "ManagerFeeObservation",
@@ -95,6 +100,7 @@ __all__ = [
     "PlanConsultantEngagement",
     "PlanFinancialFlow",
     "PlanManagerFundPosition",
+    "PlanSecurityPosition",
     "RawArtifactRecord",
     "ReviewQueueAuditEntry",
     "RiskExposureObservation",
