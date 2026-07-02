@@ -58,11 +58,21 @@ class PlanSecurityPosition:
     manager_name: str | None = None
     fund_name: str | None = None
     confidence: float = 1.0
+    valid_from: str | None = None
+    valid_to: str | None = None
+    asserted_at: str | None = None
+    superseded_at: str | None = None
+    amendment_accession: str | None = None
 
     @property
     def is_disclosed(self) -> bool:
         """Whether this security row represents a disclosed holding."""
         return self.disclosure_state == "disclosed"
+
+    @property
+    def is_restated(self) -> bool:
+        """Whether this position was superseded by a later amendment/assertion."""
+        return self.superseded_at is not None
 
 
 @dataclass(frozen=True, slots=True)

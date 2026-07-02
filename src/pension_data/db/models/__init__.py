@@ -2,6 +2,12 @@
 
 from pension_data.db.models.api_keys import APIKeyRecord
 from pension_data.db.models.artifacts import IngestionRunMetrics, RawArtifactRecord
+from pension_data.db.models.bitemporal import (
+    BitemporalAssertion,
+    assert_no_active_valid_overlaps,
+    query_as_known_at,
+    supersede_assertions,
+)
 from pension_data.db.models.consultant_attribution import ConsultantAttributionObservation
 from pension_data.db.models.consultants import (
     ConsultantEntity,
@@ -68,6 +74,7 @@ __all__ = [
     "AllocationFact",
     "AnnualReportCoverageRecord",
     "AssetAllocationObservation",
+    "BitemporalAssertion",
     "BitemporalFactContext",
     "CanonicalEntityRecord",
     "CashFlowFact",
@@ -107,4 +114,7 @@ __all__ = [
     "UnresolvedEntityCandidate",
     "V1CohortMembership",
     "query_bitemporal_as_of",
+    "assert_no_active_valid_overlaps",
+    "query_as_known_at",
+    "supersede_assertions",
 ]
