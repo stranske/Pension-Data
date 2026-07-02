@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, replace
+from copy import copy
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
@@ -56,6 +57,12 @@ def _known_at(row: BitemporalRow, known_at: datetime) -> bool:
         return True
     superseded_at = _parse_iso_temporal(row.superseded_at, field_name="superseded_at")
     return known_at < superseded_at
+
+
+def _copy_with_superseded_at[T: BitemporalRow](row: T, superseded_at: str) -> T:
+    updated = copy(row)
+    object.__setattr__(updated, "superseded_at", superseded_at)
+    return updated
 
 
 def query_as_known_at[T: BitemporalRow, K: object](
@@ -129,7 +136,7 @@ def supersede_assertions[T: BitemporalRow, K: object](
     updated_existing: list[T] = []
     for row in existing_rows:
         if key(row) in replacement_keys and row.superseded_at is None:
-            updated_existing.append(replace(row, superseded_at=superseded_at))
+            updated_existing.append(_copy_with_superseded_at(row, superseded_at))
         else:
             updated_existing.append(row)
     return [*updated_existing, *replacement_list]
