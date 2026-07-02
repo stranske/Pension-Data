@@ -131,6 +131,7 @@ def supersede_assertions[T: BitemporalRow, K: object](
     superseded_at: str,
 ) -> list[T]:
     """Return additive rows where matching active assertions are closed, not overwritten."""
+    _parse_iso_temporal(superseded_at, field_name="superseded_at")
     replacement_list = list(replacement_rows)
     replacement_keys = {key(row) for row in replacement_list}
     updated_existing: list[T] = []

@@ -150,3 +150,35 @@ def test_13f_amendment_supersedes_security_position_without_losing_history() -> 
         rows,
         key=lambda row: (row.plan_id, row.security_id, row.source),
     )
+
+
+def test_supersede_assertions_rejects_invalid_superseded_at() -> None:
+    rows = [
+        BitemporalAssertion(
+            entity_id="CA-PERS",
+            fact_name="funded_ratio",
+            value=0.74,
+            valid_from="2023-06-30",
+            valid_to="2024-06-30",
+            asserted_at="2024-02-01T00:00:00Z",
+            source_document_id="doc:fy2023-original",
+        )
+    ]
+
+    with pytest.raises(ValueError, match="superseded_at"):
+        supersede_assertions(
+            rows,
+            [
+                BitemporalAssertion(
+                    entity_id="CA-PERS",
+                    fact_name="funded_ratio",
+                    value=0.78,
+                    valid_from="2023-06-30",
+                    valid_to="2024-06-30",
+                    asserted_at="2025-03-01T00:00:00Z",
+                    source_document_id="doc:fy2023-restated",
+                )
+            ],
+            key=lambda row: (row.entity_id, row.fact_name),
+            superseded_at="not-a-date",
+        )

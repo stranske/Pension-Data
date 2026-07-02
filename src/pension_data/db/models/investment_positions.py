@@ -55,12 +55,12 @@ class PlanSecurityPosition:
     as_of: str
     disclosure_state: SecurityDisclosureState
     provenance_ref: str
+    valid_from: str
+    asserted_at: str
     manager_name: str | None = None
     fund_name: str | None = None
     confidence: float = 1.0
-    valid_from: str | None = None
     valid_to: str | None = None
-    asserted_at: str | None = None
     superseded_at: str | None = None
     amendment_accession: str | None = None
 
