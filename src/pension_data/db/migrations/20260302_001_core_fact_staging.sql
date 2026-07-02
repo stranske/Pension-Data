@@ -39,9 +39,14 @@ BEGIN
   WHERE EXISTS (
     SELECT 1
     FROM staging_core_metrics existing
-    WHERE existing.plan_id = NEW.plan_id
+    WHERE existing.fact_id != NEW.fact_id
+      AND existing.plan_id = NEW.plan_id
       AND existing.metric_family = NEW.metric_family
       AND existing.metric_name = NEW.metric_name
+      AND existing.manager_name IS NEW.manager_name
+      AND existing.fund_name IS NEW.fund_name
+      AND existing.vehicle_name IS NEW.vehicle_name
+      AND existing.relationship_completeness IS NEW.relationship_completeness
       AND (existing.superseded_at IS NULL OR TRIM(existing.superseded_at) = '')
       AND COALESCE(existing.valid_to, '9999-12-31T23:59:59Z') > NEW.valid_from
       AND COALESCE(NEW.valid_to, '9999-12-31T23:59:59Z') > existing.valid_from
@@ -60,6 +65,10 @@ BEGIN
       AND existing.plan_id = NEW.plan_id
       AND existing.metric_family = NEW.metric_family
       AND existing.metric_name = NEW.metric_name
+      AND existing.manager_name IS NEW.manager_name
+      AND existing.fund_name IS NEW.fund_name
+      AND existing.vehicle_name IS NEW.vehicle_name
+      AND existing.relationship_completeness IS NEW.relationship_completeness
       AND (existing.superseded_at IS NULL OR TRIM(existing.superseded_at) = '')
       AND COALESCE(existing.valid_to, '9999-12-31T23:59:59Z') > NEW.valid_from
       AND COALESCE(NEW.valid_to, '9999-12-31T23:59:59Z') > existing.valid_from

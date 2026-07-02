@@ -144,11 +144,11 @@ def supersede_assertions[T: BitemporalRow, K: object](
     _parse_iso_temporal(superseded_at, field_name="superseded_at")
     replacement_list = list(replacement_rows)
     replacement_keys = {key(row) for row in replacement_list}
-    active_existing_keys = {
-        key(row)
-        for row in existing_rows
-        if key(row) in replacement_keys and row.superseded_at is None
-    }
+    active_existing_keys = set()
+    for row in existing_rows:
+        row_key = key(row)
+        if row_key in replacement_keys and row.superseded_at is None:
+            active_existing_keys.add(row_key)
     updated_existing: list[T] = []
     for row in existing_rows:
         if key(row) in replacement_keys and row.superseded_at is None:

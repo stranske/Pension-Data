@@ -39,6 +39,10 @@ ALTER TABLE staging_core_metrics
     plan_id WITH =,
     metric_family WITH =,
     metric_name WITH =,
+    (COALESCE(manager_name, '')) WITH =,
+    (COALESCE(fund_name, '')) WITH =,
+    (COALESCE(vehicle_name, '')) WITH =,
+    (COALESCE(relationship_completeness, '')) WITH =,
     tstzrange(valid_from, COALESCE(valid_to, TIMESTAMPTZ 'infinity'), '[)') WITH &&
   )
   WHERE (superseded_at IS NULL);

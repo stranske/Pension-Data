@@ -344,3 +344,27 @@ def test_core_metric_migration_rejects_active_overlaps() -> None:
         f"INSERT INTO staging_core_metrics ({', '.join(columns)}) VALUES ({placeholders})",
         tuple(next_period.values()),
     )
+
+    different_manager = dict(overlapping)
+    different_manager["fact_id"] = "metric:manager-b"
+    different_manager["metric_family"] = "holding"
+    different_manager["metric_name"] = "market_value"
+    different_manager["manager_name"] = "Manager B"
+    different_manager["fund_name"] = "Fund B"
+    different_manager["vehicle_name"] = "Vehicle B"
+    different_manager["relationship_completeness"] = "complete"
+    different_manager["source_document_id"] = "doc:manager-b"
+    connection.execute(
+        f"INSERT INTO staging_core_metrics ({', '.join(columns)}) VALUES ({placeholders})",
+        tuple(different_manager.values()),
+    )
+
+    with pytest.raises(sqlite3.IntegrityError, match="active valid-time overlap"):
+        connection.execute(
+            """
+            UPDATE staging_core_metrics
+            SET valid_from = ?, valid_to = ?
+            WHERE fact_id = ?
+            """,
+            ("2025-01-01", "2025-12-31", "metric:next-period"),
+        )
