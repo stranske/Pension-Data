@@ -37,6 +37,10 @@ class SecurityPositionInput:
     manager_name: str | None = None
     fund_name: str | None = None
     confidence: float = 1.0
+    valid_from: str | None = None
+    valid_to: str | None = None
+    asserted_at: str | None = None
+    amendment_accession: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +194,10 @@ def build_security_positions(
             manager_name=row.manager_name.strip() if row.manager_name else None,
             fund_name=row.fund_name.strip() if row.fund_name else None,
             confidence=max(0.0, min(1.0, row.confidence)),
+            valid_from=row.valid_from or row.as_of,
+            valid_to=row.valid_to,
+            asserted_at=row.asserted_at or row.as_of,
+            amendment_accession=row.amendment_accession,
         )
         for row in rows
     ]
