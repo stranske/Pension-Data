@@ -28,6 +28,41 @@ CREATE TABLE IF NOT EXISTS staging_core_metrics (
   source_document_id TEXT NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_staging_core_metrics_bitemporal
+  ON staging_core_metrics(plan_id, metric_family, metric_name, valid_from, asserted_at, superseded_at);
+
+CREATE OR REPLACE FUNCTION reject_staging_core_metrics_active_overlap()
+RETURNS trigger AS $$
+BEGIN
+  IF NEW.superseded_at IS NULL AND EXISTS (
+    SELECT 1
+    FROM staging_core_metrics existing
+    WHERE existing.fact_id <> NEW.fact_id
+      AND existing.plan_id = NEW.plan_id
+      AND existing.metric_family = NEW.metric_family
+      AND existing.metric_name = NEW.metric_name
+      AND existing.superseded_at IS NULL
+      AND COALESCE(existing.valid_to, TIMESTAMPTZ '9999-12-31 23:59:59+00') > NEW.valid_from
+      AND COALESCE(NEW.valid_to, TIMESTAMPTZ '9999-12-31 23:59:59+00') > existing.valid_from
+  ) THEN
+    RAISE EXCEPTION 'active valid-time overlap for staging_core_metrics';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_staging_core_metrics_no_active_overlap_insert
+  ON staging_core_metrics;
+CREATE TRIGGER trg_staging_core_metrics_no_active_overlap_insert
+BEFORE INSERT ON staging_core_metrics
+FOR EACH ROW EXECUTE FUNCTION reject_staging_core_metrics_active_overlap();
+
+DROP TRIGGER IF EXISTS trg_staging_core_metrics_no_active_overlap_update
+  ON staging_core_metrics;
+CREATE TRIGGER trg_staging_core_metrics_no_active_overlap_update
+BEFORE UPDATE ON staging_core_metrics
+FOR EACH ROW EXECUTE FUNCTION reject_staging_core_metrics_active_overlap();
+
 CREATE TABLE IF NOT EXISTS staging_cash_flows (
   cash_flow_id TEXT PRIMARY KEY,
   plan_id TEXT NOT NULL,

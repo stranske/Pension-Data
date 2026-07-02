@@ -148,6 +148,7 @@ def test_13f_amendment_supersedes_security_position_without_losing_history() -> 
     assert [row.market_value_usd for row in before_amendment] == [1_250_000.0]
     assert [row.market_value_usd for row in after_amendment] == [1_300_000.0]
     assert rows[0].is_restated
+    assert rows[1].is_restated
     assert rows[1].amendment_accession == "0000919079-25-000001/A"
     assert_no_active_valid_overlaps(
         rows,
@@ -269,3 +270,77 @@ def test_security_position_migration_rejects_active_overlaps() -> None:
             """,
             ("2025-04-15", "2025-05-15", "13f:next-quarter"),
         )
+
+
+def test_core_metric_migration_rejects_active_overlaps() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        (repo_root / "src/pension_data/db/migrations/20260302_001_core_fact_staging.sql").read_text(
+            encoding="utf-8"
+        )
+    )
+    base_row = {
+        "fact_id": "metric:v1",
+        "plan_id": "CA-PERS",
+        "plan_period": "FY2025",
+        "metric_family": "funded_status",
+        "metric_name": "funded_ratio",
+        "as_reported_value": 74.0,
+        "normalized_value": 0.74,
+        "as_reported_unit": "percent",
+        "normalized_unit": "ratio",
+        "manager_name": None,
+        "fund_name": None,
+        "vehicle_name": None,
+        "relationship_completeness": None,
+        "confidence": 0.9,
+        "evidence_refs": "[]",
+        "effective_date": "2024-06-30",
+        "ingestion_date": "2025-01-15T00:00:00Z",
+        "valid_from": "2024-06-30",
+        "valid_to": "2025-06-30",
+        "asserted_at": "2025-01-15T00:00:00Z",
+        "superseded_at": None,
+        "restated": 0,
+        "benchmark_version": "v1",
+        "source_document_id": "doc:original",
+    }
+    columns = tuple(base_row)
+    placeholders = ", ".join("?" for _ in columns)
+    connection.execute(
+        f"INSERT INTO staging_core_metrics ({', '.join(columns)}) VALUES ({placeholders})",
+        tuple(base_row.values()),
+    )
+
+    overlapping = dict(base_row)
+    overlapping["fact_id"] = "metric:overlap"
+    overlapping["source_document_id"] = "doc:overlap"
+    overlapping["valid_from"] = "2025-01-01"
+    overlapping["asserted_at"] = "2025-02-01T00:00:00Z"
+    with pytest.raises(sqlite3.IntegrityError, match="active valid-time overlap"):
+        connection.execute(
+            f"INSERT INTO staging_core_metrics ({', '.join(columns)}) VALUES ({placeholders})",
+            tuple(overlapping.values()),
+        )
+
+    superseded_overlap = dict(overlapping)
+    superseded_overlap["fact_id"] = "metric:superseded"
+    superseded_overlap["source_document_id"] = "doc:superseded"
+    superseded_overlap["superseded_at"] = "2025-03-01T00:00:00Z"
+    superseded_overlap["restated"] = 1
+    connection.execute(
+        f"INSERT INTO staging_core_metrics ({', '.join(columns)}) VALUES ({placeholders})",
+        tuple(superseded_overlap.values()),
+    )
+
+    next_period = dict(base_row)
+    next_period["fact_id"] = "metric:next-period"
+    next_period["source_document_id"] = "doc:next-period"
+    next_period["valid_from"] = "2025-06-30"
+    next_period["valid_to"] = "2026-06-30"
+    next_period["asserted_at"] = "2026-01-15T00:00:00Z"
+    connection.execute(
+        f"INSERT INTO staging_core_metrics ({', '.join(columns)}) VALUES ({placeholders})",
+        tuple(next_period.values()),
+    )

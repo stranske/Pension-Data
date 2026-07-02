@@ -32,11 +32,12 @@ class BitemporalAssertion:
     asserted_at: str
     source_document_id: str
     superseded_at: str | None = None
+    restated: bool = False
 
     @property
     def is_restated(self) -> bool:
-        """Whether a later assertion superseded this row."""
-        return self.superseded_at is not None
+        """Whether this row participates in a restatement chain."""
+        return self.restated or self.superseded_at is not None
 
 
 def _within_valid_window(row: BitemporalRow, valid_at: datetime) -> bool:
@@ -62,6 +63,15 @@ def _known_at(row: BitemporalRow, known_at: datetime) -> bool:
 def _copy_with_superseded_at[T: BitemporalRow](row: T, superseded_at: str) -> T:
     updated = copy(row)
     object.__setattr__(updated, "superseded_at", superseded_at)
+    if hasattr(updated, "restated"):
+        object.__setattr__(updated, "restated", True)
+    return updated
+
+
+def _copy_with_restated_flag[T: BitemporalRow](row: T) -> T:
+    updated = copy(row)
+    if hasattr(updated, "restated"):
+        object.__setattr__(updated, "restated", True)
     return updated
 
 
@@ -134,10 +144,19 @@ def supersede_assertions[T: BitemporalRow, K: object](
     _parse_iso_temporal(superseded_at, field_name="superseded_at")
     replacement_list = list(replacement_rows)
     replacement_keys = {key(row) for row in replacement_list}
+    active_existing_keys = {
+        key(row)
+        for row in existing_rows
+        if key(row) in replacement_keys and row.superseded_at is None
+    }
     updated_existing: list[T] = []
     for row in existing_rows:
         if key(row) in replacement_keys and row.superseded_at is None:
             updated_existing.append(_copy_with_superseded_at(row, superseded_at))
         else:
             updated_existing.append(row)
-    return [*updated_existing, *replacement_list]
+    updated_replacements = [
+        _copy_with_restated_flag(row) if key(row) in active_existing_keys else row
+        for row in replacement_list
+    ]
+    return [*updated_existing, *updated_replacements]
