@@ -78,14 +78,14 @@ def persist_staging_core_metrics(
         "%s" if dialect == "postgresql" else "?" for _ in _STAGING_CORE_METRIC_COLUMNS
     )
     columns = ", ".join(_STAGING_CORE_METRIC_COLUMNS)
-    update_columns = [column for column in _STAGING_CORE_METRIC_COLUMNS if column != "fact_id"]
-    update_clause = ", ".join(f"{column}=excluded.{column}" for column in update_columns)
     sql = (
         f"INSERT INTO staging_core_metrics ({columns}) VALUES ({placeholders}) "
-        f"ON CONFLICT (fact_id) DO UPDATE SET {update_clause}"
+        "ON CONFLICT (fact_id) DO NOTHING"
     )
 
+    inserted = 0
     for row in rows:
-        connection.execute(sql, _row_values(row))
+        cursor = connection.execute(sql, _row_values(row))
+        inserted += max(cursor.rowcount, 0)
     connection.commit()
-    return len(rows)
+    return inserted
