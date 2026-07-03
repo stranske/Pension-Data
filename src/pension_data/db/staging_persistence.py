@@ -110,28 +110,42 @@ def persist_staging_core_metrics(
         f"INSERT INTO staging_core_metrics ({columns}) VALUES ({placeholders}) "
         "ON CONFLICT (fact_id) DO NOTHING"
     )
+    active_clause = "(superseded_at IS NULL OR TRIM(CAST(superseded_at AS TEXT)) = '')"
     select_sql = f"SELECT {columns} FROM staging_core_metrics WHERE fact_id = {placeholder}"
+    select_active_sql = (
+        f"SELECT {columns} FROM staging_core_metrics "
+        f"WHERE (fact_id = {placeholder} OR fact_id LIKE {placeholder}) AND {active_clause} "
+        f"ORDER BY CASE WHEN fact_id = {placeholder} THEN 0 ELSE 1 END, asserted_at DESC, fact_id DESC "
+        "LIMIT 1"
+    )
     update_sql = (
         "UPDATE staging_core_metrics "
         f"SET superseded_at = {placeholder}, restated = {placeholder} "
-        f"WHERE fact_id = {placeholder} AND (superseded_at IS NULL OR TRIM(CAST(superseded_at AS TEXT)) = '')"
+        f"WHERE (fact_id = {placeholder} OR fact_id LIKE {placeholder}) AND {active_clause}"
     )
 
     inserted = 0
     for row in rows:
         candidate_values = _row_values(row)
-        existing = connection.execute(select_sql, (row["fact_id"],)).fetchone()
+        fact_id = str(row["fact_id"])
+        fact_id_pattern = f"{fact_id}@%"
+        existing = connection.execute(
+            select_active_sql,
+            (fact_id, fact_id_pattern, fact_id),
+        ).fetchone()
         if existing is not None:
-            if _same_assertion(existing, candidate_values) or _same_assertion_source(
-                existing,
-                candidate_values,
-            ):
-                continue
-
             replacement = dict(row)
             replacement["fact_id"] = _replacement_fact_id(row)
             replacement["restated"] = True
             replacement_values = _row_values(replacement)
+            if _same_assertion(existing, candidate_values) or _same_assertion(
+                existing,
+                replacement_values,
+            ):
+                continue
+            if _same_assertion_source(existing, candidate_values):
+                raise ValueError(f"conflicting assertion source for {fact_id!r}")
+
             existing_replacement = connection.execute(
                 select_sql,
                 (replacement["fact_id"],),
@@ -143,7 +157,7 @@ def persist_staging_core_metrics(
 
             asserted_at_index = _STAGING_CORE_METRIC_COLUMNS.index("asserted_at")
             superseded_at = candidate_values[asserted_at_index]
-            connection.execute(update_sql, (superseded_at, True, row["fact_id"]))
+            connection.execute(update_sql, (superseded_at, True, fact_id, fact_id_pattern))
             replacement_cursor = connection.execute(sql, replacement_values)
             inserted += max(replacement_cursor.rowcount, 0)
             continue
