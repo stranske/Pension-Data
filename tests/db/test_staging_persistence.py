@@ -9,7 +9,7 @@ from pension_data.db.staging_persistence import persist_staging_core_metrics
 from pension_data.db.strategy import connect_database, resolve_database_config
 
 
-def test_persist_staging_core_metrics_upserts_rows_in_sqlite() -> None:
+def test_persist_staging_core_metrics_keeps_existing_assertion_in_sqlite() -> None:
     config = resolve_database_config(database_url="sqlite:///:memory:")
     connection = connect_database(config)
     try:
@@ -41,7 +41,7 @@ def test_persist_staging_core_metrics_upserts_rows_in_sqlite() -> None:
                 }
             ],
         )
-        _updated = persist_staging_core_metrics(
+        duplicate = persist_staging_core_metrics(
             connection,
             dialect="sqlite",
             rows=[
@@ -76,6 +76,7 @@ def test_persist_staging_core_metrics_upserts_rows_in_sqlite() -> None:
         connection.close()
 
     assert inserted == 1
+    assert duplicate == 0
     assert row is not None
-    assert row[0] == 0.79
-    assert json.loads(row[1]) == ["p.41"]
+    assert row[0] == 0.784
+    assert json.loads(row[1]) == ["p.40"]
