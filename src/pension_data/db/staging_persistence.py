@@ -125,45 +125,49 @@ def persist_staging_core_metrics(
     )
 
     inserted = 0
-    for row in rows:
-        candidate_values = _row_values(row)
-        fact_id = str(row["fact_id"])
-        fact_id_pattern = f"{fact_id}@%"
-        existing = connection.execute(
-            select_active_sql,
-            (fact_id, fact_id_pattern, fact_id),
-        ).fetchone()
-        if existing is not None:
-            replacement = dict(row)
-            replacement["fact_id"] = _replacement_fact_id(row)
-            replacement["restated"] = True
-            replacement_values = _row_values(replacement)
-            if _same_assertion(existing, candidate_values) or _same_assertion(
-                existing,
-                replacement_values,
-            ):
-                continue
-            if _same_assertion_source(existing, candidate_values):
-                raise ValueError(f"conflicting assertion source for {fact_id!r}")
-
-            existing_replacement = connection.execute(
-                select_sql,
-                (replacement["fact_id"],),
+    try:
+        for row in rows:
+            candidate_values = _row_values(row)
+            fact_id = str(row["fact_id"])
+            fact_id_pattern = f"{fact_id}@%"
+            existing = connection.execute(
+                select_active_sql,
+                (fact_id, fact_id_pattern, fact_id),
             ).fetchone()
-            if existing_replacement is not None:
-                if _same_assertion(existing_replacement, replacement_values):
+            if existing is not None:
+                replacement = dict(row)
+                replacement["fact_id"] = _replacement_fact_id(row)
+                replacement["restated"] = True
+                replacement_values = _row_values(replacement)
+                if _same_assertion(existing, candidate_values) or _same_assertion(
+                    existing,
+                    replacement_values,
+                ):
                     continue
-                raise ValueError(f"conflicting assertion already exists for {row['fact_id']!r}")
+                if _same_assertion_source(existing, candidate_values):
+                    raise ValueError(f"conflicting assertion source for {fact_id!r}")
 
-            asserted_at_index = _STAGING_CORE_METRIC_COLUMNS.index("asserted_at")
-            superseded_at = candidate_values[asserted_at_index]
-            connection.execute(update_sql, (superseded_at, True, fact_id, fact_id_pattern))
-            replacement_cursor = connection.execute(sql, replacement_values)
-            inserted += max(replacement_cursor.rowcount, 0)
-            continue
+                existing_replacement = connection.execute(
+                    select_sql,
+                    (replacement["fact_id"],),
+                ).fetchone()
+                if existing_replacement is not None:
+                    if _same_assertion(existing_replacement, replacement_values):
+                        continue
+                    raise ValueError(f"conflicting assertion already exists for {row['fact_id']!r}")
 
-        cursor = connection.execute(sql, candidate_values)
-        rowcount = max(cursor.rowcount, 0)
-        inserted += rowcount
+                asserted_at_index = _STAGING_CORE_METRIC_COLUMNS.index("asserted_at")
+                superseded_at = candidate_values[asserted_at_index]
+                connection.execute(update_sql, (superseded_at, True, fact_id, fact_id_pattern))
+                replacement_cursor = connection.execute(sql, replacement_values)
+                inserted += max(replacement_cursor.rowcount, 0)
+                continue
+
+            cursor = connection.execute(sql, candidate_values)
+            rowcount = max(cursor.rowcount, 0)
+            inserted += rowcount
+    except Exception:
+        connection.rollback()
+        raise
     connection.commit()
     return inserted
