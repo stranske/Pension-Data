@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import json
 import re
 from collections import defaultdict
@@ -11,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from pension_data.export.csv_artifacts import write_csv_artifact
 from pension_data.quality.anomaly_rules import (
     AnomalyRecord,
     TimeSeriesPoint,
@@ -379,14 +379,6 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _write_csv(path: Path, *, rows: list[dict[str, object]], fieldnames: tuple[str, ...]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({field: row.get(field, "") for field in fieldnames})
-
-
 def write_coverage_artifacts(
     artifacts: Mapping[str, object], *, output_root: Path
 ) -> dict[str, str]:
@@ -426,7 +418,7 @@ def write_coverage_artifacts(
     _write_json(annual_gap_json, annual_report_gap_rows)
     _write_json(cohort_json, summary_by_cohort)
     _write_json(system_type_json, summary_by_system_type)
-    _write_csv(
+    write_csv_artifact(
         readiness_csv,
         rows=readiness_rows,
         fieldnames=(
@@ -441,8 +433,9 @@ def write_coverage_artifacts(
             "is_extraction_ready",
             "readiness_state",
         ),
+        serialize_complex_cells=False,
     )
-    _write_csv(
+    write_csv_artifact(
         plan_year_readiness_csv,
         rows=plan_year_readiness_rows,
         fieldnames=(
@@ -454,8 +447,9 @@ def write_coverage_artifacts(
             "is_extraction_ready",
             "readiness_state",
         ),
+        serialize_complex_cells=False,
     )
-    _write_csv(
+    write_csv_artifact(
         annual_gap_csv,
         rows=annual_report_gap_rows,
         fieldnames=(
@@ -467,6 +461,7 @@ def write_coverage_artifacts(
             "annual_report_source_url",
             "coverage_gap_state",
         ),
+        serialize_complex_cells=False,
     )
     summary_fields = (
         "total_plan_periods",
@@ -482,15 +477,17 @@ def write_coverage_artifacts(
         "missing_year_rate",
         "partial_year_rate",
     )
-    _write_csv(
+    write_csv_artifact(
         cohort_csv,
         rows=summary_by_cohort,
         fieldnames=("cohort", *summary_fields),
+        serialize_complex_cells=False,
     )
-    _write_csv(
+    write_csv_artifact(
         system_type_csv,
         rows=summary_by_system_type,
         fieldnames=("system_type", *summary_fields),
+        serialize_complex_cells=False,
     )
 
     return {

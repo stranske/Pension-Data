@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import json
 import re
 from collections import defaultdict
@@ -15,6 +14,7 @@ from pension_data.db.models.inventory import (
     DiscoveredInventoryRecord,
     InventoryDocumentType,
 )
+from pension_data.export.csv_artifacts import write_csv_artifact
 from pension_data.registry.system_type_lookup import load_system_type_by_plan_id
 from pension_data.sources.schema import (
     OFFICIAL_SOURCE_AUTHORITY_TIERS,
@@ -137,23 +137,6 @@ def _resolution_from_discovered_document(
 
 def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def _write_csv(path: Path, *, rows: list[dict[str, object]], fieldnames: tuple[str, ...]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            serialized_row: dict[str, object] = {}
-            for field in fieldnames:
-                value = row.get(field)
-                if value is None:
-                    serialized_row[field] = ""
-                elif isinstance(value, (dict, list)):
-                    serialized_row[field] = json.dumps(value, sort_keys=True)
-                else:
-                    serialized_row[field] = value
-            writer.writerow(serialized_row)
 
 
 def build_inventory_artifacts(
@@ -349,7 +332,7 @@ def write_inventory_artifacts(artifacts: dict[str, object], *, output_root: Path
     _write_json(inventory_json, inventory_rows)
     _write_json(coverage_json, annual_report_coverage_rows)
     _write_json(summary_json, summary_by_system)
-    _write_csv(
+    write_csv_artifact(
         inventory_csv,
         rows=inventory_rows,
         fieldnames=(
@@ -362,8 +345,9 @@ def write_inventory_artifacts(artifacts: dict[str, object], *, output_root: Path
             "consultant_disclosure_available",
             "detection_metadata",
         ),
+        serialize_complex_cells=True,
     )
-    _write_csv(
+    write_csv_artifact(
         coverage_csv,
         rows=annual_report_coverage_rows,
         fieldnames=(
@@ -376,8 +360,9 @@ def write_inventory_artifacts(artifacts: dict[str, object], *, output_root: Path
             "manager_disclosure_available",
             "consultant_disclosure_available",
         ),
+        serialize_complex_cells=True,
     )
-    _write_csv(
+    write_csv_artifact(
         summary_csv,
         rows=summary_by_system,
         fieldnames=(
@@ -392,6 +377,7 @@ def write_inventory_artifacts(artifacts: dict[str, object], *, output_root: Path
             "manager_disclosure_available",
             "consultant_disclosure_available",
         ),
+        serialize_complex_cells=True,
     )
 
     return {

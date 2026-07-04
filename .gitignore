@@ -5,9 +5,12 @@
 # - Workflow artifacts (full outputs)
 # - Commit messages (change descriptions)
 codex-prompt.md
+codex-prompt-*.md
 codex-output.md
 verifier-context.md
 autofix_report_enriched.json
+Issues.txt
+agents/codex-*.md
 
 # Python cache and coverage artifacts
 __pycache__/
