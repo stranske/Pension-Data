@@ -7,6 +7,9 @@ import re
 from pension_data.normalize.financial_units import UnitScale
 
 NUMBER_PATTERN = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
+_BILLION_ABBREVIATION_PATTERN = re.compile(r"(?<![a-z])bn\b")
+_MILLION_ABBREVIATION_PATTERN = re.compile(r"(?<![a-z])mm\b")
+_THOUSAND_ABBREVIATION_PATTERN = re.compile(r"(?<![a-z])k\b")
 
 
 def is_year_like_token(token: str) -> bool:
@@ -28,10 +31,10 @@ def parse_numeric_token(text: str, *, skip_year_like: bool = True) -> float | No
 def detect_money_scale(text: str, *, fallback: UnitScale) -> UnitScale:
     """Infer the money unit scale from nearby text."""
     lowered = text.lower()
-    if "billion" in lowered or " bn" in lowered:
+    if "billion" in lowered or _BILLION_ABBREVIATION_PATTERN.search(lowered):
         return "billion_usd"
-    if "million" in lowered or " mm" in lowered:
+    if "million" in lowered or _MILLION_ABBREVIATION_PATTERN.search(lowered):
         return "million_usd"
-    if "thousand" in lowered or " k" in lowered:
+    if "thousand" in lowered or _THOUSAND_ABBREVIATION_PATTERN.search(lowered):
         return "thousand_usd"
     return fallback

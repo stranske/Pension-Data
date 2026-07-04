@@ -67,10 +67,12 @@ Overlap interpretation:
 ## Config Artifacts
 
 The JSON files under `config/saved_queries/` are reference contracts for these saved
-views. Runtime execution is implemented in `src/pension_data/query/saved_views/service.py`
-with typed input and output models in `src/pension_data/query/saved_views/models.py`.
-Keep the JSON files aligned with the Python definitions when a view changes, but do not
-treat them as the runtime SQL source of truth.
+views. `src/pension_data/query/saved_views/definitions.py` can load those definitions
+when callers ask for them, while runtime execution is implemented in
+`src/pension_data/query/saved_views/service.py` with typed input and output models in
+`src/pension_data/query/saved_views/models.py`. Keep the JSON files aligned with the
+Python definitions when a view changes, but do not treat the JSON SQL text as the
+runtime execution source of truth.
 
 `config/model_registry.json` and `config/llm_slots.json` are retained for the synced
 tooling layer (`tools/` and workflow-provided LLM helpers). The `src/pension_data`

@@ -14,7 +14,12 @@ from pension_data.db.models.funded_actuarial import (
 )
 from pension_data.extract.common.evidence import table_evidence_ref, text_block_evidence_ref
 from pension_data.normalize.financial_units import UnitScale, normalize_money_to_usd
-from pension_data.normalize.numeric_parsing import detect_money_scale, parse_numeric_token
+from pension_data.normalize.numeric_parsing import (
+    detect_money_scale as _detect_money_scale,
+)
+from pension_data.normalize.numeric_parsing import (
+    parse_numeric_token as _parse_numeric_token,
+)
 
 ParserMetricKind = Literal["money", "ratio", "count"]
 
@@ -58,10 +63,6 @@ class _CandidateMetric:
     evidence_ref: str
 
 
-def _parse_numeric_token(text: str) -> float | None:
-    return parse_numeric_token(text)
-
-
 def _parse_numeric_token_after_alias(*, text: str, aliases: tuple[str, ...]) -> float | None:
     lowered = text.lower()
     candidates: list[tuple[int, float]] = []
@@ -81,10 +82,6 @@ def _parse_numeric_token_after_alias(*, text: str, aliases: tuple[str, ...]) -> 
     if candidates:
         return sorted(candidates, key=lambda row: row[0])[0][1]
     return _parse_numeric_token(text)
-
-
-def _detect_money_scale(text: str, *, fallback: UnitScale) -> UnitScale:
-    return detect_money_scale(text, fallback=fallback)
 
 
 def _normalize_metric_value(

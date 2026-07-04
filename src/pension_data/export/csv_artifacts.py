@@ -14,7 +14,11 @@ def write_csv_artifact(
     fieldnames: tuple[str, ...],
     serialize_complex_cells: bool,
 ) -> None:
-    """Write deterministic CSV artifacts with explicit complex-cell handling."""
+    """Write CSV artifacts with explicit complex-cell handling.
+
+    Complex cells are deterministic when serialized as JSON; verbatim mode preserves
+    the caller's legacy stringification behavior.
+    """
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
