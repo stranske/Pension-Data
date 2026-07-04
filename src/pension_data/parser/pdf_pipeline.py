@@ -24,6 +24,12 @@ from pension_data.extract.orchestration.fallback import (
     run_fallback_chain,
 )
 from pension_data.normalize.financial_units import UnitScale
+from pension_data.parser.hybrid_backend import (
+    HybridBackendConfig,
+    HybridBackendResult,
+    ParserBackend,
+    run_hybrid_table_extraction,
+)
 
 _TEXT_TOKEN_PATTERN = re.compile(r"\((?P<token>(?:\\(?:\r\n|[\r\n]|.)|[^\\)])+)\)\s*Tj")
 _TEXT_ARRAY_PATTERN = re.compile(r"\[(?P<array>(?:\\.|[^\]])*)\]\s*TJ", re.DOTALL)
@@ -111,6 +117,8 @@ class PDFParserInput:
     default_money_unit_scale: UnitScale
     pdf_bytes: bytes
     ocr_extract: Callable[[bytes], Sequence[str]] | None = None
+    hybrid_config: HybridBackendConfig | None = None
+    docling_backend: ParserBackend | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +144,7 @@ class PDFParserResult:
     missing_metrics: tuple[FundedActuarialMetricName, ...]
     actionable_flags: tuple[str, ...]
     provenance_refs: tuple[str, ...]
+    hybrid_result: HybridBackendResult | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,8 +275,13 @@ def _extract_table_rows(*, page_number: int, lines: Sequence[str]) -> list[dict[
         ]
         label = ""
         value = ""
+        year_columns = [column for column in columns[1:] if column.isdigit() and len(column) == 4]
         if len(columns) >= 2 and _looks_like_metric_label(columns[0]):
-            label, value = columns[0], columns[1]
+            label = columns[0]
+            if year_columns and len(columns) > len(year_columns) + 1:
+                value = columns[-1]
+            else:
+                value = columns[1]
         elif ":" in line:
             left, right = line.split(":", 1)
             if _looks_like_metric_label(left):
@@ -278,13 +292,19 @@ def _extract_table_rows(*, page_number: int, lines: Sequence[str]) -> list[dict[
                 label, value = metric_like_row
         if not label or not value:
             continue
-        rows.append(
-            {
-                "label": label,
-                "value": value,
-                "evidence_ref": f"p.{page_number}#table",
-            }
-        )
+        row = {
+            "label": label,
+            "value": value,
+            "evidence_ref": f"p.{page_number}#table",
+        }
+        if year_columns:
+            row["complex_table"] = "true"
+            row["header_depth"] = "2"
+            for index, year in enumerate(year_columns, start=1):
+                value_index = index + len(year_columns)
+                if value_index < len(columns):
+                    row[year] = columns[value_index]
+        rows.append(row)
     return rows
 
 
@@ -452,6 +472,24 @@ def _collect_provenance_refs(raw: RawFundedActuarialInput | None) -> tuple[str, 
     return _dedupe_non_empty(refs)
 
 
+def _run_optional_hybrid_backend(
+    *,
+    input_payload: PDFParserInput,
+    raw: RawFundedActuarialInput | None,
+) -> HybridBackendResult | None:
+    if raw is None or input_payload.hybrid_config is None:
+        return None
+    if not input_payload.hybrid_config.enable_docling:
+        return None
+    return run_hybrid_table_extraction(
+        plan_id=input_payload.source_document_id,
+        plan_period=input_payload.effective_date,
+        raw=raw,
+        config=input_payload.hybrid_config,
+        docling_backend=input_payload.docling_backend,
+    )
+
+
 def parse_pdf_to_funded_input(input_payload: PDFParserInput) -> PDFParserResult:
     """Parse pension PDF bytes into funded/actuarial extraction-ready structures."""
     stage_candidates: dict[str, _StageCandidate] = {}
@@ -483,6 +521,7 @@ def parse_pdf_to_funded_input(input_payload: PDFParserInput) -> PDFParserResult:
     selected = outcome.result if outcome.result is not None else _best_partial(stage_candidates)
     escalation = outcome.escalation
     selected_raw = selected.raw if selected is not None else None
+    hybrid_result = _run_optional_hybrid_backend(input_payload=input_payload, raw=selected_raw)
     return PDFParserResult(
         raw=selected_raw,
         stage_name=selected.stage_name if selected is not None else None,
@@ -499,4 +538,5 @@ def parse_pdf_to_funded_input(input_payload: PDFParserInput) -> PDFParserResult:
             partial=selected,
         ),
         provenance_refs=_collect_provenance_refs(selected_raw),
+        hybrid_result=hybrid_result,
     )

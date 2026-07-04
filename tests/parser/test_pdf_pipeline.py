@@ -5,6 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from pension_data.extract.actuarial.metrics import extract_funded_and_actuarial_metrics
+from pension_data.parser.hybrid_backend import (
+    BackendMetricValue,
+    HybridBackendConfig,
+    SelfHostedDoclingBackend,
+)
 from pension_data.parser.pdf_pipeline import PDFParserInput, parse_pdf_to_funded_input
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "calpers_fy2024_excerpt.pdf"
@@ -44,6 +49,62 @@ def test_real_pension_pdf_fixture_parses_end_to_end_into_extraction_ready_input(
     assert len(facts) == 7
     assert all("%pdf" not in block.lower() for block in parser_result.raw.text_blocks)
     assert all("startxref" not in block.lower() for block in parser_result.raw.text_blocks)
+
+
+def test_hybrid_docling_routes_complex_multi_year_table_from_pipeline() -> None:
+    complex_table_pdf = (
+        b"%PDF-1.4\n%%Page: 1 1\n"
+        b"Funded ratio | 2023 | 2024 | 78.0% | 50.0%\n"
+        b"AAL | $410.0 million\n"
+        b"AVA | $333.7 million\n"
+        b"Discount rate | 6.75%\n"
+        b"Employer contribution rate | 11.1%\n"
+        b"Employee contribution rate | 7.1%\n"
+        b"Participant count | 112000\n"
+    )
+
+    def _docling_values(_: object) -> tuple[BackendMetricValue, ...]:
+        return (
+            BackendMetricValue(
+                metric_name="funded_ratio",
+                normalized_value=0.812,
+                as_reported_value=81.2,
+                normalized_unit="ratio",
+                as_reported_unit="percent",
+                confidence=0.91,
+                backend="docling",
+                evidence_refs=("p.1#docling-tableformer",),
+            ),
+        )
+
+    parser_result = parse_pdf_to_funded_input(
+        PDFParserInput(
+            source_document_id="doc:calpers:complex-actuarial",
+            source_url="file://fixtures/complex-multi-year-actuarial.pdf",
+            effective_date="2024-06-30",
+            ingestion_date="2026-07-04",
+            default_money_unit_scale="million_usd",
+            pdf_bytes=complex_table_pdf,
+            hybrid_config=HybridBackendConfig(enable_docling=True),
+            docling_backend=SelfHostedDoclingBackend(_docling_values),
+        )
+    )
+
+    assert parser_result.stage_name == "table_primary"
+    assert parser_result.raw is not None
+    assert any(row.get("complex_table") == "true" for row in parser_result.raw.table_rows)
+    assert parser_result.hybrid_result is not None
+    assert parser_result.hybrid_result.routed_to_docling is True
+    assert parser_result.hybrid_result.docling is not None
+    docling_by_metric = {
+        value.metric_name: value for value in parser_result.hybrid_result.docling.values
+    }
+    assert docling_by_metric["funded_ratio"].normalized_value == 0.812
+    assert "backend:docling" in docling_by_metric["funded_ratio"].evidence_refs
+    assert len(parser_result.hybrid_result.review_decisions) == 1
+    assert parser_result.hybrid_result.review_decisions[0].routing_outcome == (
+        "high_priority_review"
+    )
 
 
 def test_text_fallback_carries_page_level_text_evidence_refs() -> None:
