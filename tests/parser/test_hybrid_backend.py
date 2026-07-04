@@ -63,6 +63,20 @@ def _docling_values(_: RawFundedActuarialInput) -> tuple[BackendMetricValue, ...
     )
 
 
+def _docling_mapping_values(_: RawFundedActuarialInput) -> tuple[dict[str, object], ...]:
+    return (
+        {
+            "metric_name": "funded_ratio",
+            "normalized_value": "0.812",
+            "as_reported_value": "81.2",
+            "normalized_unit": "ratio",
+            "as_reported_unit": "percent",
+            "confidence": "0.91",
+            "evidence_refs": ("p.12#docling-tableformer",),
+        },
+    )
+
+
 def test_docling_backend_is_opt_in_for_complex_tables() -> None:
     result = run_hybrid_table_extraction(
         plan_id="CA-PERS",
@@ -93,6 +107,25 @@ def test_complex_table_routes_to_self_hosted_docling_with_backend_provenance() -
     assert docling_by_metric["aal_usd"].normalized_value == 410_000_000.0
     assert docling_by_metric["funded_ratio"].backend == "docling"
     assert "backend:docling" in docling_by_metric["funded_ratio"].evidence_refs
+
+
+def test_docling_backend_coerces_mapping_values_with_backend_provenance() -> None:
+    result = run_hybrid_table_extraction(
+        plan_id="CA-PERS",
+        plan_period="FY2024",
+        raw=_raw_complex_table(),
+        config=HybridBackendConfig(enable_docling=True),
+        docling_backend=SelfHostedDoclingBackend(_docling_mapping_values),
+    )
+
+    assert result.docling is not None
+    value = result.docling.values[0]
+    assert value.metric_name == "funded_ratio"
+    assert value.normalized_value == 0.812
+    assert value.as_reported_value == 81.2
+    assert value.confidence == 0.91
+    assert value.backend == "docling"
+    assert value.evidence_refs == ("p.12#docling-tableformer", "backend:docling")
 
 
 def test_backend_disagreement_routes_to_review_without_silent_overwrite() -> None:

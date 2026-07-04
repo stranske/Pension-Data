@@ -197,7 +197,7 @@ def _optional_float(value: object) -> float | None:
 
 
 def _required_float(value: object) -> float:
-    if isinstance(value, int | float | str):
+    if isinstance(value, (int, float, str)):
         return float(value)
     raise TypeError(f"expected numeric value, got {type(value).__name__}")
 
