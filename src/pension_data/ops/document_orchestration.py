@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from datetime import UTC, datetime
@@ -78,6 +77,7 @@ from pension_data.extract.persistence import (
 )
 from pension_data.ingest.artifacts import RawArtifactIngestionInput, ingest_raw_artifacts
 from pension_data.normalize.financial_units import UnitScale
+from pension_data.normalize.numeric_parsing import detect_money_scale, parse_numeric_token
 from pension_data.quality.confidence import ExtractionConfidenceInput, route_confidence_rows
 from pension_data.review_queue.extraction import build_extraction_review_queue
 
@@ -165,7 +165,6 @@ class DocumentOrchestrationState:
 
 ParserCallable = Callable[[SourceDocumentJobItem, RawArtifactRecord], RawFundedActuarialInput]
 
-_NUMBER_PATTERN = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
 _DOMAIN_ORDER: tuple[str, ...] = (
     "funded_actuarial",
     "financial_flow",
@@ -273,23 +272,11 @@ def _canonical_label(value: str) -> str:
 
 
 def _parse_numeric_token(text: str) -> float | None:
-    for match in _NUMBER_PATTERN.finditer(text):
-        token = match.group(0).replace(",", "")
-        if token.isdigit() and len(token) == 4 and token.startswith(("19", "20")):
-            continue
-        return float(token)
-    return None
+    return parse_numeric_token(text)
 
 
 def _detect_money_scale(text: str, *, fallback: UnitScale) -> UnitScale:
-    lowered = text.lower()
-    if "billion" in lowered or " bn" in lowered:
-        return "billion_usd"
-    if "million" in lowered or " mm" in lowered:
-        return "million_usd"
-    if "thousand" in lowered or " k" in lowered:
-        return "thousand_usd"
-    return fallback
+    return detect_money_scale(text, fallback=fallback)
 
 
 def _table_entries(raw: RawFundedActuarialInput) -> list[tuple[str, str, str]]:

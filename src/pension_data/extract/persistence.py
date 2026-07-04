@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -28,6 +27,7 @@ from pension_data.db.models.investment_allocations_fees import (
 from pension_data.db.models.investment_positions import PlanManagerFundPosition
 from pension_data.db.models.manager_lifecycle import ManagerLifecycleEvent
 from pension_data.db.models.risk_exposures import RiskExposureObservation
+from pension_data.extract.common.ids import stable_id as _stable_id
 from pension_data.extract.investment.manager_positions import (
     ExtractionWarning as PositionExtractionWarning,
 )
@@ -182,12 +182,6 @@ def _normalize_refs(evidence_refs: Sequence[str]) -> tuple[str, ...]:
             continue
         normalized.append(token)
     return tuple(normalized)
-
-
-def _stable_id(prefix: str, *parts: object) -> str:
-    encoded_parts = [json.dumps(part, sort_keys=True) for part in parts]
-    digest = hashlib.sha256("|".join(encoded_parts).encode("utf-8")).hexdigest()[:20]
-    return f"{prefix}:{digest}"
 
 
 def _metric_family_for_funded(metric_name: str) -> str:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -15,11 +14,16 @@ from pension_data.db.models.funded_actuarial import (
 )
 from pension_data.extract.common.evidence import table_evidence_ref, text_block_evidence_ref
 from pension_data.normalize.financial_units import UnitScale, normalize_money_to_usd
+from pension_data.normalize.numeric_parsing import (
+    detect_money_scale as _detect_money_scale,
+)
+from pension_data.normalize.numeric_parsing import (
+    parse_numeric_token as _parse_numeric_token,
+)
 
 ParserMetricKind = Literal["money", "ratio", "count"]
 
 PARSER_VERSION = "funded_actuarial_v1"
-_NUMBER_PATTERN = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
 _VALUE_TOLERANCE = 1e-9
 
 _METRIC_DEFINITIONS: dict[FundedActuarialMetricName, tuple[ParserMetricKind, tuple[str, ...]]] = {
@@ -59,20 +63,6 @@ class _CandidateMetric:
     evidence_ref: str
 
 
-def _is_year_like_token(token: str) -> bool:
-    cleaned = token.replace(",", "")
-    return len(cleaned) == 4 and cleaned.startswith(("19", "20"))
-
-
-def _parse_numeric_token(text: str) -> float | None:
-    for match in _NUMBER_PATTERN.finditer(text):
-        token = match.group(0)
-        if _is_year_like_token(token):
-            continue
-        return float(token.replace(",", ""))
-    return None
-
-
 def _parse_numeric_token_after_alias(*, text: str, aliases: tuple[str, ...]) -> float | None:
     lowered = text.lower()
     candidates: list[tuple[int, float]] = []
@@ -92,17 +82,6 @@ def _parse_numeric_token_after_alias(*, text: str, aliases: tuple[str, ...]) -> 
     if candidates:
         return sorted(candidates, key=lambda row: row[0])[0][1]
     return _parse_numeric_token(text)
-
-
-def _detect_money_scale(text: str, *, fallback: UnitScale) -> UnitScale:
-    lowered = text.lower()
-    if "billion" in lowered or " bn" in lowered:
-        return "billion_usd"
-    if "million" in lowered or " mm" in lowered:
-        return "million_usd"
-    if "thousand" in lowered or " k" in lowered:
-        return "thousand_usd"
-    return fallback
 
 
 def _normalize_metric_value(
