@@ -14,7 +14,7 @@ click==8.3.1
     # via
     #   black
     #   uvicorn
-coverage==7.14.0
+coverage==7.14.3
     # via pytest-cov
 defusedxml==0.7.1
     # via pension-data (pyproject.toml)

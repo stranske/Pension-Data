@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import get_args
 
 from stranske_pdf_extract.contract import EvidenceRef, ExtractionMethod
 
@@ -146,23 +147,27 @@ def build_evidence_reference(
             shared_ref.snippet_anchor,
         ),
         report_id=report_id,
-        source_document_id=shared_ref.source_doc_id,
+        source_document_id=source_document_id,
         raw_ref=normalized_ref,
-        page_number=shared_ref.page_number,
-        section_hint=shared_ref.section_hint,
-        snippet_anchor=shared_ref.snippet_anchor,
-        excerpt=shared_ref.excerpt,
-        method=shared_ref.method,
+        page_number=page_number,
+        section_hint=section_hint,
+        snippet_anchor=snippet_anchor,
+        excerpt=resolved_excerpt,
+        method=resolved_method,
     )
 
 
 def to_shared_evidence_ref(evidence: EvidenceReference) -> EvidenceRef:
     """Convert the local compatibility model to the shared provenance contract."""
+    allowed_methods = set(get_args(ExtractionMethod))
+    method = evidence.method
+    if allowed_methods and method not in allowed_methods:
+        method = None
     return EvidenceRef(
         source_doc_id=evidence.source_document_id,
         page_number=evidence.page_number,
         section_hint=evidence.section_hint,
         snippet_anchor=evidence.snippet_anchor,
         excerpt=evidence.excerpt,
-        method=evidence.method if evidence.method in ExtractionMethod.__args__ else None,
+        method=method,
     )
