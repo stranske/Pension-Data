@@ -4,7 +4,7 @@ annotated-doc==0.0.4
     # via fastapi
 annotated-types==0.7.0
     # via pydantic
-anthropic==0.112.0
+anthropic==0.116.0
     # via langchain-anthropic
 anyio==4.14.1
     # via
@@ -13,7 +13,7 @@ anyio==4.14.1
     #   langsmith
     #   openai
     #   starlette
-ast-serialize==0.5.0
+ast-serialize==0.6.0
     # via mypy
 black==26.5.1
     # via pension-data (pyproject.toml)
@@ -33,7 +33,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   click
     #   pytest
     #   tqdm
-coverage==7.14.3
+coverage==7.15.0
     # via pytest-cov
 defusedxml==0.7.1
     # via pension-data (pyproject.toml)
@@ -46,7 +46,7 @@ docstring-parser==0.18.0
     # via anthropic
 et-xmlfile==2.0.0
     # via openpyxl
-fastapi==0.138.1
+fastapi==0.139.0
     # via pension-data (pyproject.toml)
 h11==0.16.0
     # via
@@ -67,7 +67,7 @@ idna==3.18
     #   requests
 iniconfig==2.3.0
     # via pytest
-jiter==0.15.0
+jiter==0.16.0
     # via
     #   anthropic
     #   openai
@@ -95,7 +95,7 @@ langchain-protocol==0.0.18
     # via
     #   langchain-core
     #   langgraph-sdk
-langgraph==1.2.6
+langgraph==1.2.7
     # via langchain
 langgraph-checkpoint==4.1.1
     # via
@@ -105,11 +105,11 @@ langgraph-prebuilt==1.1.0
     # via langgraph
 langgraph-sdk==0.4.2
     # via langgraph
-langsmith==0.9.3
+langsmith==0.9.7
     # via
     #   pension-data (pyproject.toml)
     #   langchain-core
-librt==0.11.0 ; platform_python_implementation != 'PyPy'
+librt==0.12.0 ; platform_python_implementation != 'PyPy'
     # via mypy
 mypy==2.1.0
     # via pension-data (pyproject.toml)
@@ -117,7 +117,7 @@ mypy-extensions==1.1.0
     # via
     #   black
     #   mypy
-numpy==2.5.0
+numpy==2.5.1
     # via
     #   pension-data (pyproject.toml)
     #   pandas
@@ -137,7 +137,7 @@ packaging==26.2
     #   langchain-core
     #   langsmith
     #   pytest
-pandas==3.0.4
+pandas==3.0.3
     # via pension-data (pyproject.toml)
 pathspec==1.1.1
     # via
@@ -220,7 +220,7 @@ tiktoken==0.13.0
     # via langchain-openai
 tqdm==4.68.3
     # via openai
-typing-extensions==4.15.0
+typing-extensions==4.16.0
     # via
     #   anthropic
     #   fastapi
@@ -246,7 +246,7 @@ uuid-utils==0.16.2
     # via
     #   langchain-core
     #   langsmith
-uvicorn==0.49.0
+uvicorn==0.50.0
     # via pension-data (pyproject.toml)
 websockets==15.0.1
     # via
