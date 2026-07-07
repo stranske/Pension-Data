@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from io import BytesIO
 
 from pypdf import PdfReader
+from stranske_pdf_extract.contract import EscalationEvent, ParserAttempt
+from stranske_pdf_extract.orchestration import ParserStage, run_fallback_chain
 
 from pension_data.db.models.funded_actuarial import (
     FUNDED_ACTUARIAL_REQUIRED_METRICS,
@@ -16,12 +18,6 @@ from pension_data.db.models.funded_actuarial import (
 from pension_data.extract.actuarial.metrics import (
     RawFundedActuarialInput,
     extract_funded_and_actuarial_metrics,
-)
-from pension_data.extract.orchestration.fallback import (
-    EscalationEvent,
-    ParserAttempt,
-    ParserStage,
-    run_fallback_chain,
 )
 from pension_data.normalize.financial_units import UnitScale
 from pension_data.parser.hybrid_backend import (

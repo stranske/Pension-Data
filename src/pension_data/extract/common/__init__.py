@@ -5,6 +5,7 @@ from pension_data.extract.common.evidence import (
     canonicalize_evidence_ref,
     table_evidence_ref,
     text_block_evidence_ref,
+    to_shared_evidence_ref,
 )
 from pension_data.extract.common.ids import stable_id
 
@@ -14,4 +15,5 @@ __all__ = [
     "stable_id",
     "table_evidence_ref",
     "text_block_evidence_ref",
+    "to_shared_evidence_ref",
 ]

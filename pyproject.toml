@@ -33,6 +33,7 @@ dependencies = [
     "defusedxml>=0.7.1",
     "fastapi>=0.116.0",
     "pypdf>=5.4.0",
+    "stranske-pdf-extract @ git+https://github.com/stranske/Workflows.git@pdf-extract-v0.1.0#subdirectory=packages/stranske_pdf_extract",
     "uvicorn>=0.35.0",
 ]
 
@@ -139,9 +140,9 @@ show_error_codes = true
 module = "tests.*"
 disallow_untyped_defs = false
 
-# app-baseline-kit ships no type stubs; don't fail strict mypy on import-untyped.
+# Workflows shared packages ship no type stubs; don't fail strict mypy on import-untyped.
 [[tool.mypy.overrides]]
-module = ["baseline_kit", "baseline_kit.*"]
+module = ["baseline_kit", "baseline_kit.*", "stranske_pdf_extract", "stranske_pdf_extract.*"]
 ignore_missing_imports = true
 
 [tool.black]

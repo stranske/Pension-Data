@@ -9,6 +9,7 @@ from pension_data.extract.common.evidence import (
     canonicalize_evidence_ref,
     table_evidence_ref,
     text_block_evidence_ref,
+    to_shared_evidence_ref,
 )
 
 # ── canonicalize_evidence_ref ───────────────────────────────────────
@@ -198,6 +199,24 @@ class TestEvidenceExcerptAndMethod:
         assert plain.evidence_ref_id == enriched.evidence_ref_id
         assert plain.excerpt is None
         assert plain.method == "table"  # still inferred from the anchor
+
+    def test_shared_evidence_ref_preserves_locator_identity_across_enrichment(self) -> None:
+        plain = build_evidence_reference(
+            report_id="r1", source_document_id="d1", evidence_ref="p.40#table"
+        )
+        enriched = build_evidence_reference(
+            report_id="r1",
+            source_document_id="d1",
+            evidence_ref="p.40#table",
+            excerpt="Funded ratio table row",
+            method="table",
+        )
+
+        shared_plain = to_shared_evidence_ref(plain)
+        shared_enriched = to_shared_evidence_ref(enriched)
+
+        assert shared_plain.canonical == "d1#page=40"
+        assert shared_plain.ref_id == shared_enriched.ref_id
 
     def test_method_inferred_from_table_anchor(self) -> None:
         ref = build_evidence_reference(
