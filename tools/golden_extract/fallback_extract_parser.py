@@ -12,7 +12,7 @@ from pension_data.extract.actuarial.metrics import (
     RawFundedActuarialInput,
     extract_funded_and_actuarial_metrics,
 )
-from pension_data.extract.orchestration.fallback import (
+from pension_data.extract.orchestration import (
     PARSER_FALLBACK_ORDER_BY_DOMAIN,
     ParserStage,
     run_fallback_chain,

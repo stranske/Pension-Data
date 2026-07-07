@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+from typing import get_args
+
+from stranske_pdf_extract.contract import EvidenceRef, ExtractionMethod
 
 from pension_data.db.models.provenance import EvidenceMethod, EvidenceReference
 from pension_data.extract.common.ids import stable_id
@@ -124,16 +127,24 @@ def build_evidence_reference(
         section_hint=section_hint,
     )
     resolved_excerpt = excerpt.strip() if excerpt and excerpt.strip() else None
+    shared_ref = EvidenceRef(
+        source_doc_id=source_document_id,
+        page_number=page_number,
+        section_hint=section_hint,
+        snippet_anchor=snippet_anchor,
+        excerpt=resolved_excerpt,
+        method=resolved_method,
+    )
 
     return EvidenceReference(
         evidence_ref_id=stable_id(
             "evidence",
             report_id,
-            source_document_id,
+            shared_ref.source_doc_id,
             normalized_ref,
-            page_number,
-            section_hint,
-            snippet_anchor,
+            shared_ref.page_number,
+            shared_ref.section_hint,
+            shared_ref.snippet_anchor,
         ),
         report_id=report_id,
         source_document_id=source_document_id,
@@ -143,4 +154,20 @@ def build_evidence_reference(
         snippet_anchor=snippet_anchor,
         excerpt=resolved_excerpt,
         method=resolved_method,
+    )
+
+
+def to_shared_evidence_ref(evidence: EvidenceReference) -> EvidenceRef:
+    """Convert the local compatibility model to the shared provenance contract."""
+    allowed_methods = set(get_args(ExtractionMethod))
+    method = evidence.method
+    if allowed_methods and method not in allowed_methods:
+        method = None
+    return EvidenceRef(
+        source_doc_id=evidence.source_document_id,
+        page_number=evidence.page_number,
+        section_hint=evidence.section_hint,
+        snippet_anchor=evidence.snippet_anchor,
+        excerpt=evidence.excerpt,
+        method=method,
     )

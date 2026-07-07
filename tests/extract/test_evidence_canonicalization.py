@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import pytest
 
+from pension_data.extract.common import evidence as evidence_module
 from pension_data.extract.common.evidence import (
     build_evidence_reference,
     canonicalize_evidence_ref,
     table_evidence_ref,
     text_block_evidence_ref,
+    to_shared_evidence_ref,
 )
 
 # ── canonicalize_evidence_ref ───────────────────────────────────────
@@ -183,6 +185,40 @@ class TestEvidenceExcerptAndMethod:
         assert serialized["excerpt"] == ref.excerpt
         assert serialized["method"] == "table"
 
+    def test_builder_preserves_local_excerpt_and_method(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class NormalizingEvidenceRef:
+            def __init__(
+                self,
+                *,
+                source_doc_id: str,
+                page_number: int | None,
+                section_hint: str | None,
+                snippet_anchor: str | None,
+                excerpt: str | None,
+                method: str | None,
+            ) -> None:
+                self.source_doc_id = source_doc_id
+                self.page_number = page_number
+                self.section_hint = section_hint
+                self.snippet_anchor = snippet_anchor
+                self.excerpt = excerpt.upper() if excerpt is not None else None
+                self.method = "text" if method is not None else None
+
+        monkeypatch.setattr(evidence_module, "EvidenceRef", NormalizingEvidenceRef)
+
+        ref = build_evidence_reference(
+            report_id="r1",
+            source_document_id="d1",
+            evidence_ref="table:schedule of investments",
+            excerpt="  Funded ratio quote.  ",
+            method="table",
+        )
+
+        assert ref.excerpt == "Funded ratio quote."
+        assert ref.method == "table"
+
     def test_adding_excerpt_does_not_change_evidence_ref_id(self) -> None:
         plain = build_evidence_reference(
             report_id="r1", source_document_id="d1", evidence_ref="table:schedule"
@@ -198,6 +234,40 @@ class TestEvidenceExcerptAndMethod:
         assert plain.evidence_ref_id == enriched.evidence_ref_id
         assert plain.excerpt is None
         assert plain.method == "table"  # still inferred from the anchor
+
+    def test_shared_evidence_ref_preserves_locator_identity_across_enrichment(self) -> None:
+        plain = build_evidence_reference(
+            report_id="r1", source_document_id="d1", evidence_ref="p.40#table"
+        )
+        enriched = build_evidence_reference(
+            report_id="r1",
+            source_document_id="d1",
+            evidence_ref="p.40#table",
+            excerpt="Funded ratio table row",
+            method="table",
+        )
+
+        shared_plain = to_shared_evidence_ref(plain)
+        shared_enriched = to_shared_evidence_ref(enriched)
+
+        assert shared_plain.canonical == "d1#page=40"
+        assert shared_plain.ref_id == shared_enriched.ref_id
+
+    def test_shared_conversion_tolerates_non_literal_method_alias(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ref = build_evidence_reference(
+            report_id="r1",
+            source_document_id="d1",
+            evidence_ref="table:schedule",
+            method="table",
+        )
+
+        monkeypatch.setattr(evidence_module, "ExtractionMethod", object)
+
+        shared = to_shared_evidence_ref(ref)
+
+        assert shared.method == "table"
 
     def test_method_inferred_from_table_anchor(self) -> None:
         ref = build_evidence_reference(

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pension_data.extract.orchestration.fallback import (
+from stranske_pdf_extract.orchestration import ParserStage as SharedParserStage
+
+from pension_data.extract.orchestration import (
     PARSER_FALLBACK_ORDER_BY_DOMAIN,
     ParserStage,
     run_fallback_chain,
@@ -14,6 +16,7 @@ def test_domain_fallback_order_is_defined_for_all_extraction_domains() -> None:
     assert all(
         PARSER_FALLBACK_ORDER_BY_DOMAIN[domain] for domain in PARSER_FALLBACK_ORDER_BY_DOMAIN
     )
+    assert ParserStage is SharedParserStage
 
 
 def test_fallback_chain_uses_retry_order_until_result_is_complete() -> None:
