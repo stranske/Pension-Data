@@ -53,6 +53,43 @@ function numeric(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function formatMagnitude(n) {
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return n.toLocaleString("en-US");
+  return String(n);
+}
+
+function isRatioMetric(row) {
+  const metric = normalizeLower(row && (row.metric ?? row.metric_name));
+  return metric.includes("ratio") || metric.includes("rate");
+}
+
+// Column-aware display formatting (#640): raw values are kept in state/export; only
+// the rendered cell is humanized. Ratios -> percent, large amounts -> $K/M/B or
+// thousands separators, confidence -> percent.
+function formatCellValue(column, value, row) {
+  if (value === undefined || value === null || value === "") {
+    return "";
+  }
+  const col = normalizeLower(column);
+  const num = Number(value);
+  if (col === "confidence" && Number.isFinite(num)) {
+    return `${Math.round(num * 100)}%`;
+  }
+  if (col === "value" && Number.isFinite(num)) {
+    if (isRatioMetric(row)) {
+      const pct = num * 100;
+      return `${Number.isInteger(pct) ? pct : Number(pct.toFixed(1))}%`;
+    }
+    if (Math.abs(num) >= 1000) {
+      return formatMagnitude(num);
+    }
+  }
+  return String(value);
+}
+
 function normalizeDataOrigin(value) {
   const origin = normalizeLower(value);
   if (!Object.hasOwn(DATA_ORIGIN_LABELS, origin)) {
@@ -368,7 +405,11 @@ function renderTable() {
   }
   tableHead.appendChild(headerRow);
   tableBody.textContent = "";
-  count.textContent = `${rows.length} rows`;
+  const totalRows = selectedDataset()?.rows.length ?? rows.length;
+  count.textContent =
+    rows.length === totalRows
+      ? `${totalRows} records`
+      : `Showing ${rows.length} of ${totalRows} records`;
 
   if (!rows.length) {
     const empty = document.createElement("tr");
@@ -396,7 +437,7 @@ function renderTable() {
     }
     for (const column of columns) {
       const td = document.createElement("td");
-      td.textContent = row[column] !== undefined ? String(row[column]) : "";
+      td.textContent = formatCellValue(column, row[column], row);
       tr.appendChild(td);
     }
     tr.addEventListener("click", () => activateRow(index));
