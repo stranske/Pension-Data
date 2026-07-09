@@ -1,0 +1,270 @@
+version: 1
+issue: 699
+base: main
+branch: codex/issue-699
+tasks:
+  - id: task-01
+    title: Add `stranske-pdf-extract @ git+https://github.com/stranske/Workflows@pdf-extract-v0.1.0#subdirectory=packages/stranske_pdf_extract`
+      to `pyproject.toml` dependencies.
+    status: doing
+    started_at: '2026-07-09T11:02:49Z'
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-02
+    title: Rewrite `src/pension_data/extract/orchestration/fallback.py` as a re-export
+      shim that keeps `PARSER_FALLBACK_ORDER_BY_DOMAIN`, re-exports `ParserStage`,
+      `FallbackOutcome`, `run_fallback_chain` from `stranske_pdf_extract.orchestration`,
+      and re-exports `ParserAttempt`, `EscalationEvent` from `stranske_pdf_extract.contract`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: Delete the duplicated class and function bodies from `src/pension_data/extract/orchestration/fallback.py`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: Test that `src/pension_data/parser/pdf_pipeline.py` continues to import
+      `EscalationEvent`, `ParserAttempt`, `ParserStage`, and `run_fallback_chain`
+      via `src/pension_data/extract/orchestration/fallback.py` without modifying `src/pension_data/parser/pdf_pipeline.py`,
+      and verify this by running `tests/parser/test_pdf_pipeline.py` unchanged.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: Update the provenance boundary to map `EvidenceReference` / `build_evidence_reference`
+      in `src/pension_data/db/models/provenance.py` and `src/pension_data/extract/common/evidence.py`
+      onto `stranske_pdf_extract.contract.EvidenceRef` where the shared type is a
+      superset.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: 'Create adapter functions to map EvidenceReference to stranske_pdf_extract.contract.EvidenceRef
+      in the provenance boundary layer (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: Verify that EvidenceRef.canonical produces the expected p.N#table format
+      for table references
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: 'Verify that EvidenceRef.canonical produces the expected #page=n format
+      for page references'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: 'Confirm that ref_id remains stable when excerpt metadata is added to evidence
+      references (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: Verify `EvidenceRef.canonical` reproduces Pension-Data's `p.N#table` /
+      `#page=n` forms and that `ref_id` remains stable across `excerpt`/`method` enrichment
+      to match `evidence_ref_id`.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: Adapt at the boundary and record a follow-up instead of forcing full replacement
+      if replacing provenance types would break provenance tests.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: Test the deliberate-break gate by temporarily editing installed `stranske_pdf_extract/orchestration.py`
+      to invert `run_fallback_chain` completeness logic, capture the failing result,
+      then revert.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: 'Locate the installed stranske_pdf_extract/orchestration.py file in the
+      site-packages directory (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: 'Temporarily modify run_fallback_chain to change ''if not is_complete(parsed)''
+      to ''if is_complete(parsed)'' (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: 'Run tests/parser/test_pdf_pipeline.py::test_escalation_payload_is_actionable_when_all_stages_fail
+      (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: 'capture the failure output (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: 'Revert the temporary modification to stranske_pdf_extract/orchestration.py
+      (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: 'Confirm that tests/parser/test_pdf_pipeline.py::test_escalation_payload_is_actionable_when_all_stages_fail
+      passes after revert (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: '`tests/parser/test_pdf_pipeline.py` passes unchanged, including `::test_text_fallback_carries_page_level_text_evidence_refs`
+      and `::test_escalation_payload_is_actionable_when_all_stages_fail`.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: The `tests/provenance/` suite passes.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-21
+    title: With the library installed and the shim in place, temporarily changing
+      installed `stranske_pdf_extract/orchestration.py` `run_fallback_chain` from
+      `if not is_complete(parsed)` to `if is_complete(parsed)` causes `tests/parser/test_pdf_pipeline.py::test_escalation_payload_is_actionable_when_all_stages_fail`
+      to fail.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-22
+    title: After reverting the deliberate-break edit, the parser and provenance tests
+      are green again.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-23
+    title: '`grep -rn "^def run_fallback_chain" src/pension_data` returns no hits.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-24
+    title: Add `stranske-pdf-extract @ git+https://github.com/stranske/Workflows@pdf-extract-v0.1.0#subdirectory=packages/stranske_pdf_extract`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-25
+    title: 'Rewrite `src/pension_data/extract/orchestration/fallback.py` as a re-export
+      shim: keep'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-26
+    title: Confirm `src/pension_data/parser/pdf_pipeline.py:20-24` still imports cleanly
+      through the shim (no change
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-27
+    title: Map Pension-Data's `EvidenceReference` / `build_evidence_reference` (`src/pension_data/db/models/provenance.py`,
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-28
+    title: Perform the deliberate-break verification (see Acceptance), capture the
+      FAIL, then revert.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-29
+    title: "Named gate: `tests/parser/test_pdf_pipeline.py` passes unchanged \u2014\
+      \ specifically"
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-30
+    title: '**Deliberate-break gate:** with the library installed and the shim in
+      place, temporarily edit the installed'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-31
+    title: '`grep -rn "^def run_fallback_chain" src/pension_data` returns no hits
+      (no duplicate definition remains); the'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-32
+    title: Test the deliberate-break gate by temporarily editing installed `stranske_pdf_extract/orchestration.py`
+      (The agent cannot modify installed packages in site-packages as these are typically
+      read-only and managed by the package manager. The issue notes this should run
+      in CI, but the agent cannot modify CI workflows. | Convert this to a manual
+      verification step with clear instructions for a human reviewer, or create a
+      separate test script that monkey-patches the function at runtime instead of
+      editing the installed file.)
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
