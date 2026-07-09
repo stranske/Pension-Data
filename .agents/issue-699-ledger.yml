@@ -6,10 +6,10 @@ tasks:
   - id: task-01
     title: Add `stranske-pdf-extract @ git+https://github.com/stranske/Workflows@pdf-extract-v0.1.0#subdirectory=packages/stranske_pdf_extract`
       to `pyproject.toml` dependencies.
-    status: doing
+    status: done
     started_at: '2026-07-09T11:02:49Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-07-09T11:03:03Z'
+    commit: c83d327ce45ff0125897a8f7eb4d9d547dcc6f4f
     notes: []
   - id: task-02
     title: Rewrite `src/pension_data/extract/orchestration/fallback.py` as a re-export
