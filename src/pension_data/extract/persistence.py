@@ -31,6 +31,7 @@ from pension_data.extract.common.ids import stable_id as _stable_id
 from pension_data.extract.investment.manager_positions import (
     ExtractionWarning as PositionExtractionWarning,
 )
+from pension_data.finite_guards import finite_or_none
 
 NON_DISCLOSED_MANAGER_NAME = "[not_disclosed]"
 UNKNOWN_MANAGER_NAME = "[unknown_manager]"
@@ -238,14 +239,16 @@ def persist_funded_actuarial_metrics(
             "metric_family": _metric_family_for_funded(row.metric_name),
             "metric_name": row.metric_name,
             "as_reported_value": row.as_reported_value,
-            "normalized_value": row.normalized_value,
+            # Last gate: never persist a non-finite normalized value/confidence (NaN/inf) —
+            # flag as None so a corrupt fact is not stored as a trusted number (#636).
+            "normalized_value": finite_or_none(row.normalized_value),
             "as_reported_unit": row.as_reported_unit,
             "normalized_unit": row.normalized_unit,
             "manager_name": None,
             "fund_name": None,
             "vehicle_name": None,
             "relationship_completeness": None,
-            "confidence": row.confidence,
+            "confidence": finite_or_none(row.confidence),
             "evidence_refs": list(evidence_refs),
             "effective_date": row.effective_date,
             "ingestion_date": row.ingestion_date,
@@ -297,7 +300,7 @@ def _allocation_metric_rows(
                 "metric_family": "allocation",
                 "metric_name": weight_name,
                 "as_reported_value": row.as_reported_percent,
-                "normalized_value": row.normalized_weight,
+                "normalized_value": finite_or_none(row.normalized_weight),
                 "as_reported_unit": "percent" if row.as_reported_percent is not None else None,
                 "normalized_unit": "ratio" if row.normalized_weight is not None else None,
                 "manager_name": None,
@@ -337,7 +340,7 @@ def _allocation_metric_rows(
                 "metric_family": "allocation",
                 "metric_name": amount_name,
                 "as_reported_value": row.as_reported_amount,
-                "normalized_value": row.normalized_amount_usd,
+                "normalized_value": finite_or_none(row.normalized_amount_usd),
                 "as_reported_unit": "usd" if row.as_reported_amount is not None else None,
                 "normalized_unit": "usd" if row.normalized_amount_usd is not None else None,
                 "manager_name": None,
@@ -408,7 +411,7 @@ def _fee_metric_rows(
                 "metric_family": "fee",
                 "metric_name": rate_metric_name,
                 "as_reported_value": row.as_reported_rate_pct,
-                "normalized_value": row.normalized_rate,
+                "normalized_value": finite_or_none(row.normalized_rate),
                 "as_reported_unit": "percent" if row.as_reported_rate_pct is not None else None,
                 "normalized_unit": "ratio" if row.normalized_rate is not None else None,
                 "manager_name": row.manager_name,
@@ -449,7 +452,7 @@ def _fee_metric_rows(
                 "metric_family": "fee",
                 "metric_name": amount_metric_name,
                 "as_reported_value": row.as_reported_amount,
-                "normalized_value": row.normalized_amount_usd,
+                "normalized_value": finite_or_none(row.normalized_amount_usd),
                 "as_reported_unit": "usd" if row.as_reported_amount is not None else None,
                 "normalized_unit": "usd" if row.normalized_amount_usd is not None else None,
                 "manager_name": row.manager_name,
@@ -564,7 +567,7 @@ def persist_manager_positions(
                     "metric_family": "holding",
                     "metric_name": metric_name,
                     "as_reported_value": metric_value,
-                    "normalized_value": metric_value,
+                    "normalized_value": finite_or_none(metric_value),
                     "as_reported_unit": "usd",
                     "normalized_unit": "usd",
                     "manager_name": manager_name,

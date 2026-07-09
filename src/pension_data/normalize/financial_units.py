@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Literal
 
+from pension_data.finite_guards import require_finite
+
 UnitScale = Literal["usd", "thousand_usd", "million_usd", "billion_usd"]
 FlowDirection = Literal["inflow", "outflow", "balance"]
 
@@ -16,9 +18,14 @@ _UNIT_MULTIPLIER: dict[UnitScale, float] = {
 
 
 def normalize_money_to_usd(amount: float | None, *, unit_scale: UnitScale) -> float | None:
-    """Normalize a reported amount into USD based on declared unit scale."""
+    """Normalize a reported amount into USD based on declared unit scale.
+
+    Rejects a non-finite amount (NaN/inf) rather than storing it: a normalized money
+    value is a product fact, and ``round(nan * mult, 6)`` is silently ``nan``.
+    """
     if amount is None:
         return None
+    require_finite(amount, field="amount")
     return round(amount * _UNIT_MULTIPLIER[unit_scale], 6)
 
 

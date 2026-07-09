@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
+from pension_data.finite_guards import is_finite_number
+
 Severity = Literal["warning", "critical"]
 Priority = Literal["low", "medium", "high"]
 
@@ -204,6 +206,10 @@ def _detect_funded_shift(
 ) -> list[AnomalyRecord]:
     if previous.funded_ratio is None or current.funded_ratio is None:
         return []
+    # A non-finite funded ratio (NaN suppresses the shift; inf yields an inf score that
+    # poisons sorting) is a corrupt point, not an anomaly-free one — skip it.
+    if not (is_finite_number(previous.funded_ratio) and is_finite_number(current.funded_ratio)):
+        return []
 
     shift = abs(current.funded_ratio - previous.funded_ratio)
     severity = _severity_for_shift(
@@ -264,6 +270,8 @@ def _detect_allocation_shifts(
     for asset_class in all_asset_classes:
         previous_value = previous.allocations.get(asset_class, 0.0)
         current_value = current.allocations.get(asset_class, 0.0)
+        if not (is_finite_number(previous_value) and is_finite_number(current_value)):
+            continue
         shift = abs(current_value - previous_value)
         severity = _severity_for_shift(
             shift=shift,
