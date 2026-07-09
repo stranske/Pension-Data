@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
+
+from pension_data.finite_guards import is_finite_number
 
 SLAStage = Literal["ingestion", "extraction", "review"]
 
@@ -142,9 +145,14 @@ class CoverageObservation:
 
 
 def _safe_ratio(numerator: float, denominator: float) -> float:
+    # Non-finite inputs (NaN records_total, +inf wait-hours) must not flow into the
+    # quality dashboard: flag as 0.0 rather than propagating NaN/inf.
+    if not (is_finite_number(numerator) and is_finite_number(denominator)):
+        return 0.0
     if denominator <= 0:
         return 0.0
-    return numerator / denominator
+    result = numerator / denominator
+    return result if math.isfinite(result) else 0.0
 
 
 def _to_utc_or_error(value: datetime, *, field_name: str) -> datetime:

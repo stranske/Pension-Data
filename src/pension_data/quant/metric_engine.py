@@ -119,16 +119,20 @@ def _to_float(value: object) -> float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
+        parsed = float(value)
+    elif isinstance(value, str):
         token = value.strip()
         if not token:
             return None
         try:
-            return float(token)
+            parsed = float(token)
         except ValueError:
             return None
-    return None
+    else:
+        return None
+    # Drop non-finite values (NaN/inf, incl. the strings "nan"/"inf") so derived
+    # metrics never carry them into funded gaps, ratios, or weighted aggregates.
+    return parsed if math.isfinite(parsed) else None
 
 
 def _bounded_confidence(value: object) -> float | None:
