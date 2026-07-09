@@ -17,6 +17,45 @@ assert spec is not None and spec.loader is not None
 web_smoke_test = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(web_smoke_test)
 
+SERVE_PATH = ROOT / "scripts" / "web" / "serve_local.py"
+_serve_spec = importlib.util.spec_from_file_location("web_serve_local", SERVE_PATH)
+assert _serve_spec is not None and _serve_spec.loader is not None
+web_serve_local = importlib.util.module_from_spec(_serve_spec)
+_serve_spec.loader.exec_module(web_serve_local)
+
+
+def _bundle(*, version: str, data_origin: str = "generated") -> dict[str, object]:
+    return {
+        "contractVersion": version,
+        "data_origin": data_origin,
+        "datasets": [{"name": "core", "rows": []}],
+    }
+
+
+def _runtime_version() -> str:
+    return str(web_smoke_test._load_runtime_contract()["version"])
+
+
+def test_smoke_and_serve_agree_on_a_good_bundle() -> None:
+    # #639: a known-good bundle is accepted by BOTH consumers.
+    good = _bundle(version=_runtime_version())
+    assert (
+        web_smoke_test._assert_workspace_bundle(good, path_label="good", reject_fixture=False)
+        == "generated"
+    )
+    web_serve_local._assert_workspace_bundle(
+        good, path_label="good", allow_fixture_demo=True
+    )  # does not raise
+
+
+def test_smoke_and_serve_agree_on_contract_version_mismatch() -> None:
+    # #639: the divergence that let serve_local serve a bundle smoke rejected.
+    bad = _bundle(version="9.9.9-mismatch")
+    with pytest.raises(ValueError, match="does not match runtime contract"):
+        web_smoke_test._assert_workspace_bundle(bad, path_label="bad", reject_fixture=False)
+    with pytest.raises(ValueError, match="does not match runtime contract"):
+        web_serve_local._assert_workspace_bundle(bad, path_label="bad", allow_fixture_demo=True)
+
 
 def _copy_web_fixture(tmp_path: Path) -> Path:
     target = tmp_path / "web"

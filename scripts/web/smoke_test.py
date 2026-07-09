@@ -6,10 +6,18 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from workspace_contract import (  # noqa: E402
+    allowed_data_origins,
+    load_runtime_contract,
+    validate_workspace_bundle,
+)
 
 REQUIRED_CONFIG_KEYS = ("environment", "apiBaseUrl", "artifactBaseUrl")
 REQUIRED_LOCAL_FILES = (
@@ -51,21 +59,13 @@ def _assert_workspace_bundle(
     reject_fixture: bool,
     require_fixture: bool = False,
 ) -> str:
-    contract = _load_runtime_contract()
-    contract_version = payload.get("contractVersion")
-    if not isinstance(contract_version, str) or not contract_version.strip():
-        raise ValueError(f"workspace bundle missing contractVersion in {path_label}")
-    if contract_version != contract.get("version"):
-        raise ValueError(
-            f"workspace contractVersion '{contract_version}' does not match runtime contract"
-        )
-
-    data_origins = _allowed_data_origins(contract)
-    data_origin = payload.get("data_origin")
-    if not isinstance(data_origin, str) or data_origin not in data_origins:
-        raise ValueError(
-            f"workspace bundle requires data_origin of {', '.join(sorted(data_origins))} in {path_label}"
-        )
+    contract = load_runtime_contract()
+    data_origin = validate_workspace_bundle(
+        payload,
+        path_label=path_label,
+        accepted_origins=allowed_data_origins(contract),
+        contract=contract,
+    )
     if require_fixture and data_origin != "fixture":
         raise ValueError(
             "Refusing to deploy non-synthetic bundle to external Cloudflare Pages: "
@@ -73,51 +73,14 @@ def _assert_workspace_bundle(
         )
     if reject_fixture and data_origin == "fixture":
         raise ValueError(f"fixture workspace bundle is not allowed for runtime smoke: {path_label}")
-    datasets = payload.get("datasets")
-    if not isinstance(datasets, list) or not datasets:
-        raise ValueError(f"workspace dataset inventory is empty in {path_label}")
     return data_origin
 
 
 def _load_runtime_contract() -> dict[str, object]:
-    if not CONTRACT_PATH.exists():
-        raise ValueError(f"runtime contract missing: {CONTRACT_PATH}")
-    payload = _load_json(CONTRACT_PATH)
-    version = payload.get("version")
-    workspace_bundle = payload.get("workspaceBundle")
-    if not isinstance(version, str) or not version.strip():
-        raise ValueError(f"runtime contract missing version in {CONTRACT_PATH}")
-    if not isinstance(workspace_bundle, dict):
-        raise ValueError(f"runtime contract missing workspaceBundle in {CONTRACT_PATH}")
-    required_fields = workspace_bundle.get("requiredTopLevelFields")
-    if not isinstance(required_fields, list) or not required_fields:
-        raise ValueError("runtime contract requiredTopLevelFields must be a non-empty list")
-    normalized_required = {
-        field for field in required_fields if isinstance(field, str) and field.strip()
-    }
-    if len(normalized_required) != len(required_fields):
-        raise ValueError("runtime contract requiredTopLevelFields must contain non-empty strings")
-    required_workspace_fields = {"contractVersion", "data_origin", "datasets"}
-    missing_fields = required_workspace_fields.difference(normalized_required)
-    if missing_fields:
-        raise ValueError(
-            "runtime contract missing required workspace fields: "
-            + ", ".join(sorted(missing_fields))
-        )
-    return payload
-
-
-def _allowed_data_origins(contract: dict[str, object]) -> frozenset[str]:
-    workspace_bundle = contract["workspaceBundle"]
-    if not isinstance(workspace_bundle, dict):
-        raise ValueError("runtime contract workspaceBundle must be an object")
-    origins = workspace_bundle.get("dataOrigins")
-    if not isinstance(origins, list) or not origins:
-        raise ValueError("runtime contract dataOrigins must be a non-empty list")
-    normalized = [origin for origin in origins if isinstance(origin, str) and origin.strip()]
-    if len(normalized) != len(origins):
-        raise ValueError("runtime contract dataOrigins must contain non-empty strings")
-    return frozenset(normalized)
+    # Delegates to the single owner (workspace_contract); retained because tests and
+    # local callers reference this name. Pass CONTRACT_PATH through so tests that
+    # monkeypatch smoke_test.CONTRACT_PATH still steer the loader.
+    return load_runtime_contract(CONTRACT_PATH)
 
 
 def _smoke_local(base_dir: Path, *, require_runtime: bool, require_fixture: bool = False) -> None:
