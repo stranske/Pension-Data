@@ -33,6 +33,43 @@ def _raw(payload: dict[str, Any]) -> RawFundedActuarialInput:
     )
 
 
+def _text_raw(*text_blocks: str) -> RawFundedActuarialInput:
+    return RawFundedActuarialInput(
+        source_document_id="doc:x",
+        source_url="",
+        effective_date="2024-06-30",
+        ingestion_date="2025-01-05",
+        default_money_unit_scale="usd",
+        text_blocks=tuple(text_blocks),
+        table_rows=(),
+    )
+
+
+def test_alias_with_no_value_does_not_steal_next_sentence_number() -> None:
+    # #637: "Funded ratio not disclosed. AAL was $410.5 million." must NOT produce a
+    # funded_ratio fact from the AAL figure in the following sentence.
+    facts, _ = extract_funded_and_actuarial_metrics(
+        plan_id="p",
+        plan_period="FY2024",
+        raw=_text_raw("Funded ratio not disclosed. AAL was $410.5 million."),
+    )
+    names = {item.metric_name for item in facts}
+    assert "funded_ratio" not in names
+    aal = next((item for item in facts if item.metric_name == "aal_usd"), None)
+    assert aal is not None and aal.normalized_value == 410_500_000.0
+
+
+def test_european_number_format_parses_to_correct_magnitude() -> None:
+    # #637: European separators ("1.234,56 million") parse to the right magnitude.
+    facts, _ = extract_funded_and_actuarial_metrics(
+        plan_id="p",
+        plan_period="FY2024",
+        raw=_text_raw("AAL was 1.234,56 million."),
+    )
+    aal = next((item for item in facts if item.metric_name == "aal_usd"), None)
+    assert aal is not None and aal.normalized_value == 1_234_560_000.0
+
+
 def test_table_layout_extracts_all_required_metrics_with_confidence() -> None:
     fixture = _load_fixture()["table_layout_complete"]
     facts, diagnostics = extract_funded_and_actuarial_metrics(

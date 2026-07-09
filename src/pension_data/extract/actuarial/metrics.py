@@ -20,6 +20,9 @@ from pension_data.normalize.numeric_parsing import (
 from pension_data.normalize.numeric_parsing import (
     parse_numeric_token as _parse_numeric_token,
 )
+from pension_data.normalize.numeric_parsing import (
+    truncate_at_sentence_boundary as _truncate_at_sentence_boundary,
+)
 
 ParserMetricKind = Literal["money", "ratio", "count"]
 
@@ -74,6 +77,10 @@ def _parse_numeric_token_after_alias(*, text: str, aliases: tuple[str, ...]) -> 
                 break
             search_start = match_index + len(alias)
             window = text[search_start : search_start + 96]
+            # Do not let the value search cross a sentence boundary: an alias with no
+            # value ("Funded ratio not disclosed.") must not capture the next
+            # sentence's number (a nearby AAL figure).
+            window = _truncate_at_sentence_boundary(window)
             parsed = _parse_numeric_token(window)
             if parsed is not None:
                 candidates.append((search_start, parsed))
@@ -81,7 +88,10 @@ def _parse_numeric_token_after_alias(*, text: str, aliases: tuple[str, ...]) -> 
 
     if candidates:
         return sorted(candidates, key=lambda row: row[0])[0][1]
-    return _parse_numeric_token(text)
+    # Alias present but no value within its sentence-bounded window: treat as
+    # "not disclosed" rather than grabbing an unrelated number elsewhere in the text
+    # (which let a nearby AAL figure become the funded ratio). #637
+    return None
 
 
 def _normalize_metric_value(
