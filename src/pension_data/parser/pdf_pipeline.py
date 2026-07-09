@@ -274,10 +274,13 @@ def _extract_table_rows(*, page_number: int, lines: Sequence[str]) -> list[dict[
         year_columns = [column for column in columns[1:] if column.isdigit() and len(column) == 4]
         if len(columns) >= 2 and _looks_like_metric_label(columns[0]):
             label = columns[0]
-            if year_columns and len(columns) > len(year_columns) + 1:
-                value = columns[-1]
-            else:
-                value = columns[1]
+            # Select the most recent period: the rightmost value column that is not a
+            # bare year header. Avoids returning a stale first-year value or a year
+            # token when a table carries prior/current-year columns.
+            value_columns = [
+                column for column in columns[1:] if not (column.isdigit() and len(column) == 4)
+            ]
+            value = value_columns[-1] if value_columns else ""
         elif ":" in line:
             left, right = line.split(":", 1)
             if _looks_like_metric_label(left):
