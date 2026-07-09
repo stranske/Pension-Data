@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,26 +17,12 @@ from pension_data.query.run_record import (
     record_relative_path,
     write_query_run_record,
 )
+from pension_data.query.sql_safety import SQLSafetyValidationError, validate_read_only_sql
 
 DatabaseDialect = Literal["sqlite", "postgresql"]
 SqlParams = Mapping[str, Any] | tuple[Any, ...] | list[Any]
 
-_FORBIDDEN_SQL_TOKENS: tuple[str, ...] = (
-    "insert",
-    "update",
-    "delete",
-    "drop",
-    "alter",
-    "create",
-    "replace",
-    "attach",
-    "detach",
-    "pragma",
-    "vacuum",
-    "reindex",
-)
 _RESERVED_PAGING_PARAM_KEYS: frozenset[str] = frozenset({"_pd_limit", "_pd_offset"})
-_SQL_WORD_PATTERN = re.compile(r"\b[a-z_][a-z0-9_]*\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,13 +116,6 @@ class DBConnection(Protocol):
         """Execute SQL and return DB-API cursor-like result."""
 
 
-def _normalized_sql(sql: str) -> str:
-    normalized = sql.strip().rstrip(";").strip()
-    if not normalized:
-        raise SQLExecutionValidationError("SQL query must be non-empty")
-    return normalized
-
-
 def _validate_request(request: SQLQueryRequest) -> None:
     if request.page < 1:
         raise SQLExecutionValidationError("page must be >= 1")
@@ -147,95 +125,6 @@ def _validate_request(request: SQLQueryRequest) -> None:
         raise SQLExecutionValidationError("timeout_ms must be >= 1")
     if request.max_rows < 1:
         raise SQLExecutionValidationError("max_rows must be >= 1")
-
-
-def _enforce_read_only_sql(sql: str) -> None:
-    sanitized = _strip_sql_comments_and_strings(sql)
-    lowered = sanitized.lower().lstrip()
-    if not lowered.startswith(("select", "with")):
-        raise SQLExecutionValidationError("only read-only SELECT/WITH queries are allowed")
-    if ";" in sanitized:
-        raise SQLExecutionValidationError("multiple SQL statements are not allowed")
-    tokens = {match.group(0).lower() for match in _SQL_WORD_PATTERN.finditer(sanitized)}
-    forbidden = sorted(token for token in _FORBIDDEN_SQL_TOKENS if token in tokens)
-    if forbidden:
-        raise SQLExecutionValidationError(
-            "query contains forbidden token(s): " + ", ".join(forbidden)
-        )
-
-
-def _strip_sql_comments_and_strings(sql: str) -> str:
-    result: list[str] = []
-    index = 0
-    in_single = False
-    in_double = False
-    in_line_comment = False
-    in_block_comment = False
-    while index < len(sql):
-        current = sql[index]
-        nxt = sql[index + 1] if index + 1 < len(sql) else ""
-
-        if in_line_comment:
-            if current == "\n":
-                in_line_comment = False
-                result.append("\n")
-            else:
-                result.append(" ")
-            index += 1
-            continue
-        if in_block_comment:
-            if current == "*" and nxt == "/":
-                in_block_comment = False
-                result.extend((" ", " "))
-                index += 2
-            else:
-                result.append(" ")
-                index += 1
-            continue
-        if in_single:
-            if current == "'" and nxt == "'":
-                result.extend((" ", " "))
-                index += 2
-                continue
-            if current == "'":
-                in_single = False
-            result.append(" ")
-            index += 1
-            continue
-        if in_double:
-            if current == '"' and nxt == '"':
-                result.extend((" ", " "))
-                index += 2
-                continue
-            if current == '"':
-                in_double = False
-            result.append(" ")
-            index += 1
-            continue
-
-        if current == "-" and nxt == "-":
-            in_line_comment = True
-            result.extend((" ", " "))
-            index += 2
-            continue
-        if current == "/" and nxt == "*":
-            in_block_comment = True
-            result.extend((" ", " "))
-            index += 2
-            continue
-        if current == "'":
-            in_single = True
-            result.append(" ")
-            index += 1
-            continue
-        if current == '"':
-            in_double = True
-            result.append(" ")
-            index += 1
-            continue
-        result.append(current)
-        index += 1
-    return "".join(result)
 
 
 def _normalize_params(params: SqlParams | None) -> SqlParams | tuple[()]:
@@ -481,8 +370,10 @@ def execute_sql_query(
 
     try:
         _validate_request(request)
-        sql = _normalized_sql(request.sql)
-        _enforce_read_only_sql(sql)
+        try:
+            sql = validate_read_only_sql(request.sql)
+        except SQLSafetyValidationError as exc:
+            raise SQLExecutionValidationError(str(exc)) from exc
         params = _normalize_params(request.params)
 
         deadline = start + (request.timeout_ms / 1000.0)
