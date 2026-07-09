@@ -118,8 +118,10 @@ function normalizeWorkspaceBundle(payload) {
     throw new Error("workspace bundle is missing contractVersion");
   }
   if (contractVersion !== RUNTIME_CONTRACT_VERSION) {
-    console.warn(
-      `workspace contractVersion '${contractVersion}' differs from expected '${RUNTIME_CONTRACT_VERSION}'`
+    // Reject (do not merely warn): a contractVersion mismatch means the bundle was
+    // built against a different contract and may not match the renderer's assumptions.
+    throw new Error(
+      `workspace contractVersion '${contractVersion}' does not match expected '${RUNTIME_CONTRACT_VERSION}'`
     );
   }
   const dataOrigin = normalizeDataOrigin(payload.data_origin);
