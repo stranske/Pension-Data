@@ -5,11 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Mapping
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from workspace_contract import validate_workspace_bundle  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB_ROOT = ROOT / "apps" / "web"
@@ -47,14 +51,11 @@ def _assert_workspace_bundle(
     path_label: str,
     allow_fixture_demo: bool,
 ) -> None:
-    data_origin = payload.get("data_origin")
-    allowed = ALLOWED_ORIGINS | (frozenset({"fixture"}) if allow_fixture_demo else frozenset())
-    if data_origin not in allowed:
-        allowed_text = ", ".join(sorted(allowed))
-        raise ValueError(f"{path_label} must declare data_origin of {allowed_text}")
-    datasets = payload.get("datasets")
-    if not isinstance(datasets, list) or not datasets:
-        raise ValueError(f"{path_label} must contain at least one dataset")
+    # Delegate to the shared validator so serve_local enforces the SAME invariants
+    # smoke_test does (crucially the contractVersion match it previously skipped).
+    # serve's origin policy: generated/live, plus fixture only in explicit demo mode.
+    accepted = ALLOWED_ORIGINS | (frozenset({"fixture"}) if allow_fixture_demo else frozenset())
+    validate_workspace_bundle(payload, path_label=path_label, accepted_origins=accepted)
 
 
 def load_workspace_bundle(path: Path, *, allow_fixture_demo: bool = False) -> dict[str, Any]:
