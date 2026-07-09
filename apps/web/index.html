@@ -56,6 +56,12 @@
           <button id="reload-packaged-data" type="button">Reload Packaged Bundle</button>
         </div>
         <p id="local-bundle-status" class="hint">Using packaged fixture bundle (demo data).</p>
+        <p class="hint">
+          <strong>Connect real data:</strong> generate a workspace bundle from a pipeline run
+          with <code>python scripts/web/build_workspace_bundle.py --pilot-run-dir &lt;run&gt; --out
+          workspace.generated.json</code>, then load it above with <em>Load Local Bundle</em> (or
+          serve it via <code>scripts/web/serve_local.py</code>).
+        </p>
       </section>
 
       <section class="workspace-grid">
