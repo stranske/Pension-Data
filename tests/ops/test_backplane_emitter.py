@@ -95,6 +95,43 @@ def test_reference_run_validates_strictly(tmp_path: Path) -> None:
         assert len(artifact["sha256"]) == 64
 
 
+def test_documented_one_pdf_pilot_command_emits_backplane_artifacts(tmp_path: Path) -> None:
+    output_root = tmp_path / "documented-command"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_one_pdf_pilot.py",
+            "--pdf-path",
+            str(_FIXTURE),
+            "--plan-id",
+            "CA-PERS",
+            "--plan-period",
+            "FY2024",
+            "--effective-date",
+            "2024-06-30",
+            "--ingestion-date",
+            "2026-01-01",
+            "--output-root",
+            str(output_root),
+            "--run-id",
+            "pension-data-backplane-cli-test",
+        ],
+        cwd=_REPO_ROOT,
+        text=True,
+        capture_output=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout)
+    run_json = Path(result["backplane_run_json"])
+    manifest = Path(result["backplane_manifest_json"])
+    assert run_json == output_root / "run.json"
+    assert manifest == output_root / "manifest.json"
+    assert run_json.exists()
+    assert manifest.exists()
+    validation = _validate(run_json, manifest)
+    assert validation.returncode == 0, validation.stderr
+
+
 def test_run_id_is_deterministic_for_same_pilot_input(tmp_path: Path) -> None:
     first = valid_reference_run(tmp_path / "first")
     second = valid_reference_run(tmp_path / "second")
