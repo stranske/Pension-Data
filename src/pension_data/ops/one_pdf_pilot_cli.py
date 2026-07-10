@@ -5,7 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
+from pathlib import Path
 
+from pension_data.ops.backplane_emitter import build_backplane_reference_run
 from pension_data.ops.one_pdf_pilot import (
     one_pdf_pilot_input_contract,
     resolve_one_pdf_pilot_input,
@@ -109,11 +112,21 @@ def main() -> int:
             output_root=args.output_root,
             run_id=args.run_id,
         )
+        start = time.perf_counter()
         result = run_one_pdf_pilot(
             pilot_input=pilot_input,
             output_root=output_root,
             run_id=run_id,
         )
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        backplane_paths = build_backplane_reference_run(
+            pilot_manifest_path=Path(str(result["run_manifest_json"])),
+            output_dir=output_root,
+            wall_ms=elapsed_ms,
+            repo_root=Path.cwd(),
+        )
+        result["backplane_run_json"] = str(backplane_paths["run_json"])
+        result["backplane_manifest_json"] = str(backplane_paths["manifest"])
     except Exception as exc:  # noqa: BLE001
         print(f"one-pdf pilot failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
