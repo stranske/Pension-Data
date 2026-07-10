@@ -12,8 +12,11 @@ def test_manifest_must_cover_all_artifacts(tmp_path):
     paths = valid_reference_run(tmp_path)
     run_payload = _load(paths["run_json"])
     manifest = _load(paths["manifest"])
-    broken = copy.deepcopy(manifest)
     missing_id = run_payload["outputs"]["artifact_ids"][0]
+    original_manifest_ids = {artifact["artifact_id"] for artifact in manifest["artifacts"]}
+    assert missing_id in original_manifest_ids, "artifact missing from manifest"
+
+    broken = copy.deepcopy(manifest)
     broken["artifacts"] = [
         artifact for artifact in broken["artifacts"] if artifact["artifact_id"] != missing_id
     ]

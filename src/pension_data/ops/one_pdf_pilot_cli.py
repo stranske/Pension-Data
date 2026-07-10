@@ -16,6 +16,8 @@ from pension_data.ops.one_pdf_pilot import (
     run_one_pdf_pilot,
 )
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
 
 def _build_parser() -> argparse.ArgumentParser:
     contract = one_pdf_pilot_input_contract()
@@ -123,7 +125,7 @@ def main() -> int:
             pilot_manifest_path=Path(str(result["run_manifest_json"])),
             output_dir=output_root,
             wall_ms=elapsed_ms,
-            repo_root=Path.cwd(),
+            repo_root=_REPO_ROOT,
         )
         result["backplane_run_json"] = str(backplane_paths["run_json"])
         result["backplane_manifest_json"] = str(backplane_paths["manifest"])
