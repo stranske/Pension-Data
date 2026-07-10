@@ -64,6 +64,13 @@ def _validate(run_json: Path, manifest: Path) -> subprocess.CompletedProcess[str
     )
 
 
+def _validation_error_points_to(
+    completed: subprocess.CompletedProcess[str], *path_parts: str
+) -> bool:
+    stderr = completed.stderr.lower()
+    return all(part.lower() in stderr for part in path_parts)
+
+
 def test_reference_run_validates_strictly(tmp_path: Path) -> None:
     paths = valid_reference_run(tmp_path)
     completed = _validate(paths["run_json"], paths["manifest"])
@@ -102,7 +109,7 @@ def test_negative_cost_is_rejected(tmp_path: Path) -> None:
 
     completed = _validate(paths["run_json"], paths["manifest"])
     assert completed.returncode != 0
-    assert "less than the minimum" in completed.stderr
+    assert _validation_error_points_to(completed, "cost", "usd"), completed.stderr
 
 
 def test_negative_latency_is_rejected(tmp_path: Path) -> None:
@@ -113,7 +120,7 @@ def test_negative_latency_is_rejected(tmp_path: Path) -> None:
 
     completed = _validate(paths["run_json"], paths["manifest"])
     assert completed.returncode != 0
-    assert "less than the minimum" in completed.stderr
+    assert _validation_error_points_to(completed, "latency", "wall_ms"), completed.stderr
 
 
 def test_raw_payload_fields_are_rejected(tmp_path: Path) -> None:

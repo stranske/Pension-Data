@@ -29,7 +29,7 @@
         "identity_refs",
         "data_quality"
       ],
-      "status": "planned",
+      "status": "emitting",
       "rationale": "Readiest in the fleet (6-standard sum 15/18). Already has run ledgers, named artifacts, 3/3 artifact_discipline and identity_map, page-level evidence. The proof-of-concept producer (P2). Gap is the unified query/NL run envelope + cost capture + evidence excerpt/method."
     },
     {

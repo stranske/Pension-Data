@@ -171,7 +171,7 @@ def build_backplane_reference_run(
         "repo": REPO,
         "tool": TOOL,
         "run_id": run_id,
-        "status": "success" if pilot_manifest.get("ledger_status") == "success" else "partial",
+        "status": "success" if pilot_manifest.get("ledger_status") == "success" else "error",
         "github_issue": SOURCE_ISSUE,
         "actor": {
             "kind": "ci",
@@ -205,7 +205,7 @@ def build_backplane_reference_run(
             "git_sha": git_sha,
             "python_version": platform.python_version(),
             "platform": platform.platform(),
-            "code_version": git_sha,
+            "code_version": git_sha or "unknown",
         },
         "cost": {"usd": 0, "input_tokens": 0, "output_tokens": 0},
         "latency": {"wall_ms": wall_ms},
