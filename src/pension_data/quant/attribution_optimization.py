@@ -48,7 +48,9 @@ def compute_attribution(
         if bucket not in realized_returns:
             raise ValueError(f"missing realized return for bucket '{bucket}'")
         weight = require_finite(weight, field=f"weights[{bucket!r}]")
-        return_rate = require_finite(realized_returns[bucket], field=f"realized_returns[{bucket!r}]")
+        return_rate = require_finite(
+            realized_returns[bucket], field=f"realized_returns[{bucket!r}]"
+        )
         rows.append(
             AttributionRow(
                 bucket=bucket,

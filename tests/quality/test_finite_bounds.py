@@ -93,7 +93,14 @@ def test_attribution_rejects_non_finite(value: float) -> None:
 
 def test_scenario_rejects_non_finite_input() -> None:
     with pytest.raises(ValueError, match="finite"):
-        run_deterministic_scenario(plan_id="p", plan_period="FY", baseline_metrics={"funded_ratio": 0.8}, scenario=ScenarioInput(name="bad", macro_shocks={"funded_ratio": float("nan")}), config=ScenarioRunConfig(module_version="v1"), source_snapshot_id="s")
+        run_deterministic_scenario(
+            plan_id="p",
+            plan_period="FY",
+            baseline_metrics={"funded_ratio": 0.8},
+            scenario=ScenarioInput(name="bad", macro_shocks={"funded_ratio": float("nan")}),
+            config=ScenarioRunConfig(module_version="v1"),
+            source_snapshot_id="s",
+        )
 
 
 # --- SLA ratios ---------------------------------------------------------------
