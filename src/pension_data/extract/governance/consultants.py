@@ -17,6 +17,7 @@ from pension_data.db.models.consultants import (
     ConsultantRecommendation,
     PlanConsultantEngagement,
 )
+from pension_data.finite_guards import bounded_confidence
 from pension_data.normalize.entity_tokens import normalize_entity_token
 
 ConsultantWarningCode = Literal["non_disclosure", "ambiguous_naming", "missing_topic"]
@@ -125,7 +126,7 @@ def _clean_text(value: str | None, *, fallback: str) -> str:
 
 
 def _bounded_confidence(value: float) -> float:
-    return round(max(0.0, min(1.0, value)), 6)
+    return bounded_confidence(value)
 
 
 def _dedupe_refs(evidence_refs: tuple[str, ...]) -> tuple[str, ...]:

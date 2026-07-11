@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from pension_data.db.models.risk_exposures import RiskDisclosureType, RiskExposureObservation
+from pension_data.finite_guards import bounded_confidence, require_finite
 
 ValueUnit = Literal["usd", "thousand_usd", "million_usd", "billion_usd", "ratio"]
 SourceKind = Literal["table", "narrative"]
@@ -79,7 +80,7 @@ def _dedupe_refs(evidence_refs: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _bounded_confidence(confidence: float) -> float:
-    return round(max(0.0, min(1.0, confidence)), 6)
+    return bounded_confidence(confidence)
 
 
 def _source_metadata(
@@ -93,14 +94,14 @@ def _to_usd(value: float | None, *, unit: ValueUnit) -> float | None:
         return None
     if unit == "ratio":
         return None
-    return round(value * _UNIT_MULTIPLIER[unit], 6)
+    return round(require_finite(value, field="risk exposure") * _UNIT_MULTIPLIER[unit], 6)
 
 
 def _to_ratio(value: float | None, *, unit: ValueUnit) -> float | None:
     if value is None:
         return None
     if unit == "ratio":
-        return round(value, 6)
+        return round(require_finite(value, field="risk exposure"), 6)
     return None
 
 
