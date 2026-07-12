@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from pension_data.db.models.risk_exposures import RiskDisclosureType, RiskExposureObservation
-from pension_data.finite_guards import bounded_confidence, require_finite
+from pension_data.finite_guards import bounded_confidence, finite_or_none, require_finite
 
 ValueUnit = Literal["usd", "thousand_usd", "million_usd", "billion_usd", "ratio"]
 SourceKind = Literal["table", "narrative"]
@@ -80,7 +80,10 @@ def _dedupe_refs(evidence_refs: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _bounded_confidence(confidence: float) -> float:
-    return bounded_confidence(confidence)
+    # Preserve the disclosure record for review while ensuring a malformed model
+    # confidence can never be trusted or abort the full extraction.
+    finite_value = finite_or_none(confidence)
+    return 0.0 if finite_value is None else bounded_confidence(finite_value)
 
 
 def _source_metadata(

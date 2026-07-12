@@ -14,6 +14,13 @@ from pension_data.extract.investment.risk_disclosures import (
     extract_risk_exposure_observations,
 )
 
+
+@pytest.mark.parametrize("value", (float("nan"), float("inf"), float("-inf")))
+def test_non_finite_risk_confidence_is_downgraded(value: float) -> None:
+    from pension_data.extract.investment.risk_disclosures import _bounded_confidence
+
+    assert _bounded_confidence(value) == 0.0
+
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "risk_disclosures_golden.json"
 
 

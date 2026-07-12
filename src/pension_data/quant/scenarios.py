@@ -12,6 +12,8 @@ from random import Random
 from statistics import fmean
 from typing import Literal
 
+from pension_data.finite_guards import require_finite
+
 ScenarioMode = Literal["deterministic", "simulation"]
 
 
@@ -87,8 +89,8 @@ def _validate_input(scenario: ScenarioInput, config: ScenarioRunConfig) -> None:
         ("fee_delta_bps", scenario.fee_delta_bps),
         ("return_override", scenario.return_override),
     ):
-        if value is not None and not math.isfinite(value):
-            raise ValueError(f"{field} must be finite")
+        if value is not None:
+            require_finite(value, field=field)
 
 
 def _normalized_macro_shocks(values: Mapping[str, float]) -> dict[str, float]:

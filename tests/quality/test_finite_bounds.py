@@ -88,16 +88,26 @@ def test_attribution_rejects_non_finite(value: float) -> None:
     with pytest.raises(ValueError):
         compute_attribution(weights={"equity": value}, realized_returns={"equity": 0.05})
     with pytest.raises(ValueError):
+        compute_attribution(weights={"equity": 0.5}, realized_returns={"equity": value})
+    with pytest.raises(ValueError):
         reconcile_attribution(computed_total=0.05, source_aggregate=value)
+    with pytest.raises(ValueError):
+        reconcile_attribution(computed_total=value, source_aggregate=0.05)
+    with pytest.raises(ValueError):
+        reconcile_attribution(computed_total=0.05, source_aggregate=0.05, tolerance=value)
 
 
-def test_scenario_rejects_non_finite_input() -> None:
+@pytest.mark.parametrize("field", ("macro_shocks", "contribution_delta", "fee_delta_bps", "return_override"))
+@pytest.mark.parametrize("value", NON_FINITE)
+def test_scenario_rejects_non_finite_input(field: str, value: float) -> None:
+    scenario_fields: dict[str, object] = {"name": "bad", "macro_shocks": {"funded_ratio": 0.0}}
+    scenario_fields[field] = {"funded_ratio": value} if field == "macro_shocks" else value
     with pytest.raises(ValueError, match="finite"):
         run_deterministic_scenario(
             plan_id="p",
             plan_period="FY",
             baseline_metrics={"funded_ratio": 0.8},
-            scenario=ScenarioInput(name="bad", macro_shocks={"funded_ratio": float("nan")}),
+            scenario=ScenarioInput(**scenario_fields),  # type: ignore[arg-type]
             config=ScenarioRunConfig(module_version="v1"),
             source_snapshot_id="s",
         )
