@@ -14,6 +14,7 @@ Two disposition styles are provided so callers can pick the right failure mode:
 from __future__ import annotations
 
 import math
+from typing import TypeGuard
 
 __all__ = [
     "bounded_confidence",
@@ -25,7 +26,7 @@ __all__ = [
 ]
 
 
-def is_finite_number(value: object) -> bool:
+def is_finite_number(value: object) -> TypeGuard[int | float]:
     """True only for a real, finite ``int``/``float`` (``bool`` excluded)."""
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
