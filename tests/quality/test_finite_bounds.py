@@ -97,7 +97,9 @@ def test_attribution_rejects_non_finite(value: float) -> None:
         reconcile_attribution(computed_total=0.05, source_aggregate=0.05, tolerance=value)
 
 
-@pytest.mark.parametrize("field", ("macro_shocks", "contribution_delta", "fee_delta_bps", "return_override"))
+@pytest.mark.parametrize(
+    "field", ("macro_shocks", "contribution_delta", "fee_delta_bps", "return_override")
+)
 @pytest.mark.parametrize("value", NON_FINITE)
 def test_scenario_rejects_non_finite_input(field: str, value: float) -> None:
     scenario_fields: dict[str, object] = {"name": "bad", "macro_shocks": {"funded_ratio": 0.0}}

@@ -21,6 +21,7 @@ def test_non_finite_risk_confidence_is_downgraded(value: float) -> None:
 
     assert _bounded_confidence(value) == 0.0
 
+
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "risk_disclosures_golden.json"
 
 
