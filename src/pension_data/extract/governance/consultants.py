@@ -17,6 +17,7 @@ from pension_data.db.models.consultants import (
     ConsultantRecommendation,
     PlanConsultantEngagement,
 )
+from pension_data.finite_guards import bounded_confidence, finite_or_none
 from pension_data.normalize.entity_tokens import normalize_entity_token
 
 ConsultantWarningCode = Literal["non_disclosure", "ambiguous_naming", "missing_topic"]
@@ -125,7 +126,11 @@ def _clean_text(value: str | None, *, fallback: str) -> str:
 
 
 def _bounded_confidence(value: float) -> float:
-    return round(max(0.0, min(1.0, value)), 6)
+    # An untrusted model confidence must not abort the whole document extraction.
+    # Downgrade it to zero so the extracted record stays reviewable rather than
+    # becoming a falsely high-confidence result or disappearing in an exception.
+    finite_value = finite_or_none(value)
+    return 0.0 if finite_value is None else bounded_confidence(finite_value)
 
 
 def _dedupe_refs(evidence_refs: tuple[str, ...]) -> tuple[str, ...]:

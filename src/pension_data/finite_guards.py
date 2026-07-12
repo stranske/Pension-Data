@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import math
 
-__all__ = ["is_finite_number", "require_finite", "finite_or_none"]
+__all__ = ["bounded_confidence", "is_finite_number", "require_finite", "finite_or_none"]
 
 
 def is_finite_number(value: object) -> bool:
@@ -35,3 +35,8 @@ def finite_or_none(value: float | None) -> float | None:
     if value is None:
         return None
     return float(value) if is_finite_number(value) else None
+
+
+def bounded_confidence(value: float) -> float:
+    """Clamp a finite confidence to [0, 1]; reject NaN and infinities."""
+    return round(max(0.0, min(1.0, require_finite(value, field="confidence"))), 6)

@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from pension_data.extract.governance.consultants import (
     AttributionMention,
     ConsultantMention,
@@ -16,6 +18,13 @@ from pension_data.extract.governance.consultants import (
 )
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "consultant_extraction_golden.json"
+
+
+@pytest.mark.parametrize("value", (float("nan"), float("inf"), float("-inf")))
+def test_non_finite_consultant_confidence_is_downgraded(value: float) -> None:
+    from pension_data.extract.governance.consultants import _bounded_confidence
+
+    assert _bounded_confidence(value) == 0.0
 
 
 def _load_fixture() -> dict[str, Any]:

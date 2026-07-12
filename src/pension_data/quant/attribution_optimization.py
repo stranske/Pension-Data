@@ -10,6 +10,8 @@ from itertools import product
 from pathlib import Path
 from typing import Literal
 
+from pension_data.finite_guards import require_finite
+
 _MAX_GRID_CANDIDATES = 250_000
 
 
@@ -45,7 +47,10 @@ def compute_attribution(
         weight = weights[bucket]
         if bucket not in realized_returns:
             raise ValueError(f"missing realized return for bucket '{bucket}'")
-        return_rate = realized_returns[bucket]
+        weight = require_finite(weight, field=f"weights[{bucket!r}]")
+        return_rate = require_finite(
+            realized_returns[bucket], field=f"realized_returns[{bucket!r}]"
+        )
         rows.append(
             AttributionRow(
                 bucket=bucket,
@@ -65,6 +70,9 @@ def reconcile_attribution(
     tolerance: float = 1e-6,
 ) -> AttributionReconciliation:
     """Reconcile computed attribution total against a source aggregate."""
+    computed_total = require_finite(computed_total, field="computed_total")
+    source_aggregate = require_finite(source_aggregate, field="source_aggregate")
+    tolerance = require_finite(tolerance, field="tolerance")
     if tolerance < 0:
         raise ValueError("tolerance must be >= 0")
     delta = computed_total - source_aggregate

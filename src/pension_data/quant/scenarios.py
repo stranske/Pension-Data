@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from numbers import Real
 from random import Random
 from statistics import fmean
 from typing import Literal
+
+from pension_data.finite_guards import require_finite
 
 ScenarioMode = Literal["deterministic", "simulation"]
 
@@ -79,6 +82,15 @@ def _validate_input(scenario: ScenarioInput, config: ScenarioRunConfig) -> None:
             raise ValueError("macro_shocks keys must be non-empty")
         if isinstance(shock, bool) or not isinstance(shock, Real):
             raise ValueError("macro_shocks values must be numeric")
+        if not math.isfinite(shock):
+            raise ValueError("macro_shocks values must be finite")
+    for field, value in (
+        ("contribution_delta", scenario.contribution_delta),
+        ("fee_delta_bps", scenario.fee_delta_bps),
+        ("return_override", scenario.return_override),
+    ):
+        if value is not None:
+            require_finite(value, field=field)
 
 
 def _normalized_macro_shocks(values: Mapping[str, float]) -> dict[str, float]:
