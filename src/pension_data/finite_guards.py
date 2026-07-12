@@ -14,7 +14,7 @@ Two disposition styles are provided so callers can pick the right failure mode:
 from __future__ import annotations
 
 import math
-from typing import TypeGuard
+from typing import SupportsFloat, SupportsIndex, TypeGuard, cast
 
 __all__ = [
     "bounded_confidence",
@@ -61,7 +61,7 @@ def bounded_confidence_or_none(value: object) -> float | None:
     if isinstance(value, bool):
         return None
     try:
-        parsed = float(value)
+        parsed = float(cast(str | SupportsFloat | SupportsIndex, value))
     except (TypeError, ValueError):
         return None
     if not math.isfinite(parsed):
