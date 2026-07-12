@@ -51,10 +51,22 @@ def bounded_confidence(value: float) -> float:
 
 
 def bounded_confidence_or_none(value: object) -> float | None:
-    """Clamp a finite confidence or return ``None`` for an untrustworthy value."""
-    if not is_finite_number(value):
+    """Clamp a finite confidence or return ``None`` for an untrustworthy value.
+
+    Confidence tokens originate in extractor payloads, where a finite numeric
+    value can legitimately arrive as a string.  Preserve that established input
+    contract while still rejecting booleans, malformed values, NaN, and
+    infinities before routing or persistence can trust them.
+    """
+    if isinstance(value, bool):
         return None
-    return bounded_confidence(float(value))
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return bounded_confidence(parsed)
 
 
 def bounded_confidence_or_zero(value: object) -> float:

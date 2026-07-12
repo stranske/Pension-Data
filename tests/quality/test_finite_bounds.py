@@ -52,6 +52,8 @@ def test_finite_guards_helpers() -> None:
     assert all(finite_or_none(v) is None for v in NON_FINITE + [None])
     assert bounded_confidence_or_none(1.5) == 1.0
     assert bounded_confidence_or_zero(-1.0) == 0.0
+    assert bounded_confidence_or_none("0.8") == 0.8
+    assert bounded_confidence_or_zero("0.8") == 0.8
     assert all(bounded_confidence_or_none(v) is None for v in NON_FINITE)
     assert all(bounded_confidence_or_zero(v) == 0.0 for v in NON_FINITE)
 
