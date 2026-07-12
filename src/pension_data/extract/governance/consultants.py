@@ -17,7 +17,7 @@ from pension_data.db.models.consultants import (
     ConsultantRecommendation,
     PlanConsultantEngagement,
 )
-from pension_data.finite_guards import bounded_confidence, finite_or_none
+from pension_data.finite_guards import bounded_confidence_or_zero
 from pension_data.normalize.entity_tokens import normalize_entity_token
 
 ConsultantWarningCode = Literal["non_disclosure", "ambiguous_naming", "missing_topic"]
@@ -123,14 +123,6 @@ def _clean_text(value: str | None, *, fallback: str) -> str:
         return fallback
     normalized = value.strip()
     return normalized if normalized else fallback
-
-
-def _bounded_confidence(value: float) -> float:
-    # An untrusted model confidence must not abort the whole document extraction.
-    # Downgrade it to zero so the extracted record stays reviewable rather than
-    # becoming a falsely high-confidence result or disappearing in an exception.
-    finite_value = finite_or_none(value)
-    return 0.0 if finite_value is None else bounded_confidence(finite_value)
 
 
 def _dedupe_refs(evidence_refs: tuple[str, ...]) -> tuple[str, ...]:
@@ -265,7 +257,7 @@ def extract_consultant_records(
                 ambiguous_names=ambiguous_names,
             ),
             confidence=max(
-                _bounded_confidence(consultant_mention.confidence)
+                bounded_confidence_or_zero(consultant_mention.confidence)
                 for consultant_mention in consultant_group
             ),
             evidence_refs=merged_refs,
@@ -297,7 +289,7 @@ def extract_consultant_records(
                 consultant_mention.role_description, fallback="not_disclosed"
             ),
             is_disclosed=_is_disclosed_name(consultant_mention.consultant_name),
-            confidence=_bounded_confidence(consultant_mention.confidence),
+            confidence=bounded_confidence_or_zero(consultant_mention.confidence),
             evidence_refs=_dedupe_refs(consultant_mention.evidence_refs),
             source_metadata=_source_metadata(consultant_mention.source_url),
         )
@@ -383,7 +375,7 @@ def extract_consultant_records(
                 board_decision_status=normalize_board_decision_status(
                     recommendation_mention.board_decision_status
                 ),
-                confidence=_bounded_confidence(recommendation_mention.confidence),
+                confidence=bounded_confidence_or_zero(recommendation_mention.confidence),
                 evidence_refs=_dedupe_refs(recommendation_mention.evidence_refs),
                 source_metadata=_source_metadata(recommendation_mention.source_url),
             )
@@ -427,7 +419,7 @@ def extract_consultant_records(
             recommendation_topic=_clean_text(attr_mention.topic, fallback="not_disclosed"),
             observed_outcome=_clean_text(attr_mention.observed_outcome, fallback="not_disclosed"),
             strength=normalize_attribution_strength(attr_mention.strength),
-            confidence=_bounded_confidence(attr_mention.confidence),
+            confidence=bounded_confidence_or_zero(attr_mention.confidence),
             evidence_refs=_dedupe_refs(attr_mention.evidence_refs),
             source_metadata=_source_metadata(attr_mention.source_url),
         )

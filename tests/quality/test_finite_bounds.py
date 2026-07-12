@@ -11,7 +11,13 @@ from datetime import UTC, datetime
 
 import pytest
 
-from pension_data.finite_guards import finite_or_none, is_finite_number, require_finite
+from pension_data.finite_guards import (
+    bounded_confidence_or_none,
+    bounded_confidence_or_zero,
+    finite_or_none,
+    is_finite_number,
+    require_finite,
+)
 from pension_data.normalize.financial_units import normalize_money_to_usd
 from pension_data.normalize.investment_normalization import normalize_rate_to_ratio
 from pension_data.quality.anomaly_rules import (
@@ -44,6 +50,12 @@ def test_finite_guards_helpers() -> None:
             require_finite(v, field="x")
     assert finite_or_none(3.0) == 3.0
     assert all(finite_or_none(v) is None for v in NON_FINITE + [None])
+    assert bounded_confidence_or_none(1.5) == 1.0
+    assert bounded_confidence_or_zero(-1.0) == 0.0
+    assert bounded_confidence_or_none("0.8") == 0.8
+    assert bounded_confidence_or_zero("0.8") == 0.8
+    assert all(bounded_confidence_or_none(v) is None for v in NON_FINITE)
+    assert all(bounded_confidence_or_zero(v) == 0.0 for v in NON_FINITE)
 
 
 # --- confidence routing (the P0: NaN must never auto-accept) ------------------

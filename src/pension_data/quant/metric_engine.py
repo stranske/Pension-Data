@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from statistics import fmean
 from typing import Literal
 
+from pension_data.finite_guards import bounded_confidence_or_none
 from pension_data.quant.contracts import (
     QuantDataPoint,
     QuantSeriesContract,
@@ -135,17 +136,6 @@ def _to_float(value: object) -> float | None:
     return parsed if math.isfinite(parsed) else None
 
 
-def _bounded_confidence(value: object) -> float | None:
-    parsed = _to_float(value)
-    if parsed is None or not math.isfinite(parsed):
-        return None
-    if parsed < 0:
-        return 0.0
-    if parsed > 1:
-        return 1.0
-    return parsed
-
-
 def _as_refs(values: object) -> tuple[str, ...]:
     if isinstance(values, (str, bytes, bytearray)):
         return ()
@@ -194,7 +184,7 @@ def _build_metric_input_index(
         group_metrics = index.setdefault(group_key, {})
         group_metrics[metric_name.strip()] = _MetricInput(
             value=normalized_value,
-            confidence=_bounded_confidence(row.get("confidence")),
+            confidence=bounded_confidence_or_none(row.get("confidence")),
             fact_id=fact_id,
             evidence_refs=_as_refs(row.get("evidence_refs")),
             plan_id=group_key[0],
@@ -227,7 +217,7 @@ def _cash_flow_inputs(
             parsed = _to_float(row.get(field))
             if parsed is not None:
                 values[field] = parsed
-        confidence = _bounded_confidence(row.get("confidence"))
+        confidence = bounded_confidence_or_none(row.get("confidence"))
         entries.append(
             (
                 plan_id.strip(),

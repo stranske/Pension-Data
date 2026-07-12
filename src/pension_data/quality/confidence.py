@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from pension_data.finite_guards import is_finite_number
+from pension_data.finite_guards import bounded_confidence_or_none
 
 RoutingOutcome = Literal["auto_accept", "publish_with_warning", "high_priority_review"]
 ReviewPriority = Literal["none", "medium", "high"]
@@ -42,21 +42,9 @@ class ConfidenceRoutingDecision:
     evidence_refs: tuple[str, ...]
 
 
-def _bounded_confidence(value: float) -> float | None:
-    """Clamp to [0, 1]; return None for a non-finite (NaN/inf) confidence.
-
-    A bare ``max(0.0, min(1.0, value))`` returns 1.0 for NaN (min(1.0, nan) == 1.0),
-    which would auto-accept a garbage extraction. None signals "not a trustworthy
-    confidence" so the caller routes it to review instead.
-    """
-    if not is_finite_number(value):
-        return None
-    return round(max(0.0, min(1.0, value)), 6)
-
-
 def route_confidence_row(row: ExtractionConfidenceInput) -> ConfidenceRoutingDecision:
     """Route one extraction row according to approved confidence policy."""
-    bounded = _bounded_confidence(row.confidence)
+    bounded = bounded_confidence_or_none(row.confidence)
     if bounded is None:
         # Non-finite confidence (NaN/inf) is never trusted: force high-priority review
         # and block publication rather than letting the clamp report a false 1.0.
