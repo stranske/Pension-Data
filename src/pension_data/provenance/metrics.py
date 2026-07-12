@@ -15,6 +15,7 @@ from pension_data.db.models.core_facts import (
 from pension_data.db.models.provenance import EvidenceReference, MetricEvidenceLink
 from pension_data.extract.common.evidence import build_evidence_reference, canonicalize_evidence_ref
 from pension_data.extract.common.ids import stable_id
+from pension_data.finite_guards import finite_or_none
 
 
 class EvidenceValidationError(ValueError):
@@ -223,7 +224,9 @@ def build_core_metric_evidence_artifacts(
                 metric_family=source.metric_family,
                 metric_name=source.metric_name,
                 evidence_ref_id=evidence.evidence_ref_id,
-                confidence=source.confidence,
+                # Evidence links are exported to downstream reviewers, so do not
+                # let a NaN/inf confidence cross this final provenance boundary.
+                confidence=finite_or_none(source.confidence),
             )
             links_by_id[link.link_id] = link
 

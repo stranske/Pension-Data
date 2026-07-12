@@ -429,6 +429,24 @@ def test_persisted_fact_ids_use_normalized_evidence_refs() -> None:
     assert id_from_whitespace_dupes["evidence_refs"] == ["p14"]
 
 
+@pytest.mark.parametrize("value", (float("nan"), float("inf"), float("-inf")))
+def test_persistence_drops_non_finite_metric_values_and_confidence(value: float) -> None:
+    funded_fixture = _load_json(FUNDED_FIXTURE_PATH)["table_layout_complete"]
+    funded_rows, _ = extract_funded_and_actuarial_metrics(
+        plan_id=funded_fixture["plan_id"],
+        plan_period=funded_fixture["plan_period"],
+        raw=_raw_funded(funded_fixture["raw"]),
+    )
+
+    persisted = persist_funded_actuarial_metrics(
+        [replace(funded_rows[0], normalized_value=value, confidence=value)],
+        benchmark_version="v1",
+    )[0]
+
+    assert persisted["normalized_value"] is None
+    assert persisted["confidence"] is None
+
+
 def test_funded_diagnostics_require_warning_context() -> None:
     funded_fixture = _load_json(FUNDED_FIXTURE_PATH)["text_layout_missing_participants"]
     _, funded_diagnostics = extract_funded_and_actuarial_metrics(
