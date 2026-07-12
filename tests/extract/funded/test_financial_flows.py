@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -125,3 +126,15 @@ def test_source_metadata_is_read_only() -> None:
     )
     with pytest.raises(TypeError):
         flow.source_metadata["unit_scale"] = "usd"
+
+
+@pytest.mark.parametrize("value", (float("nan"), float("inf"), float("-inf")))
+def test_non_finite_aum_is_rejected_before_a_flow_row_is_created(value: float) -> None:
+    fixture = _load_fixture()["complete_million_layout"]
+
+    with pytest.raises(ValueError, match="amount must be a finite number"):
+        extract_plan_financial_flow(
+            plan_id=fixture["plan_id"],
+            plan_period=fixture["plan_period"],
+            raw=replace(_raw(fixture["raw"]), beginning_aum=value),
+        )

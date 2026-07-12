@@ -120,6 +120,23 @@ def test_builder_threads_per_link_confidence_from_fact() -> None:
     assert all(link.confidence == pytest.approx(0.91) for link in links)
 
 
+@pytest.mark.parametrize("value", (float("nan"), float("inf"), float("-inf")))
+def test_builder_drops_non_finite_fact_confidence_from_evidence_links(value: float) -> None:
+    funded_facts = (
+        FundedStatusFact(
+            context=_context(source_document_id="doc:ca:2025:funded"),
+            metric_name="funded_ratio",
+            metric_value=_value(),
+            confidence=value,
+            evidence_refs=("p.45",),
+        ),
+    )
+
+    artifacts = build_core_metric_evidence_artifacts(funded_facts=funded_facts)
+
+    assert artifacts["metric_evidence_links"][0].confidence is None
+
+
 def test_table_derived_finding_populates_method_table() -> None:
     # Parser table rows emit page locators with a table section marker. That
     # must surface method="table" through the real artifact builder path.
