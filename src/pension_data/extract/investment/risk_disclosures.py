@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import Literal
 
 from pension_data.db.models.risk_exposures import RiskDisclosureType, RiskExposureObservation
-from pension_data.finite_guards import bounded_confidence, finite_or_none, require_finite
+from pension_data.finite_guards import bounded_confidence_or_zero, require_finite
 
 ValueUnit = Literal["usd", "thousand_usd", "million_usd", "billion_usd", "ratio"]
 SourceKind = Literal["table", "narrative"]
@@ -79,13 +79,6 @@ def _dedupe_refs(evidence_refs: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(ref.strip() for ref in evidence_refs if ref.strip()))
 
 
-def _bounded_confidence(confidence: float) -> float:
-    # Preserve the disclosure record for review while ensuring a malformed model
-    # confidence can never be trusted or abort the full extraction.
-    finite_value = finite_or_none(confidence)
-    return 0.0 if finite_value is None else bounded_confidence(finite_value)
-
-
 def _source_metadata(
     *, source_url: str, source_kind: SourceKind, unit: ValueUnit
 ) -> MappingProxyType[str, str]:
@@ -132,7 +125,7 @@ def _make_observation(
         value_usd=_to_usd(value, unit=unit),
         value_ratio=_to_ratio(value, unit=unit),
         as_reported_text=as_reported_text.strip() or "not_disclosed",
-        confidence=_bounded_confidence(confidence),
+        confidence=bounded_confidence_or_zero(confidence),
         evidence_refs=_dedupe_refs(evidence_refs),
         source_metadata=_source_metadata(source_url=source_url, source_kind=source_kind, unit=unit),
     )
