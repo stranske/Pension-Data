@@ -9,7 +9,6 @@ import pytest
 
 from pension_data.parser.pdf_pipeline import _extract_table_rows
 
-
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "table_period_selection_golden.json"
 
 
