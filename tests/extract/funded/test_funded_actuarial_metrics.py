@@ -14,10 +14,13 @@ from pension_data.extract.actuarial.metrics import (
 from pension_data.extract.funded.status import extract_funded_status_metrics
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "funded_actuarial_golden.json"
+REGRESSION_FIXTURE_PATH = (
+    Path(__file__).parent / "fixtures" / "funded_actuarial_637_regressions.json"
+)
 
 
-def _load_fixture() -> dict[str, Any]:
-    with FIXTURE_PATH.open(encoding="utf-8") as handle:
+def _load_fixture(path: Path = FIXTURE_PATH) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as handle:
         return json.load(handle)
 
 
@@ -68,6 +71,28 @@ def test_european_number_format_parses_to_correct_magnitude() -> None:
     )
     aal = next((item for item in facts if item.metric_name == "aal_usd"), None)
     assert aal is not None and aal.normalized_value == 1_234_560_000.0
+
+
+def test_637_regression_golden_fixtures_cover_boundary_and_locale_cases() -> None:
+    """Keep the #637 edge cases in a reviewed fixture consumed by CI."""
+    regressions = _load_fixture(REGRESSION_FIXTURE_PATH)
+
+    alias_case = regressions["alias_not_disclosed"]
+    facts, _ = extract_funded_and_actuarial_metrics(
+        plan_id=alias_case["plan_id"],
+        plan_period=alias_case["plan_period"],
+        raw=_raw(alias_case["raw"]),
+    )
+    assert alias_case["missing_metric"] not in {item.metric_name for item in facts}
+
+    european_case = regressions["european_separators"]
+    facts, _ = extract_funded_and_actuarial_metrics(
+        plan_id=european_case["plan_id"],
+        plan_period=european_case["plan_period"],
+        raw=_raw(european_case["raw"]),
+    )
+    metrics = {item.metric_name: item.normalized_value for item in facts}
+    assert metrics == european_case["expected"]
 
 
 def test_table_layout_extracts_all_required_metrics_with_confidence() -> None:

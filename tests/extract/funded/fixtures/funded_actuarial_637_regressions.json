@@ -1,0 +1,42 @@
+{
+  "alias_not_disclosed": {
+    "plan_id": "WA-SRS",
+    "plan_period": "FY2024",
+    "raw": {
+      "source_document_id": "doc:wa:2024:funded",
+      "source_url": "https://example.gov/wa-2024-acfr.pdf",
+      "effective_date": "2024-06-30",
+      "ingestion_date": "2025-01-05",
+      "default_money_unit_scale": "million_usd",
+      "text_blocks": [
+        "Funded ratio not disclosed. AAL was $410.5 million. AVA was $333.7 million. Discount rate was 6.75%. Employer contribution rate was 11.1%. Employee contribution rate was 7.1%. Participant count was 112000."
+      ],
+      "table_rows": []
+    },
+    "missing_metric": "funded_ratio"
+  },
+  "european_separators": {
+    "plan_id": "DE-PERS",
+    "plan_period": "FY2024",
+    "raw": {
+      "source_document_id": "doc:de:2024:funded",
+      "source_url": "https://example.gov/de-2024-acfr.pdf",
+      "effective_date": "2024-06-30",
+      "ingestion_date": "2025-01-05",
+      "default_money_unit_scale": "million_usd",
+      "text_blocks": [
+        "Funded ratio was 81,2%. AAL was 1.234,56 million. AVA was 325.000 million. Discount rate was 6,75%. Employer contribution rate was 11,1%. Employee contribution rate was 7,1%. Participant count was 325.000."
+      ],
+      "table_rows": []
+    },
+    "expected": {
+      "funded_ratio": 0.812,
+      "aal_usd": 1234560000.0,
+      "ava_usd": 325000000000.0,
+      "discount_rate": 0.0675,
+      "employer_contribution_rate": 0.111,
+      "employee_contribution_rate": 0.071,
+      "participant_count": 325000.0
+    }
+  }
+}

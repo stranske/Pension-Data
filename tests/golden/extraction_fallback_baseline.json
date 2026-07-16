@@ -3,6 +3,61 @@
   "baseline_version": "v1",
   "documents": [
     {
+      "document_id": "funded-alias-not-disclosed",
+      "fields": {
+        "__escalation__": {
+          "confidence": 0.0,
+          "evidence": "stages:3",
+          "value": "parser_fallback_exhaustion"
+        }
+      }
+    },
+    {
+      "document_id": "funded-european-separators",
+      "fields": {
+        "__fallback_stage__": {
+          "confidence": 1.0,
+          "evidence": "funded_text_only",
+          "value": "text_fallback"
+        },
+        "aal_usd": {
+          "confidence": 0.84,
+          "evidence": "text:1",
+          "value": 1234560000.0
+        },
+        "ava_usd": {
+          "confidence": 0.84,
+          "evidence": "text:1",
+          "value": 325000000000.0
+        },
+        "discount_rate": {
+          "confidence": 0.84,
+          "evidence": "text:1",
+          "value": 0.0675
+        },
+        "employee_contribution_rate": {
+          "confidence": 0.84,
+          "evidence": "text:1",
+          "value": 0.071
+        },
+        "employer_contribution_rate": {
+          "confidence": 0.84,
+          "evidence": "text:1",
+          "value": 0.111
+        },
+        "funded_ratio": {
+          "confidence": 0.84,
+          "evidence": "text:1",
+          "value": 0.812
+        },
+        "participant_count": {
+          "confidence": 0.84,
+          "evidence": "text:1",
+          "value": 325000.0
+        }
+      }
+    },
+    {
       "document_id": "funded-fallback-exhausted",
       "fields": {
         "__escalation__": {
