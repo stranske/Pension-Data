@@ -77,13 +77,24 @@ def test_637_regression_golden_fixtures_cover_boundary_and_locale_cases() -> Non
     """Keep the #637 edge cases in a reviewed fixture consumed by CI."""
     regressions = _load_fixture(REGRESSION_FIXTURE_PATH)
 
-    alias_case = regressions["alias_not_disclosed"]
-    facts, _ = extract_funded_and_actuarial_metrics(
-        plan_id=alias_case["plan_id"],
-        plan_period=alias_case["plan_period"],
-        raw=_raw(alias_case["raw"]),
-    )
-    assert alias_case["missing_metric"] not in {item.metric_name for item in facts}
+    for fixture_name in (
+        "alias_not_disclosed",
+        "alias_not_disclosed_same_sentence",
+    ):
+        alias_case = regressions[fixture_name]
+        facts, diagnostics = extract_funded_and_actuarial_metrics(
+            plan_id=alias_case["plan_id"],
+            plan_period=alias_case["plan_period"],
+            raw=_raw(alias_case["raw"]),
+        )
+        metrics = {item.metric_name: item.normalized_value for item in facts}
+        assert alias_case["missing_metric"] not in metrics
+        assert metrics == alias_case["expected_present_metrics"]
+        assert any(
+            diagnostic.metric_name == alias_case["missing_metric"]
+            and diagnostic.code == "missing_metric"
+            for diagnostic in diagnostics
+        )
 
     european_case = regressions["european_separators"]
     facts, _ = extract_funded_and_actuarial_metrics(
