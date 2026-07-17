@@ -18,12 +18,18 @@ def _value(line: str) -> str:
     return rows[0]["value"]
 
 
-def _cases() -> list[tuple[str, str]]:
+def _cases() -> tuple[list[tuple[str, str]], list[str]]:
     with FIXTURE_PATH.open(encoding="utf-8") as handle:
         fixtures = json.load(handle)
-    return [(case["line"], case["expected_value"]) for case in fixtures.values()]
+    return (
+        [(case["line"], case["expected_value"]) for case in fixtures.values()],
+        list(fixtures),
+    )
 
 
-@pytest.mark.parametrize(("line", "expected_value"), _cases())
+CASES, CASE_IDS = _cases()
+
+
+@pytest.mark.parametrize(("line", "expected_value"), CASES, ids=CASE_IDS)
 def test_period_selection_golden_cases(line: str, expected_value: str) -> None:
     assert _value(line) == expected_value
