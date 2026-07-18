@@ -11,6 +11,14 @@
     {
       "document_id": "funded-fallback-exhausted",
       "content": "{\"domain\": \"funded\", \"plan_id\": \"WA-SRS\", \"plan_period\": \"FY2025\", \"raw\": {\"source_document_id\": \"doc:wa:2025:funded\", \"source_url\": \"https://example.gov/wa-2025-funded.pdf\", \"effective_date\": \"2025-06-30\", \"ingestion_date\": \"2026-01-15\", \"default_money_unit_scale\": \"million_usd\", \"text_blocks\": [\"No funded metrics disclosed in this section.\"], \"table_rows\": []}}"
+    },
+    {
+      "document_id": "funded-alias-not-disclosed",
+      "content": "{\"domain\": \"funded\", \"plan_id\": \"WA-SRS\", \"plan_period\": \"FY2024\", \"raw\": {\"source_document_id\": \"doc:wa:2024:funded\", \"source_url\": \"https://example.gov/wa-2024-funded.pdf\", \"effective_date\": \"2024-06-30\", \"ingestion_date\": \"2025-01-05\", \"default_money_unit_scale\": \"million_usd\", \"text_blocks\": [\"Funded ratio not disclosed. AAL was $410.5 million. AVA was $333.7 million. Discount rate was 6.75%. Employer contribution rate was 11.1%. Employee contribution rate was 7.1%. Participant count was 112000.\"], \"table_rows\": []}}"
+    },
+    {
+      "document_id": "funded-european-separators",
+      "content": "{\"domain\": \"funded\", \"plan_id\": \"DE-PERS\", \"plan_period\": \"FY2024\", \"raw\": {\"source_document_id\": \"doc:de:2024:funded\", \"source_url\": \"https://example.gov/de-2024-funded.pdf\", \"effective_date\": \"2024-06-30\", \"ingestion_date\": \"2025-01-05\", \"default_money_unit_scale\": \"million_usd\", \"text_blocks\": [\"Funded ratio was 81,2%. AAL was 1.234,56 million. AVA was 325.000 million. Discount rate was 6,75%. Employer contribution rate was 11,1%. Employee contribution rate was 7,1%. Participant count was 325.000.\"], \"table_rows\": []}}"
     }
   ]
 }

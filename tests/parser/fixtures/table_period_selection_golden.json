@@ -1,0 +1,14 @@
+{
+  "two_value_columns": {
+    "line": "Funded Ratio | 78.4% | 81.2%",
+    "expected_value": "81.2%"
+  },
+  "year_header_columns": {
+    "line": "Funded Ratio | 2023 | 2024 | 78.4% | 81.2%",
+    "expected_value": "81.2%"
+  },
+  "single_value_column": {
+    "line": "Funded Ratio | 78.4%",
+    "expected_value": "78.4%"
+  }
+}
