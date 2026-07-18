@@ -37,7 +37,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   click
     #   pytest
     #   tqdm
-coverage==7.15.1
+coverage==7.15.2
     # via pytest-cov
 defusedxml==0.7.1
     # via pension-data (pyproject.toml)
@@ -219,7 +219,7 @@ rpds-py==2026.6.3
     # via
     #   jsonschema
     #   referencing
-ruff==0.15.20
+ruff==0.15.22
     # via pension-data (pyproject.toml)
 six==1.17.0
     # via python-dateutil
