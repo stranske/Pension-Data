@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from pension_data.extract.investment.security_positions import (
@@ -11,6 +13,41 @@ from pension_data.extract.investment.security_positions import (
     parse_13f_information_table_xml,
     reconcile_holdings_to_acfr,
 )
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
+INFO_TABLE_FIXTURE = FIXTURE_DIR / "edgar_13f_information_table.xml"
+
+# Recorded-shape EDGAR INFORMATION TABLE (egress sandboxed -> no live SEC call).
+# Four holdings, values reported in thousands: 1250 + 2750 + 1500 + 4500 = 10000
+# thousand USD -> 10,000,000 USD once scaled by the 13F thousands convention.
+EXPECTED_POSITION_COUNT = 4
+EXPECTED_MARKET_VALUE_SUM_USD = 10_000_000.0
+
+
+def test_saved_13f_information_table_fixture_count_and_market_value_sum() -> None:
+    inputs = parse_13f_information_table_xml(
+        INFO_TABLE_FIXTURE.read_text(encoding="utf-8"),
+        as_of="2025-03-31",
+        provenance_ref="edgar:calpers:0000919079:2025q1",
+    )
+    positions = build_security_positions(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        rows=inputs,
+    )
+
+    assert len(positions) == EXPECTED_POSITION_COUNT
+    assert (
+        sum(position.market_value_usd or 0.0 for position in positions)
+        == EXPECTED_MARKET_VALUE_SUM_USD
+    )
+    assert {position.source for position in positions} == {"13f"}
+    assert {position.asset_class for position in positions} == {"public_equity"}
+    assert all(position.as_of == "2025-03-31" for position in positions)
+    assert all(
+        position.provenance_ref == "edgar:calpers:0000919079:2025q1" for position in positions
+    )
+
 
 NAMESPACED_13F_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <informationTable xmlns="http://www.sec.gov/edgar/document/thirteenf/informationtable">

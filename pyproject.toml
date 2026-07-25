@@ -146,6 +146,13 @@ disallow_untyped_defs = false
 module = ["baseline_kit", "baseline_kit.*", "stranske_pdf_extract", "stranske_pdf_extract.*"]
 ignore_missing_imports = true
 
+# openpyxl is an optional dep (the 'source_collection' extra) and ships no stubs;
+# the own-holdings XLS loader imports it lazily. Don't fail strict mypy when it's
+# absent (base install / CI test gate) or untyped (when the extra is installed).
+[[tool.mypy.overrides]]
+module = ["openpyxl", "openpyxl.*"]
+ignore_missing_imports = true
+
 [tool.black]
 line-length = 100
 target-version = ["py312"]

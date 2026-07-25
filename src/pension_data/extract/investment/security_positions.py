@@ -6,7 +6,9 @@ import csv
 import math
 from collections import defaultdict
 from dataclasses import dataclass
-from io import StringIO
+from io import BytesIO, StringIO
+from pathlib import Path
+from typing import Any
 
 from defusedxml import ElementTree  # type: ignore[import-untyped]
 
@@ -16,6 +18,7 @@ from pension_data.db.models.investment_positions import (
     SecurityDisclosureState,
     SecurityPositionSource,
 )
+from pension_data.finite_guards import finite_or_none
 
 _TOTAL_PLAN_COVERAGE_THRESHOLD = 0.95
 
@@ -133,6 +136,31 @@ def parse_13f_information_table_xml(
     return rows
 
 
+def _own_holdings_input_from_row(
+    row: dict[str, str | None],
+    *,
+    as_of: str,
+    provenance_ref: str,
+    default_asset_class: str,
+) -> SecurityPositionInput:
+    """Build one own-holdings input from a header-keyed row (CSV or spreadsheet)."""
+    security_name = row.get("security_name") or row.get("name")
+    ticker = row.get("ticker")
+    return SecurityPositionInput(
+        security_name=security_name.strip() if security_name else None,
+        cusip=_normalize_cusip(row.get("cusip")),
+        ticker=ticker.strip().upper() if ticker and ticker.strip() else None,
+        shares=_float_or_none(row.get("shares")),
+        market_value_usd=_float_or_none(row.get("market_value_usd")),
+        asset_class=(row.get("asset_class") or default_asset_class).strip().lower(),
+        source="own_holdings_file",
+        as_of=as_of,
+        provenance_ref=provenance_ref,
+        manager_name=(row.get("manager_name") or None),
+        fund_name=(row.get("fund_name") or None),
+    )
+
+
 def load_own_holdings_csv(
     csv_text: str,
     *,
@@ -142,27 +170,73 @@ def load_own_holdings_csv(
 ) -> list[SecurityPositionInput]:
     """Load a public own-holdings CSV export into normalized inputs."""
     reader = csv.DictReader(StringIO(csv_text))
-    rows: list[SecurityPositionInput] = []
-    for row in reader:
-        security_name = row.get("security_name") or row.get("name")
-        cusip = _normalize_cusip(row.get("cusip"))
-        ticker = row.get("ticker")
-        rows.append(
-            SecurityPositionInput(
-                security_name=security_name.strip() if security_name else None,
-                cusip=cusip,
-                ticker=ticker.strip().upper() if ticker and ticker.strip() else None,
-                shares=_float_or_none(row.get("shares")),
-                market_value_usd=_float_or_none(row.get("market_value_usd")),
-                asset_class=(row.get("asset_class") or default_asset_class).strip().lower(),
-                source="own_holdings_file",
-                as_of=as_of,
-                provenance_ref=provenance_ref,
-                manager_name=(row.get("manager_name") or None),
-                fund_name=(row.get("fund_name") or None),
-            )
+    return [
+        _own_holdings_input_from_row(
+            dict(row),
+            as_of=as_of,
+            provenance_ref=provenance_ref,
+            default_asset_class=default_asset_class,
         )
-    return rows
+        for row in reader
+    ]
+
+
+def load_own_holdings_xls(
+    source: str | Path | bytes,
+    *,
+    as_of: str,
+    provenance_ref: str,
+    default_asset_class: str = "unknown",
+    sheet_name: str | None = None,
+) -> list[SecurityPositionInput]:
+    """Load a public own-holdings ``.xlsx``/``.xls`` export into normalized inputs.
+
+    ``source`` may be a filesystem path or the raw workbook bytes. The first row
+    is treated as the header; header cells are matched case-insensitively against
+    the same column names as :func:`load_own_holdings_csv`
+    (``security_name``/``name``, ``cusip``, ``ticker``, ``shares``,
+    ``market_value_usd``, ``asset_class``, ``manager_name``, ``fund_name``).
+
+    ``openpyxl`` is an optional dependency (the ``source_collection`` extra); it is
+    imported lazily so the base install and CI test gate stay dependency-light.
+    """
+    try:
+        from openpyxl import load_workbook
+    except ModuleNotFoundError as exc:  # pragma: no cover - exercised via importorskip in tests
+        raise ModuleNotFoundError(
+            "load_own_holdings_xls requires openpyxl; install the 'source_collection' extra"
+        ) from exc
+
+    workbook_source: Any = BytesIO(source) if isinstance(source, bytes) else source
+    workbook = load_workbook(filename=workbook_source, read_only=True, data_only=True)
+    try:
+        worksheet = workbook[sheet_name] if sheet_name is not None else workbook.active
+        row_iter = worksheet.iter_rows(values_only=True)
+        try:
+            header_cells = next(row_iter)
+        except StopIteration:
+            return []
+        headers = [str(cell).strip().lower() if cell is not None else "" for cell in header_cells]
+        inputs: list[SecurityPositionInput] = []
+        for raw_row in row_iter:
+            if all(cell is None for cell in raw_row):
+                continue
+            row: dict[str, str | None] = {}
+            for header, cell in zip(headers, raw_row, strict=False):
+                if not header:
+                    continue
+                row[header] = None if cell is None else str(cell)
+            inputs.append(
+                _own_holdings_input_from_row(
+                    row,
+                    as_of=as_of,
+                    provenance_ref=provenance_ref,
+                    default_asset_class=default_asset_class,
+                )
+            )
+        return inputs
+    finally:
+        workbook.close()
 
 
 def build_security_positions(
@@ -275,3 +349,106 @@ def reconcile_holdings_to_acfr(
         },
         provenance_refs=provenance_refs,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Ab2833AltDisclosureInput:
+    """Raw AB 2833 alternative-investment fee/valuation disclosure row.
+
+    California AB 2833 (Gov. Code §7514.7) requires public pension plans to
+    publish, per alternative-investment vehicle, the plan's fair value plus the
+    management fees and carried interest borne. This captures that disclosure so
+    alts (which 13F never covers) can contribute to total-plan coverage.
+    """
+
+    fund_name: str
+    asset_class: str
+    reported_fair_value_usd: float | None
+    management_fees_usd: float | None
+    carried_interest_usd: float | None
+    as_of: str
+    provenance_ref: str
+    manager_name: str | None = None
+    explicit_not_disclosed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class Ab2833AltDisclosure:
+    """Captured AB 2833 alts disclosure with summed fees and a disclosure state."""
+
+    fund_name: str
+    manager_name: str | None
+    asset_class: str
+    reported_fair_value_usd: float | None
+    management_fees_usd: float | None
+    carried_interest_usd: float | None
+    total_fees_usd: float | None
+    disclosure_state: SecurityDisclosureState
+    as_of: str
+    provenance_ref: str
+
+
+def capture_ab2833_alt_disclosures(
+    rows: list[Ab2833AltDisclosureInput],
+) -> list[Ab2833AltDisclosure]:
+    """Normalize AB 2833 alts disclosures, summing fees under finite guards.
+
+    Fees are summed only over finite components; a non-finite fee is dropped from
+    the total rather than poisoning it to NaN. A row with an explicit
+    non-disclosure flag or no fair value is marked ``not_disclosed``.
+    """
+    captured: list[Ab2833AltDisclosure] = []
+    for row in rows:
+        fair_value = finite_or_none(row.reported_fair_value_usd)
+        management_fees = finite_or_none(row.management_fees_usd)
+        carried_interest = finite_or_none(row.carried_interest_usd)
+        fee_components = [fee for fee in (management_fees, carried_interest) if fee is not None]
+        total_fees = round(sum(fee_components), 6) if fee_components else None
+        disclosure_state: SecurityDisclosureState = (
+            "not_disclosed" if row.explicit_not_disclosed or fair_value is None else "disclosed"
+        )
+        captured.append(
+            Ab2833AltDisclosure(
+                fund_name=row.fund_name.strip(),
+                manager_name=row.manager_name.strip() if row.manager_name else None,
+                asset_class=row.asset_class.strip().lower(),
+                reported_fair_value_usd=fair_value,
+                management_fees_usd=management_fees,
+                carried_interest_usd=carried_interest,
+                total_fees_usd=total_fees,
+                disclosure_state=disclosure_state,
+                as_of=row.as_of,
+                provenance_ref=row.provenance_ref,
+            )
+        )
+    return sorted(
+        captured,
+        key=lambda item: (item.asset_class, item.fund_name, item.provenance_ref),
+    )
+
+
+def ab2833_to_security_positions(
+    disclosures: list[Ab2833AltDisclosure],
+) -> list[SecurityPositionInput]:
+    """Convert captured AB 2833 alts disclosures into security-position inputs.
+
+    The vehicle's reported fair value becomes the position ``market_value_usd`` so
+    alts feed the same reconciliation and coverage math as 13F/own-file holdings.
+    """
+    return [
+        SecurityPositionInput(
+            security_name=disclosure.fund_name,
+            cusip=None,
+            ticker=None,
+            shares=None,
+            market_value_usd=disclosure.reported_fair_value_usd,
+            asset_class=disclosure.asset_class,
+            source="ab2833",
+            as_of=disclosure.as_of,
+            provenance_ref=disclosure.provenance_ref,
+            disclosure_state=disclosure.disclosure_state,
+            manager_name=disclosure.manager_name,
+            fund_name=disclosure.fund_name,
+        )
+        for disclosure in disclosures
+    ]
