@@ -280,6 +280,38 @@ def test_ui_surfaces_fixture_origin_marker() -> None:
     assert "data_origin" in app
 
 
+def test_ui_has_issue_640_formatting_and_filter_feedback() -> None:
+    index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    app = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "function formatCellValue(column, value, row)" in app
+    assert "return `$${(n / 1e9).toFixed(1)}B`" in app
+    assert "metric.includes(\"ratio\")" in app
+    assert "formatCellValue(column, row[column], row)" in app
+    assert 'id="result-count"' in index
+    assert "Showing ${rows.length} of ${totalRows} records" in app
+    assert "No records match current filters." in app
+    assert 'id="clear-filters"' in index
+    assert 'getElementById("clear-filters").addEventListener("click"' in app
+
+
+def test_row_click_smoke_updates_record_details() -> None:
+    index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    app = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+
+    activate_row = app[app.index("const activateRow = (index) => {") :]
+    activate_row = activate_row[: activate_row.index("};") + 2]
+    render_detail = app[app.index("function renderDetail() {") :]
+    render_detail = render_detail[: render_detail.index("\n}") + 2]
+
+    assert 'id="detail-content"' in index
+    assert 'tr.addEventListener("click", () => activateRow(index));' in app
+    assert "state.selectedRowIndex = index;" in activate_row
+    assert "renderDetail();" in activate_row
+    assert 'document.getElementById("detail-content")' in render_detail
+    assert "rows[state.selectedRowIndex]" in render_detail
+
+
 def test_fixture_guard_refuses_generated_bundle(tmp_path: Path) -> None:
     base_dir = _copy_web_fixture(tmp_path)
     workspace_path = base_dir / "data" / "workspace.json"
