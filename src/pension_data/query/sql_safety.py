@@ -181,17 +181,33 @@ def _strip_sql_comments_and_strings(sql: str) -> str:
 
 
 def validate_read_only_sql(sql: str) -> str:
-    """Validate generated SQL and return normalized read-only statement text."""
+    """Validate generated SQL and return normalized read-only statement text.
+
+    This is the only read-only SQL validator in the package: both
+    ``query.sql_service.execute_sql_query`` and ``langchain.eval_harness`` call
+    it, so the two paths cannot diverge on whether a given string is safe.
+
+    Semicolon policy: at most one semicolon is accepted, and only as a bare
+    statement terminator with nothing but whitespace following it, in which case
+    it is stripped from the returned text. A semicolon followed by any further
+    content, and any second semicolon, is rejected as a multi-statement
+    submission.
+    """
     normalized = sql.strip()
     if not normalized:
         raise SQLSafetyValidationError("generated SQL is empty")
 
     sanitized = _strip_sql_comments_and_strings(normalized)
+    # Semicolons are counted on the sanitized text so that a ";" hidden inside a
+    # comment or string literal cannot smuggle a second statement past this gate.
     semicolon_indices = [index for index, char in enumerate(sanitized) if char == ";"]
     if len(semicolon_indices) > 1:
         raise SQLSafetyValidationError("multiple SQL statements are not allowed")
     if len(semicolon_indices) == 1:
         semicolon_index = semicolon_indices[0]
+        # A bare trailing ";" is cosmetic and safe to drop, but anything else after
+        # it is a chained statement (e.g. "; DROP TABLE t"), which must be rejected
+        # rather than silently truncated away.
         if any(not char.isspace() for char in sanitized[semicolon_index + 1 :]):
             raise SQLSafetyValidationError("multiple SQL statements are not allowed")
         normalized = normalized[:semicolon_index].strip()
