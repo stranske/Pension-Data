@@ -23,6 +23,12 @@ assert _serve_spec is not None and _serve_spec.loader is not None
 web_serve_local = importlib.util.module_from_spec(_serve_spec)
 _serve_spec.loader.exec_module(web_serve_local)
 
+BUILD_PATH = ROOT / "scripts" / "web" / "build_workspace_bundle.py"
+_build_spec = importlib.util.spec_from_file_location("web_build_workspace_bundle", BUILD_PATH)
+assert _build_spec is not None and _build_spec.loader is not None
+web_build_workspace_bundle = importlib.util.module_from_spec(_build_spec)
+_build_spec.loader.exec_module(web_build_workspace_bundle)
+
 
 def _bundle(*, version: str, data_origin: str = "generated") -> dict[str, object]:
     return {
@@ -55,6 +61,47 @@ def test_smoke_and_serve_agree_on_contract_version_mismatch() -> None:
         web_smoke_test._assert_workspace_bundle(bad, path_label="bad", reject_fixture=False)
     with pytest.raises(ValueError, match="does not match runtime contract"):
         web_serve_local._assert_workspace_bundle(bad, path_label="bad", allow_fixture_demo=True)
+
+
+def test_all_three_consumers_share_one_rule_owner() -> None:
+    # #639 AC3: smoke_test, serve_local, and build_workspace_bundle must call the one
+    # canonical validator rather than keeping parallel contract logic of their own.
+    canonical = web_smoke_test.validate_workspace_bundle
+    assert web_serve_local.validate_workspace_bundle is canonical
+    assert web_build_workspace_bundle.validate_workspace_bundle is canonical
+    assert canonical.__module__ == "workspace_contract"
+
+
+def test_builder_rejects_a_contract_version_mismatched_bundle() -> None:
+    # #639 AC5: the builder rejects the same known-bad bundle its peers reject, using
+    # the contract it stamps bundles from.
+    contract = web_build_workspace_bundle.load_runtime_contract(
+        web_build_workspace_bundle.CONTRACT_PATH
+    )
+    accepted = web_build_workspace_bundle.allowed_data_origins(contract) - {"fixture"}
+    with pytest.raises(ValueError, match="does not match runtime contract"):
+        web_build_workspace_bundle.validate_workspace_bundle(
+            _bundle(version="9.9.9-mismatch"),
+            path_label="bad",
+            accepted_origins=accepted,
+            contract=contract,
+        )
+
+
+def test_builder_rejects_fixture_origin_even_when_contract_allows_it() -> None:
+    # #639: builder output must be generated data; fixture is only valid for the
+    # checked-in demo path, not for the generated-bundle producer.
+    contract = web_build_workspace_bundle.load_runtime_contract(
+        web_build_workspace_bundle.CONTRACT_PATH
+    )
+    accepted = web_build_workspace_bundle.allowed_data_origins(contract) - {"fixture"}
+    with pytest.raises(ValueError, match="requires data_origin of generated, live"):
+        web_build_workspace_bundle.validate_workspace_bundle(
+            _bundle(version=str(contract["version"]), data_origin="fixture"),
+            path_label="generated workspace bundle",
+            accepted_origins=accepted,
+            contract=contract,
+        )
 
 
 def _copy_web_fixture(tmp_path: Path) -> Path:

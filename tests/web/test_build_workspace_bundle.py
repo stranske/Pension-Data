@@ -22,6 +22,12 @@ assert smoke_spec is not None and smoke_spec.loader is not None
 web_smoke_test = importlib.util.module_from_spec(smoke_spec)
 smoke_spec.loader.exec_module(web_smoke_test)
 
+SERVE_PATH = ROOT / "scripts" / "web" / "serve_local.py"
+serve_spec = importlib.util.spec_from_file_location("web_serve_local", SERVE_PATH)
+assert serve_spec is not None and serve_spec.loader is not None
+web_serve_local = importlib.util.module_from_spec(serve_spec)
+serve_spec.loader.exec_module(web_serve_local)
+
 
 def _write_fixture_pilot_run(tmp_path: Path) -> Path:
     run_dir = tmp_path / "pilot-run"
@@ -84,6 +90,13 @@ def test_generator_emits_runtime_valid_generated_bundle(tmp_path: Path) -> None:
         payload,
         path_label="data/workspace.json",
         reject_fixture=True,
+    )
+    # #639: the builder is the third contract consumer, so serve_local must accept
+    # what the builder produced and smoke_test approved.
+    web_serve_local._assert_workspace_bundle(
+        payload,
+        path_label="data/workspace.json",
+        allow_fixture_demo=False,
     )
     assert payload["data_origin"] == "generated"
     dataset = payload["datasets"][0]
