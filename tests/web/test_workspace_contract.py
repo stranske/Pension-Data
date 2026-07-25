@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -280,36 +282,62 @@ def test_ui_surfaces_fixture_origin_marker() -> None:
     assert "data_origin" in app
 
 
-def test_ui_has_issue_640_formatting_and_filter_feedback() -> None:
-    index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
-    app = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+def test_ui_formatting_filters_reset_and_row_click_render_details() -> None:
+    """Run the shipped browser script against a tiny DOM instead of source markers."""
+    if shutil.which("node") is None:
+        pytest.skip("node is required for browser-script regression coverage")
 
-    assert "function formatCellValue(column, value, row)" in app
-    assert "return `$${(n / 1e9).toFixed(1)}B`" in app
-    assert 'metric.includes("ratio")' in app
-    assert "formatCellValue(column, row[column], row)" in app
-    assert 'id="result-count"' in index
-    assert "Showing ${rows.length} of ${totalRows} records" in app
-    assert "No records match current filters." in app
-    assert 'id="clear-filters"' in index
-    assert 'getElementById("clear-filters").addEventListener("click"' in app
-
-
-def test_row_click_smoke_updates_record_details() -> None:
-    index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
-    app = (WEB_DIR / "app.js").read_text(encoding="utf-8")
-
-    activate_row = app[app.index("const activateRow = (index) => {") :]
-    activate_row = activate_row[: activate_row.index("};") + 2]
-    render_detail = app[app.index("function renderDetail() {") :]
-    render_detail = render_detail[: render_detail.index("\n}") + 2]
-
-    assert 'id="detail-content"' in index
-    assert 'tr.addEventListener("click", () => activateRow(index));' in app
-    assert "state.selectedRowIndex = index;" in activate_row
-    assert "renderDetail();" in activate_row
-    assert 'document.getElementById("detail-content")' in render_detail
-    assert "rows[state.selectedRowIndex]" in render_detail
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+class Element {{
+  constructor(id = "") {{ this.id = id; this.children = []; this.listeners = {{}}; this._text = ""; this.value = ""; this.dataset = {{}}; this.classList = {{ add() {{}} }}; }}
+  get textContent() {{ return this._text; }}
+  set textContent(value) {{ this._text = String(value); this.children = []; }}
+  appendChild(child) {{ this.children.push(child); return child; }}
+  append(...children) {{ children.forEach((child) => this.appendChild(child)); }}
+  addEventListener(name, handler) {{ (this.listeners[name] ||= []).push(handler); }}
+  trigger(name, event = {{}}) {{ for (const handler of this.listeners[name] || []) handler(event); }}
+  setAttribute() {{}}
+}}
+const elements = new Map();
+const byId = (id) => elements.get(id) || (elements.set(id, new Element(id)), elements.get(id));
+const document = {{
+  getElementById: byId,
+  createElement: () => new Element(),
+  createDocumentFragment: () => new Element(),
+  createTextNode: (text) => {{ const node = new Element(); node.textContent = text; return node; }},
+  querySelector: () => new Element(),
+}};
+const source = fs.readFileSync({json.dumps(str(WEB_DIR / "app.js"))}, "utf8")
+  .replace(/init\\(\\)\\.catch\\([\\s\\S]*$/, "")
+  + "\\nglobalThis.__app = {{ state, renderTable, bindFilterHandlers }};";
+const context = {{ document, Node: Element, window: {{ setTimeout: () => 0, clearTimeout: () => {{}} }}, console, URLSearchParams }};
+vm.runInNewContext(source, context);
+const {{ state, renderTable, bindFilterHandlers }} = context.__app;
+["table-head", "table-body", "result-count", "detail-content", "clear-filters", "filter-entity", "filter-period", "filter-family", "filter-source", "filter-confidence", "filter-confidence-value"].forEach(byId);
+state.datasets = [{{ id: "demo", rows: [
+  {{ entity: "CA", plan_period: "FY2024", metric_family: "funded", metric: "funded_ratio", value: 0.81, confidence: 0.92, provenance: {{ source_document: "calpers", evidence_refs: ["p1"] }} }},
+  {{ entity: "NY", plan_period: "FY2024", metric_family: "cash", metric: "contributions", value: 1500000000, confidence: 0.75, provenance: {{ source_document: "nycers", evidence_refs: ["p2"] }} }},
+] }}];
+state.selectedDatasetId = "demo";
+state.selectedRowIndex = null;
+state.config = {{ artifactBaseUrl: "https://artifacts.example.test" }};
+state.filters = {{ entity: "", period: "", family: "", source: "", minConfidence: 0 }};
+bindFilterHandlers();
+renderTable();
+const rows = byId("table-body").children;
+if (rows.length !== 2 || rows[0].children[4].textContent !== "81%" || rows[1].children[4].textContent !== "$1.5B") throw new Error("formatted table rows were not rendered");
+byId("filter-entity").value = "missing";
+byId("filter-entity").trigger("input");
+if (byId("result-count").textContent !== "Showing 0 of 2 records" || byId("table-body").children[0].children[0].textContent !== "No records match current filters.") throw new Error("filter empty state was not rendered");
+byId("clear-filters").trigger("click");
+if (byId("filter-entity").value !== "" || byId("result-count").textContent !== "2 records") throw new Error("clear filters did not restore the table");
+byId("table-body").children[0].trigger("click");
+const detail = byId("detail-content").children[0];
+if (state.selectedRowIndex !== 0 || !detail || detail.children.length === 0) throw new Error("row click did not render record details");
+"""
+    subprocess.run(["node", "-e", script], check=True, cwd=ROOT)
 
 
 def test_fixture_guard_refuses_generated_bundle(tmp_path: Path) -> None:
