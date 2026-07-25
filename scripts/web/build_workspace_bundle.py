@@ -4,16 +4,22 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
+import sys
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from workspace_contract import (  # noqa: E402
+    allowed_data_origins,
+    load_runtime_contract,
+    validate_workspace_bundle,
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_PATH = ROOT / "apps" / "contracts" / "runtime-contract.json"
-SMOKE_PATH = ROOT / "scripts" / "web" / "smoke_test.py"
 
 
 def _load_json(path: Path) -> Any:
@@ -26,23 +32,6 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-
-
-def _load_web_smoke_test() -> Any:
-    spec = importlib.util.spec_from_file_location("web_smoke_test", SMOKE_PATH)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"unable to load web smoke test helper: {SMOKE_PATH}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def _runtime_contract_version() -> str:
-    payload = _load_json(CONTRACT_PATH)
-    version = payload.get("version") if isinstance(payload, dict) else None
-    if not isinstance(version, str) or not version.strip():
-        raise ValueError(f"runtime contract missing version: {CONTRACT_PATH}")
-    return version
 
 
 def _artifact_path(pilot_run_dir: Path, manifest: Mapping[str, Any], key: str) -> Path:
@@ -160,8 +149,9 @@ def build_workspace_bundle(pilot_run_dir: Path) -> dict[str, Any]:
         )
     )
     run_id = _as_text(manifest.get("run_id")) or pilot_run_dir.name
+    contract = load_runtime_contract(CONTRACT_PATH)
     bundle = {
-        "contractVersion": _runtime_contract_version(),
+        "contractVersion": str(contract["version"]),
         "data_origin": "generated",
         "datasets": [
             {
@@ -175,11 +165,13 @@ def build_workspace_bundle(pilot_run_dir: Path) -> dict[str, Any]:
             }
         ],
     }
-    smoke = _load_web_smoke_test()
-    smoke._assert_workspace_bundle(
+    # This builder emits real generated data, so "fixture" is not an acceptable
+    # origin for its output even though the runtime contract permits it elsewhere.
+    validate_workspace_bundle(
         bundle,
         path_label="generated workspace bundle",
-        reject_fixture=True,
+        accepted_origins=allowed_data_origins(contract) - {"fixture"},
+        contract=contract,
     )
     return bundle
 
