@@ -286,7 +286,7 @@ def test_ui_has_issue_640_formatting_and_filter_feedback() -> None:
 
     assert "function formatCellValue(column, value, row)" in app
     assert "return `$${(n / 1e9).toFixed(1)}B`" in app
-    assert "metric.includes(\"ratio\")" in app
+    assert 'metric.includes("ratio")' in app
     assert "formatCellValue(column, row[column], row)" in app
     assert 'id="result-count"' in index
     assert "Showing ${rows.length} of ${totalRows} records" in app
