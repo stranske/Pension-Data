@@ -1,0 +1,22 @@
+variable,description
+ppd_id,Stable PPD plan identifier.
+PlanName,Plan display name.
+fy,Plan fiscal year.
+StateAbbrev,Two-letter state abbreviation.
+PlanType,"Coded plan type: 1=general/mixed, 2=teachers, 3=police/fire/safety."
+ActLiabilities_GASB,"Actuarial accrued liability (GASB, AAL)."
+ActAssets_GASB,Actuarial value of assets (AVA).
+ActFundedRatio_GASB,Actuarial-value funded ratio (AVA).
+MktAssets_ActRpt,Market value of assets as reported in the actuarial report.
+MktFundedRatio_ActRpt,"Market-value funded ratio. If absent in a live pull, the mapper derives it as MktAssets_ActRpt / ActLiabilities_GASB from CONFIDENT variables."
+UAAL_GASB,Unfunded actuarial accrued liability (GASB).
+EmployerContribution,Employer (state/local) contribution in USD. Name per issue #645 guidance.
+EmployeeContribution,Employee/member contribution in USD. Name per issue #645 guidance.
+benefit_payments,Total benefit payments / payout in USD. Name per issue #645 guidance.
+actives_tot,Total active members; used for the maturity support ratio.
+beneficiaries_tot,Total beneficiaries; used for the maturity support ratio.
+equities_actual,Actual allocation to public equities (fraction or percent).
+FixedIncome_actual,Actual allocation to fixed income.
+RealEstate_actual,Actual allocation to real estate.
+alternatives_actual,Actual allocation to alternatives/private markets.
+cash_actual,Actual allocation to cash / short term.
