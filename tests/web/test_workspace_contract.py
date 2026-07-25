@@ -88,6 +88,22 @@ def test_builder_rejects_a_contract_version_mismatched_bundle() -> None:
         )
 
 
+def test_builder_rejects_fixture_origin_even_when_contract_allows_it() -> None:
+    # #639: builder output must be generated data; fixture is only valid for the
+    # checked-in demo path, not for the generated-bundle producer.
+    contract = web_build_workspace_bundle.load_runtime_contract(
+        web_build_workspace_bundle.CONTRACT_PATH
+    )
+    accepted = web_build_workspace_bundle.allowed_data_origins(contract) - {"fixture"}
+    with pytest.raises(ValueError, match="requires data_origin of generated, live"):
+        web_build_workspace_bundle.validate_workspace_bundle(
+            _bundle(version=str(contract["version"]), data_origin="fixture"),
+            path_label="generated workspace bundle",
+            accepted_origins=accepted,
+            contract=contract,
+        )
+
+
 def _copy_web_fixture(tmp_path: Path) -> Path:
     target = tmp_path / "web"
     for relative in web_smoke_test.REQUIRED_LOCAL_FILES:
