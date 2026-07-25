@@ -22,15 +22,22 @@ from pension_data.extract.investment.risk_disclosures import (
     extract_risk_exposure_observations,
 )
 from pension_data.extract.investment.security_positions import (
+    Ab2833AltDisclosure,
+    Ab2833AltDisclosureInput,
     AcfrAllocationInput,
     SecurityPositionInput,
+    ab2833_to_security_positions,
     build_security_positions,
+    capture_ab2833_alt_disclosures,
     load_own_holdings_csv,
+    load_own_holdings_xls,
     parse_13f_information_table_xml,
     reconcile_holdings_to_acfr,
 )
 
 __all__ = [
+    "Ab2833AltDisclosure",
+    "Ab2833AltDisclosureInput",
     "AllocationDisclosureInput",
     "AcfrAllocationInput",
     "DerivativesDisclosureInput",
@@ -41,13 +48,16 @@ __all__ = [
     "RiskExtractionDiagnostic",
     "SecuritiesLendingDisclosureInput",
     "SecurityPositionInput",
+    "ab2833_to_security_positions",
     "build_manager_fund_positions",
     "build_security_positions",
+    "capture_ab2833_alt_disclosures",
     "extract_asset_allocations",
     "extract_fee_observations",
     "extract_risk_exposure_observations",
     "infer_lifecycle_events",
     "load_own_holdings_csv",
+    "load_own_holdings_xls",
     "parse_13f_information_table_xml",
     "reconcile_holdings_to_acfr",
 ]
