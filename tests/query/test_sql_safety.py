@@ -106,6 +106,14 @@ class TestValidateReadOnlySql:
         assert "SELECT" in result
         assert not result.endswith(";")
 
+    def test_rejects_repeated_semicolons(self) -> None:
+        with pytest.raises(SQLSafetyValidationError, match="multiple"):
+            validate_read_only_sql("SELECT 1;;")
+
+    def test_allows_semicolon_inside_string_literal(self) -> None:
+        sql = "SELECT plan_id FROM curated_metric_facts WHERE plan_id = 'a;b'"
+        assert validate_read_only_sql(sql) == sql
+
     def test_rejects_empty(self) -> None:
         with pytest.raises(SQLSafetyValidationError, match="empty"):
             validate_read_only_sql("")
