@@ -170,7 +170,16 @@ def test_ab2833_alts_marks_explicit_and_missing_fair_value_as_not_disclosed() ->
         ]
     )
 
-    explicit, missing_value = disclosures
+    explicit = next(
+        disclosure
+        for disclosure in disclosures
+        if disclosure.provenance_ref == "ab2833:explicit-withheld"
+    )
+    missing_value = next(
+        disclosure
+        for disclosure in disclosures
+        if disclosure.provenance_ref == "ab2833:value-omitted"
+    )
     assert explicit.disclosure_state == "not_disclosed"
     assert explicit.reported_fair_value_usd == 500_000.0
     assert explicit.total_fees_usd == 10_000.0

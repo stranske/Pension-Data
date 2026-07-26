@@ -143,7 +143,8 @@ def test_edgar_client_does_not_request_compressed_transfer_encoding() -> None:
 
     assert client._get("https://data.sec.gov/submissions/CIK0000919079.json") == '{"filings": {}}'
     assert opener.request is not None
-    assert all(key.lower() != "accept-encoding" for key, _ in opener.request.header_items())
+    headers = {key.lower(): value for key, value in opener.request.header_items()}
+    assert headers == {"user-agent": "Pension-Data research tim@stranskemo.com"}
 
 
 def test_end_to_end_fixture_flow_produces_security_positions() -> None:
