@@ -7,6 +7,7 @@ end-to-end flow is driven from recorded-shape fixtures under ``fixtures/``.
 
 from __future__ import annotations
 
+from email.message import Message
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,34 @@ SUBMISSIONS_FIXTURE = FIXTURE_DIR / "edgar_submissions_CIK0000919079.json"
 INFO_TABLE_FIXTURE = FIXTURE_DIR / "edgar_13f_information_table.xml"
 
 CALPERS_CIK = "0000919079"
+
+
+class _RecordedResponse:
+    status = 200
+
+    def __init__(self, body: bytes) -> None:
+        self.headers = Message()
+        self.headers.set_charset("utf-8")
+        self._body = body
+
+    def __enter__(self) -> _RecordedResponse:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self._body
+
+
+class _RecordedOpener:
+    def __init__(self) -> None:
+        self.request = None
+
+    def open(self, request: object, *, timeout: float) -> _RecordedResponse:
+        self.request = request
+        assert timeout == 30.0
+        return _RecordedResponse(b'{"filings": {}}')
 
 
 def test_format_cik_zero_pads_to_ten_digits() -> None:
@@ -106,6 +135,15 @@ def test_edgar_client_builds_flow_urls() -> None:
         document="form13fInfoTable.xml",
     )
     assert url.endswith("/919079/000091907925000042/form13fInfoTable.xml")
+
+
+def test_edgar_client_does_not_request_compressed_transfer_encoding() -> None:
+    opener = _RecordedOpener()
+    client = EdgarClient(user_agent="Pension-Data research tim@stranskemo.com", opener=opener)
+
+    assert client._get("https://data.sec.gov/submissions/CIK0000919079.json") == '{"filings": {}}'
+    assert opener.request is not None
+    assert all(key.lower() != "accept-encoding" for key, _ in opener.request.header_items())
 
 
 def test_end_to_end_fixture_flow_produces_security_positions() -> None:

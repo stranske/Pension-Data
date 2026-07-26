@@ -145,6 +145,40 @@ def test_ab2833_alts_capture_feeds_total_plan_coverage() -> None:
     assert report.by_asset_class["fixed_income"] == 0.0
 
 
+def test_ab2833_alts_marks_explicit_and_missing_fair_value_as_not_disclosed() -> None:
+    disclosures = capture_ab2833_alt_disclosures(
+        [
+            Ab2833AltDisclosureInput(
+                fund_name="Explicitly withheld fund",
+                asset_class="private_equity",
+                reported_fair_value_usd=500_000.0,
+                management_fees_usd=4_000.0,
+                carried_interest_usd=6_000.0,
+                as_of="2025-06-30",
+                provenance_ref="ab2833:explicit-withheld",
+                explicit_not_disclosed=True,
+            ),
+            Ab2833AltDisclosureInput(
+                fund_name="Value omitted fund",
+                asset_class="real_assets",
+                reported_fair_value_usd=None,
+                management_fees_usd=7_000.0,
+                carried_interest_usd=None,
+                as_of="2025-06-30",
+                provenance_ref="ab2833:value-omitted",
+            ),
+        ]
+    )
+
+    explicit, missing_value = disclosures
+    assert explicit.disclosure_state == "not_disclosed"
+    assert explicit.reported_fair_value_usd == 500_000.0
+    assert explicit.total_fees_usd == 10_000.0
+    assert missing_value.disclosure_state == "not_disclosed"
+    assert missing_value.reported_fair_value_usd is None
+    assert missing_value.total_fees_usd == 7_000.0
+
+
 def test_holdings_overlap_view_runs_over_ingested_security_positions() -> None:
     # Two plans both disclose the same CUSIP -> the real overlap view must pair them.
     subject = build_security_positions(

@@ -215,7 +215,10 @@ class EdgarClient:
         self._opener = opener or urllib.request.build_opener()
 
     def _get(self, url: str) -> str:  # pragma: no cover - network path (egress sandboxed)
-        headers = {"User-Agent": self.user_agent, "Accept-Encoding": "gzip, deflate"}
+        # Do not advertise compressed transfer encodings: this deliberately small
+        # client decodes the response bytes directly, and opting into gzip/deflate
+        # without a matching decompression path can corrupt live EDGAR payloads.
+        headers = {"User-Agent": self.user_agent}
         request = urllib.request.Request(url, method="GET", headers=headers)
         try:
             with self._opener.open(request, timeout=self.timeout) as response:
