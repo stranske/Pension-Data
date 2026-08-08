@@ -85,7 +85,7 @@ pyyaml==6.0.3
     # via
     #   app-baseline-kit
     #   pytest-regressions
-ruff==0.16.1
+ruff==0.16.2
     # via pension-data (pyproject.toml)
 six==1.17.0
     # via python-dateutil
