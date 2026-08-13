@@ -334,11 +334,7 @@ def _evaluation_metadata(snapshot: Mapping[str, object], *, name: str) -> Evalua
     normalized_thresholds: dict[str, float] = {}
     for metric in _METRIC_KEYS:
         value = thresholds.get(metric)
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not 0 <= value <= 1
-        ):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
             raise ValueError(f"{name} evaluation.thresholds.{metric} must be a number from 0 to 1")
         normalized_thresholds[metric] = float(value)
     return {

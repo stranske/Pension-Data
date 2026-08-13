@@ -135,22 +135,73 @@ def test_promote_rejects_unknown_golden_target(
     _baseline(baseline)
     corrections.write_text(
         json.dumps(
-            [{
-                "correction_id": "review-unknown-target",
-                "document_id": document_id,
-                "field": field,
-                "value": 0.81,
-                "reviewer": "reviewer-a",
-                "state": "resolved",
-                "evidence_refs": ["p.44"],
-            }]
+            [
+                {
+                    "correction_id": "review-unknown-target",
+                    "document_id": document_id,
+                    "field": field,
+                    "value": 0.81,
+                    "reviewer": "reviewer-a",
+                    "state": "resolved",
+                    "evidence_refs": ["p.44"],
+                }
+            ]
         ),
         encoding="utf-8",
     )
 
-    assert run([
-        "--baseline", str(baseline),
-        "--corrections", str(corrections),
-        "--output", str(tmp_path / "out.json"),
-        "--baseline-update-ticket", "#836",
-    ]) == 1
+    assert (
+        run(
+            [
+                "--baseline",
+                str(baseline),
+                "--corrections",
+                str(corrections),
+                "--output",
+                str(tmp_path / "out.json"),
+                "--baseline-update-ticket",
+                "#836",
+            ]
+        )
+        == 1
+    )
+
+
+def test_promote_rejects_whitespace_only_baseline_update_ticket(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline.json"
+    corrections = tmp_path / "corrections.json"
+    output = tmp_path / "promoted.json"
+    _baseline(baseline)
+    corrections.write_text(
+        json.dumps(
+            [
+                {
+                    "correction_id": "review-3",
+                    "document_id": "doc-a",
+                    "field": "funded_ratio",
+                    "value": 0.81,
+                    "reviewer": "reviewer-a",
+                    "state": "resolved",
+                    "evidence_refs": ["p.44"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        run(
+            [
+                "--baseline",
+                str(baseline),
+                "--corrections",
+                str(corrections),
+                "--output",
+                str(output),
+                "--baseline-update-ticket",
+                "   ",
+            ]
+        )
+        == 1
+    )
+    assert not output.exists()

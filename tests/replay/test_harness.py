@@ -265,25 +265,46 @@ def test_load_snapshot_rejects_boolean_evaluation_metadata(
         load_snapshot(snapshot_path)
 
 
-@pytest.mark.parametrize("document_id", ["missing-document", "extra-document"])
-def test_accuracy_rejects_mismatched_document_identities(document_id: str) -> None:
+def _evaluation_metadata() -> dict[str, object]:
+    return {
+        "corpus_id": "unit-corpus",
+        "corpus_schema_version": 1,
+        "thresholds": {
+            "field_precision": 0.0,
+            "field_recall": 0.0,
+            "exact_match_accuracy": 0.0,
+            "document_pass_rate": 0.0,
+        },
+    }
+
+
+def test_accuracy_rejects_missing_baseline_document_identity() -> None:
+    baseline = build_snapshot(
+        [ReplayResult(document_id="doc-a", fields={"funded_ratio": FieldExtraction(value=0.8)})]
+    )
+    current = build_snapshot([ReplayResult(document_id="missing-document", fields={})])
+    baseline["evaluation"] = _evaluation_metadata()
+    current["evaluation"] = _evaluation_metadata()
+
+    with pytest.raises(ValueError, match="mismatched document identities"):
+        evaluate_extraction_accuracy(baseline=baseline, current=current)
+
+
+def test_accuracy_rejects_extra_empty_document_identity() -> None:
     baseline = build_snapshot(
         [ReplayResult(document_id="doc-a", fields={"funded_ratio": FieldExtraction(value=0.8)})]
     )
     current = build_snapshot(
-        [ReplayResult(document_id=document_id, fields={})]
+        [
+            ReplayResult(
+                document_id="doc-a",
+                fields={"funded_ratio": FieldExtraction(value=0.8)},
+            ),
+            ReplayResult(document_id="extra-document", fields={}),
+        ]
     )
-    for snapshot in (baseline, current):
-        snapshot["evaluation"] = {
-            "corpus_id": "unit-corpus",
-            "corpus_schema_version": 1,
-            "thresholds": {
-                "field_precision": 0.0,
-                "field_recall": 0.0,
-                "exact_match_accuracy": 0.0,
-                "document_pass_rate": 0.0,
-            },
-        }
+    baseline["evaluation"] = _evaluation_metadata()
+    current["evaluation"] = _evaluation_metadata()
 
     with pytest.raises(ValueError, match="mismatched document identities"):
         evaluate_extraction_accuracy(baseline=baseline, current=current)
