@@ -91,6 +91,37 @@ class DiffReport(TypedDict):
     changes: list[FieldDiff]
 
 
+class EvaluationMetadata(TypedDict):
+    """Identity and thresholds required for comparable extraction evaluations."""
+
+    corpus_id: str
+    corpus_schema_version: int
+    thresholds: dict[str, float]
+
+
+class ExtractionAccuracyReport(TypedDict):
+    """Field and document accuracy results for one comparable replay pair."""
+
+    corpus_id: str
+    corpus_schema_version: int
+    corpus_size: int
+    exact_matches: int
+    incorrect_fields: int
+    missing_fields: int
+    extra_fields: int
+    unscorable_fields: int
+    field_precision: float
+    field_recall: float
+    exact_match_accuracy: float
+    document_pass_rate: float
+    worst_regressions: list[dict[str, str]]
+
+
+_METRIC_KEYS = frozenset(
+    {"field_precision", "field_recall", "exact_match_accuracy", "document_pass_rate"}
+)
+
+
 Parser = Callable[[CorpusDocument], Mapping[str, FieldExtraction]]
 
 
@@ -247,7 +278,7 @@ def _validate_snapshot(payload: object) -> ReplaySnapshot:
             )
         documents.append({"document_id": document_id, "fields": fields})
 
-    return {
+    snapshot: ReplaySnapshot = {
         "artifact_type": REPLAY_BASELINE_ARTIFACT_TYPE,
         "schema_version": SUPPORTED_ARTIFACT_SCHEMA_VERSION,
         "baseline_version": SUPPORTED_BASELINE_VERSION,
@@ -255,6 +286,16 @@ def _validate_snapshot(payload: object) -> ReplaySnapshot:
         "generated_at": generated_at,
         "documents": documents,
     }
+    if "evaluation" in payload:
+        snapshot["evaluation"] = payload["evaluation"]
+    if "correction_provenance" in payload:
+        correction_provenance = payload["correction_provenance"]
+        if not isinstance(correction_provenance, list) or not all(
+            isinstance(row, dict) for row in correction_provenance
+        ):
+            raise ValueError("snapshot.correction_provenance must be a list of objects")
+        snapshot["correction_provenance"] = correction_provenance
+    return snapshot
 
 
 def load_snapshot(path: Path) -> ReplaySnapshot:
@@ -271,6 +312,113 @@ def _index_snapshot(snapshot: ReplaySnapshot) -> dict[str, dict[str, FieldPayloa
             raise ValueError(f"snapshot contains duplicate document_id '{doc_id}'")
         indexed[doc_id] = row["fields"]
     return indexed
+
+
+def _evaluation_metadata(snapshot: Mapping[str, object], *, name: str) -> EvaluationMetadata:
+    raw = snapshot.get("evaluation")
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{name} snapshot is missing evaluation metadata")
+    corpus_id = raw.get("corpus_id")
+    corpus_schema_version = raw.get("corpus_schema_version")
+    thresholds = raw.get("thresholds")
+    if not isinstance(corpus_id, str) or not corpus_id.strip():
+        raise ValueError(f"{name} evaluation.corpus_id must be a non-empty string")
+    if not isinstance(corpus_schema_version, int) or corpus_schema_version < 1:
+        raise ValueError(f"{name} evaluation.corpus_schema_version must be a positive integer")
+    if not isinstance(thresholds, Mapping):
+        raise ValueError(f"{name} evaluation.thresholds must be an object")
+    normalized_thresholds: dict[str, float] = {}
+    for metric in _METRIC_KEYS:
+        value = thresholds.get(metric)
+        if not isinstance(value, (int, float)) or not 0 <= value <= 1:
+            raise ValueError(f"{name} evaluation.thresholds.{metric} must be a number from 0 to 1")
+        normalized_thresholds[metric] = float(value)
+    return {
+        "corpus_id": corpus_id,
+        "corpus_schema_version": corpus_schema_version,
+        "thresholds": normalized_thresholds,
+    }
+
+
+def evaluate_extraction_accuracy(
+    *, baseline: ReplaySnapshot, current: ReplaySnapshot
+) -> ExtractionAccuracyReport:
+    """Measure comparable field/document accuracy and enforce corpus identity.
+
+    A ``None`` expected value is intentionally unscorable: it is retained in
+    the report, but neither rewards nor penalizes the parser until a reviewer
+    promotes a concrete golden value.
+    """
+    baseline_metadata = _evaluation_metadata(baseline, name="baseline")
+    current_metadata = _evaluation_metadata(current, name="current")
+    for key in ("corpus_id", "corpus_schema_version"):
+        if baseline_metadata[key] != current_metadata[key]:
+            raise ValueError(f"cannot compare snapshots with mismatched evaluation {key}")
+
+    baseline_index = _index_snapshot(baseline)
+    current_index = _index_snapshot(current)
+    exact = incorrect = missing = extra = unscorable = 0
+    passed_documents = 0
+    worst: list[dict[str, str]] = []
+
+    for document_id in sorted(set(baseline_index) | set(current_index)):
+        expected_fields = baseline_index.get(document_id, {})
+        actual_fields = current_index.get(document_id, {})
+        document_failed = False
+        for field_name in sorted(set(expected_fields) | set(actual_fields)):
+            expected = expected_fields.get(field_name)
+            actual = actual_fields.get(field_name)
+            if expected is None:
+                extra += 1
+                document_failed = True
+                worst.append({"document_id": document_id, "field": field_name, "kind": "extra"})
+            elif expected["value"] is None:
+                unscorable += 1
+            elif actual is None:
+                missing += 1
+                document_failed = True
+                worst.append({"document_id": document_id, "field": field_name, "kind": "missing"})
+            elif actual["value"] != expected["value"]:
+                incorrect += 1
+                document_failed = True
+                worst.append({"document_id": document_id, "field": field_name, "kind": "incorrect"})
+            else:
+                exact += 1
+        if not document_failed:
+            passed_documents += 1
+
+    scored = exact + incorrect + missing
+    predicted = exact + incorrect + extra
+    corpus_size = len(set(baseline_index) | set(current_index))
+    return {
+        "corpus_id": baseline_metadata["corpus_id"],
+        "corpus_schema_version": baseline_metadata["corpus_schema_version"],
+        "corpus_size": corpus_size,
+        "exact_matches": exact,
+        "incorrect_fields": incorrect,
+        "missing_fields": missing,
+        "extra_fields": extra,
+        "unscorable_fields": unscorable,
+        "field_precision": exact / predicted if predicted else 1.0,
+        "field_recall": exact / scored if scored else 1.0,
+        "exact_match_accuracy": exact / scored if scored else 1.0,
+        "document_pass_rate": passed_documents / corpus_size if corpus_size else 1.0,
+        "worst_regressions": worst[:20],
+    }
+
+
+def assert_accuracy_thresholds(
+    *, baseline: ReplaySnapshot, report: ExtractionAccuracyReport
+) -> None:
+    """Reject a replay whose comparable metrics fall below reviewed thresholds."""
+    thresholds = _evaluation_metadata(baseline, name="baseline")["thresholds"]
+    failures = [
+        f"{metric}={report[metric]:.4f} < {threshold:.4f}"
+        for metric, threshold in thresholds.items()
+        if report[metric] < threshold
+    ]
+    if failures:
+        raise ValueError("extraction accuracy threshold regression: " + ", ".join(failures))
 
 
 def diff_snapshots(

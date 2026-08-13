@@ -29,6 +29,8 @@ jobs:
           PYTHONPATH=src:. python tools/replay/runner.py \
             --corpus tests/golden/extraction_fallback_corpus.json \
             --parser tools.golden_extract.fallback_extract_parser:parse \
+            --evaluation-corpus-id extraction_fallback_corpus \
+            --evaluation-corpus-schema-version 1 \
             --snapshot-out artifacts/golden_extract/current_snapshot.json
 
       - name: Build extraction replay diff
@@ -53,6 +55,14 @@ jobs:
             --max-unexpected 0 \
             --report-out artifacts/golden_extract/replay_gate_report.json
 
+      - name: Gate extraction accuracy thresholds
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src:. python tools/replay/accuracy_runner.py \
+            --baseline tests/golden/extraction_fallback_baseline.json \
+            --current artifacts/golden_extract/current_snapshot.json \
+            --report-out artifacts/golden_extract/accuracy_report.json
+
       - name: Upload extraction regression artifacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -62,4 +72,5 @@ jobs:
             artifacts/golden_extract/current_snapshot.json
             artifacts/golden_extract/diff_report.json
             artifacts/golden_extract/replay_gate_report.json
+            artifacts/golden_extract/accuracy_report.json
           if-no-files-found: warn

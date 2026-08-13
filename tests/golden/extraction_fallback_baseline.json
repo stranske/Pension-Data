@@ -158,6 +158,16 @@
       }
     }
   ],
+  "evaluation": {
+    "corpus_id": "extraction_fallback_corpus",
+    "corpus_schema_version": 1,
+    "thresholds": {
+      "document_pass_rate": 1.0,
+      "exact_match_accuracy": 1.0,
+      "field_precision": 1.0,
+      "field_recall": 1.0
+    }
+  },
   "generated_at": "2026-03-03T00:00:00+00:00",
   "parser_id": "tools.golden_extract.fallback_extract_parser:parse",
   "schema_version": 1

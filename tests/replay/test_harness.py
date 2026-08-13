@@ -15,8 +15,10 @@ from tools.replay.harness import (
     CorpusDocument,
     FieldExtraction,
     ReplayResult,
+    assert_accuracy_thresholds,
     build_snapshot,
     diff_snapshots,
+    evaluate_extraction_accuracy,
     load_snapshot,
     run_replay,
     write_snapshot,
@@ -177,6 +179,55 @@ def test_diff_reports_field_presence_changes() -> None:
     change = report["changes"][0]
     assert change["attribute"] == "field_presence"
     assert change["field"] == "manager_count"
+
+
+def test_accuracy_metrics_expose_missing_incorrect_extra_and_threshold_regression() -> None:
+    baseline = build_snapshot(
+        [
+            ReplayResult(
+                document_id="doc-a",
+                fields={
+                    "exact": FieldExtraction(value=1),
+                    "incorrect": FieldExtraction(value=2),
+                    "missing": FieldExtraction(value=3),
+                    "unscorable": FieldExtraction(value=None),
+                },
+            )
+        ]
+    )
+    current = build_snapshot(
+        [
+            ReplayResult(
+                document_id="doc-a",
+                fields={
+                    "exact": FieldExtraction(value=1),
+                    "incorrect": FieldExtraction(value=9),
+                    "extra": FieldExtraction(value=4),
+                },
+            )
+        ]
+    )
+    for snapshot in (baseline, current):
+        snapshot["evaluation"] = {
+            "corpus_id": "unit-corpus",
+            "corpus_schema_version": 1,
+            "thresholds": {
+                "field_precision": 1.0,
+                "field_recall": 1.0,
+                "exact_match_accuracy": 1.0,
+                "document_pass_rate": 1.0,
+            },
+        }
+
+    report = evaluate_extraction_accuracy(baseline=baseline, current=current)
+
+    assert report["exact_matches"] == 1
+    assert report["incorrect_fields"] == 1
+    assert report["missing_fields"] == 1
+    assert report["extra_fields"] == 1
+    assert report["unscorable_fields"] == 1
+    with pytest.raises(ValueError, match="threshold regression"):
+        assert_accuracy_thresholds(baseline=baseline, report=report)
 
 
 def test_load_snapshot_rejects_duplicate_document_ids(tmp_path: Path) -> None:
