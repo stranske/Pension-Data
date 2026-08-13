@@ -16,8 +16,10 @@ from pension_data.entities.lineage import (
 )
 from pension_data.entities.lookup_service import (
     EntityExposureIndex,
+    Form5500JoinResult,
     LookupExecutionTrace,
     build_entity_exposure_index,
+    join_form5500_records,
     lookup_entity_exposures,
     resolve_canonical_entity_id,
 )
@@ -26,7 +28,7 @@ from pension_data.entities.matching import (
     CanonicalEntityAliasRecord,
     generate_alias_match_candidates,
 )
-from pension_data.entities.models import CanonicalEntityDraft, SourceRecordProvenance
+from pension_data.entities.models import CanonicalEntityDraft, SourceRecordProvenance, SponsorPlanKey
 from pension_data.entities.service import (
     build_canonical_stable_id,
     create_canonical_entity,
@@ -44,8 +46,10 @@ __all__ = [
     "CanonicalEntityDraft",
     "CapturedAliasObservation",
     "EntityExposureIndex",
+    "Form5500JoinResult",
     "LookupExecutionTrace",
     "SourceRecordProvenance",
+    "SponsorPlanKey",
     "build_alias_review_queue_candidates",
     "build_canonical_stable_id",
     "build_entity_exposure_index",
@@ -57,6 +61,7 @@ __all__ = [
     "link_source_record",
     "list_active_canonical_entities",
     "lookup_entity_exposures",
+    "join_form5500_records",
     "merge_canonical_entities",
     "record_lineage_event",
     "resolve_canonical_entity_id",

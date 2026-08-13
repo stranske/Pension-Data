@@ -7,7 +7,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from pension_data.db.views.entity_exposure_views import EntityExposureRow
+from pension_data.entities.models import SponsorPlanKey
 from pension_data.normalize.entity_tokens import normalize_entity_token
+from pension_data.sources.form5500 import Form5500ScheduleRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +31,36 @@ class LookupExecutionTrace:
     total_rows: int
     candidate_count: int
     resolved_entity_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class Form5500JoinResult:
+    """A deterministic sponsor-plan join result with explicit non-match status."""
+
+    record: Form5500ScheduleRecord
+    canonical_entity_id: str | None
+    status: str
+    reason: str
+
+
+def join_form5500_records(
+    records: Sequence[Form5500ScheduleRecord],
+    *,
+    sponsor_plan_entities: Mapping[SponsorPlanKey, str | Sequence[str]],
+) -> list[Form5500JoinResult]:
+    """Join exact sponsor-plan keys, never auto-merging ambiguous matches."""
+    results: list[Form5500JoinResult] = []
+    for record in records:
+        candidate = sponsor_plan_entities.get(record.sponsor_plan_key)
+        entity_ids = (candidate,) if isinstance(candidate, str) else tuple(candidate or ())
+        entity_ids = tuple(sorted(set(entity_ids)))
+        if len(entity_ids) == 1:
+            results.append(Form5500JoinResult(record, entity_ids[0], "matched", "exact EIN-plan key"))
+        elif len(entity_ids) > 1:
+            results.append(Form5500JoinResult(record, None, "review", "ambiguous sponsor-plan key"))
+        else:
+            results.append(Form5500JoinResult(record, None, "review", "no sponsor-plan key match"))
+    return results
 
 
 def build_entity_exposure_index(
