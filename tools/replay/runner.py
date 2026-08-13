@@ -143,6 +143,16 @@ def run(argv: list[str] | None = None) -> int:
         help="Optional ISO-8601 timestamp override for deterministic snapshots",
     )
     parser.add_argument(
+        "--evaluation-corpus-id",
+        help="Stable reviewed corpus identity required for extraction accuracy evaluation",
+    )
+    parser.add_argument(
+        "--evaluation-corpus-schema-version",
+        type=int,
+        default=1,
+        help="Positive schema version paired with --evaluation-corpus-id",
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Explicitly allow replacing existing output snapshot",
@@ -163,6 +173,21 @@ def run(argv: list[str] | None = None) -> int:
         generated_at = _parse_iso_datetime(args.generated_at) if args.generated_at else None
         replay_results = run_replay(corpus, replay_parser)
         snapshot = build_snapshot(replay_results, parser_id=args.parser, generated_at=generated_at)
+        if args.evaluation_corpus_id is not None:
+            if not args.evaluation_corpus_id.strip() or args.evaluation_corpus_schema_version < 1:
+                raise ValueError(
+                    "evaluation corpus identity requires a non-empty id and positive version"
+                )
+            snapshot["evaluation"] = {
+                "corpus_id": args.evaluation_corpus_id,
+                "corpus_schema_version": args.evaluation_corpus_schema_version,
+                "thresholds": {
+                    "field_precision": 0.0,
+                    "field_recall": 0.0,
+                    "exact_match_accuracy": 0.0,
+                    "document_pass_rate": 0.0,
+                },
+            }
         write_snapshot(args.snapshot_out, snapshot, overwrite=args.overwrite)
     except (
         FileExistsError,
