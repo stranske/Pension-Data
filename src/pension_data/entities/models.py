@@ -35,7 +35,9 @@ class SponsorPlanKey:
 
     def __post_init__(self) -> None:
         normalized_ein = "".join(character for character in self.ein if character.isdigit())
-        normalized_plan = "".join(character for character in self.plan_number if character.isdigit())
+        normalized_plan = "".join(
+            character for character in self.plan_number if character.isdigit()
+        )
         if len(normalized_ein) != 9:
             raise ValueError("EIN must contain exactly nine digits")
         if not normalized_plan or len(normalized_plan) > 3:

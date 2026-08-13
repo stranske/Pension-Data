@@ -55,7 +55,9 @@ def join_form5500_records(
         entity_ids = (candidate,) if isinstance(candidate, str) else tuple(candidate or ())
         entity_ids = tuple(sorted(set(entity_ids)))
         if len(entity_ids) == 1:
-            results.append(Form5500JoinResult(record, entity_ids[0], "matched", "exact EIN-plan key"))
+            results.append(
+                Form5500JoinResult(record, entity_ids[0], "matched", "exact EIN-plan key")
+            )
         elif len(entity_ids) > 1:
             results.append(Form5500JoinResult(record, None, "review", "ambiguous sponsor-plan key"))
         else:
