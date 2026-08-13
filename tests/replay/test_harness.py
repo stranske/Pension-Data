@@ -226,8 +226,67 @@ def test_accuracy_metrics_expose_missing_incorrect_extra_and_threshold_regressio
     assert report["missing_fields"] == 1
     assert report["extra_fields"] == 1
     assert report["unscorable_fields"] == 1
+    assert report["field_precision"] == pytest.approx(1 / 3)
+    assert report["field_recall"] == pytest.approx(1 / 3)
+    assert report["exact_match_accuracy"] == pytest.approx(1 / 3)
+    assert report["document_pass_rate"] == 0.0
     with pytest.raises(ValueError, match="threshold regression"):
         assert_accuracy_thresholds(baseline=baseline, report=report)
+
+
+@pytest.mark.parametrize(
+    ("evaluation_key", "value"),
+    [("corpus_schema_version", True), ("field_precision", True)],
+)
+def test_load_snapshot_rejects_boolean_evaluation_metadata(
+    tmp_path: Path, evaluation_key: str, value: object
+) -> None:
+    snapshot = build_snapshot(
+        [ReplayResult(document_id="doc-a", fields={"funded_ratio": FieldExtraction(value=0.8)})]
+    )
+    snapshot["evaluation"] = {
+        "corpus_id": "unit-corpus",
+        "corpus_schema_version": 1,
+        "thresholds": {
+            "field_precision": 0.0,
+            "field_recall": 0.0,
+            "exact_match_accuracy": 0.0,
+            "document_pass_rate": 0.0,
+        },
+    }
+    if evaluation_key == "corpus_schema_version":
+        snapshot["evaluation"][evaluation_key] = value
+    else:
+        snapshot["evaluation"]["thresholds"][evaluation_key] = value
+    snapshot_path = tmp_path / "invalid-evaluation.json"
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="evaluation"):
+        load_snapshot(snapshot_path)
+
+
+@pytest.mark.parametrize("document_id", ["missing-document", "extra-document"])
+def test_accuracy_rejects_mismatched_document_identities(document_id: str) -> None:
+    baseline = build_snapshot(
+        [ReplayResult(document_id="doc-a", fields={"funded_ratio": FieldExtraction(value=0.8)})]
+    )
+    current = build_snapshot(
+        [ReplayResult(document_id=document_id, fields={})]
+    )
+    for snapshot in (baseline, current):
+        snapshot["evaluation"] = {
+            "corpus_id": "unit-corpus",
+            "corpus_schema_version": 1,
+            "thresholds": {
+                "field_precision": 0.0,
+                "field_recall": 0.0,
+                "exact_match_accuracy": 0.0,
+                "document_pass_rate": 0.0,
+            },
+        }
+
+    with pytest.raises(ValueError, match="mismatched document identities"):
+        evaluate_extraction_accuracy(baseline=baseline, current=current)
 
 
 def test_load_snapshot_rejects_duplicate_document_ids(tmp_path: Path) -> None:

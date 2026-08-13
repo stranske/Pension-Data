@@ -20,8 +20,16 @@ def _load_corrections(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def promote(*, baseline_path: Path, corrections_path: Path, output_path: Path) -> int:
+def promote(
+    *,
+    baseline_path: Path,
+    corrections_path: Path,
+    output_path: Path,
+    baseline_update_ticket: str,
+) -> int:
     """Promote each resolved correction once, refusing unknown or duplicate targets."""
+    if not baseline_update_ticket.strip():
+        raise ValueError("baseline update ticket must be non-empty")
     baseline = copy.deepcopy(load_snapshot(baseline_path))
     provenance = baseline.setdefault("correction_provenance", [])
     if not isinstance(provenance, list):  # defensive; load_snapshot already checks persisted files
@@ -65,6 +73,7 @@ def promote(*, baseline_path: Path, corrections_path: Path, output_path: Path) -
                 "field": field,
                 "reviewer": reviewer,
                 "evidence_refs": evidence_refs,
+                "baseline_update_ticket": baseline_update_ticket,
             }
         )
         known_ids.add(correction_id)
@@ -85,6 +94,7 @@ def run(argv: list[str] | None = None) -> int:
             baseline_path=args.baseline,
             corrections_path=args.corrections,
             output_path=args.output,
+            baseline_update_ticket=args.baseline_update_ticket,
         )
     except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
         print(f"review-correction promotion error: {exc}", file=sys.stderr)

@@ -287,7 +287,7 @@ def _validate_snapshot(payload: object) -> ReplaySnapshot:
         "documents": documents,
     }
     if "evaluation" in payload:
-        snapshot["evaluation"] = payload["evaluation"]
+        snapshot["evaluation"] = _evaluation_metadata(payload, name="snapshot")
     if "correction_provenance" in payload:
         correction_provenance = payload["correction_provenance"]
         if not isinstance(correction_provenance, list) or not all(
@@ -323,14 +323,22 @@ def _evaluation_metadata(snapshot: Mapping[str, object], *, name: str) -> Evalua
     thresholds = raw.get("thresholds")
     if not isinstance(corpus_id, str) or not corpus_id.strip():
         raise ValueError(f"{name} evaluation.corpus_id must be a non-empty string")
-    if not isinstance(corpus_schema_version, int) or corpus_schema_version < 1:
+    if (
+        isinstance(corpus_schema_version, bool)
+        or not isinstance(corpus_schema_version, int)
+        or corpus_schema_version < 1
+    ):
         raise ValueError(f"{name} evaluation.corpus_schema_version must be a positive integer")
     if not isinstance(thresholds, Mapping):
         raise ValueError(f"{name} evaluation.thresholds must be an object")
     normalized_thresholds: dict[str, float] = {}
     for metric in _METRIC_KEYS:
         value = thresholds.get(metric)
-        if not isinstance(value, (int, float)) or not 0 <= value <= 1:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not 0 <= value <= 1
+        ):
             raise ValueError(f"{name} evaluation.thresholds.{metric} must be a number from 0 to 1")
         normalized_thresholds[metric] = float(value)
     return {
@@ -357,11 +365,15 @@ def evaluate_extraction_accuracy(
 
     baseline_index = _index_snapshot(baseline)
     current_index = _index_snapshot(current)
+    baseline_document_ids = set(baseline_index)
+    current_document_ids = set(current_index)
+    if baseline_document_ids != current_document_ids:
+        raise ValueError("cannot compare snapshots with mismatched document identities")
     exact = incorrect = missing = extra = unscorable = 0
     passed_documents = 0
     worst: list[dict[str, str]] = []
 
-    for document_id in sorted(set(baseline_index) | set(current_index)):
+    for document_id in sorted(baseline_document_ids):
         expected_fields = baseline_index.get(document_id, {})
         actual_fields = current_index.get(document_id, {})
         document_failed = False
@@ -389,7 +401,7 @@ def evaluate_extraction_accuracy(
 
     scored = exact + incorrect + missing
     predicted = exact + incorrect + extra
-    corpus_size = len(set(baseline_index) | set(current_index))
+    corpus_size = len(baseline_document_ids)
     return {
         "corpus_id": baseline_metadata["corpus_id"],
         "corpus_schema_version": baseline_metadata["corpus_schema_version"],
