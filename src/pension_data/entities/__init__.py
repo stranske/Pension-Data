@@ -28,7 +28,11 @@ from pension_data.entities.matching import (
     CanonicalEntityAliasRecord,
     generate_alias_match_candidates,
 )
-from pension_data.entities.models import CanonicalEntityDraft, SourceRecordProvenance, SponsorPlanKey
+from pension_data.entities.models import (
+    CanonicalEntityDraft,
+    SourceRecordProvenance,
+    SponsorPlanKey,
+)
 from pension_data.entities.service import (
     build_canonical_stable_id,
     create_canonical_entity,
