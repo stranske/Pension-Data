@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -50,3 +53,36 @@ def test_form5500_schedule_rejects_unsupported_schedule() -> None:
             [{"ein": "12-3456789", "plan_number": "1", "filing_year": "2024", "schedule": "H"}],
             source_document_id="fixture:bad.csv",
         )
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        {"ein": "12-3456789", "plan_number": "1", "filing_year": "2024", "schedule": None},
+        {
+            None: "unexpected column",
+            "ein": "12-3456789",
+            "plan_number": "1",
+            "filing_year": "2024",
+            "schedule": "SB",
+        },
+    ],
+)
+def test_form5500_schedule_rejects_malformed_dictreader_rows(
+    row: dict[str | None, str | None],
+) -> None:
+    with pytest.raises(ValueError, match=r"row 2: CSV fields must be strings"):
+        parse_form5500_schedule_rows([row], source_document_id="fixture:malformed.csv")
+
+
+def test_form5500_module_imports_directly_in_clean_process() -> None:
+    src_root = Path(__file__).parents[2] / "src"
+    python_path = os.pathsep.join(filter(None, (str(src_root), os.environ.get("PYTHONPATH"))))
+    result = subprocess.run(
+        [sys.executable, "-c", "from pension_data.sources.form5500 import Form5500ScheduleRecord"],
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": python_path},
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

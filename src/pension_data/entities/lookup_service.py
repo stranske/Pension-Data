@@ -5,11 +5,14 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from pension_data.db.views.entity_exposure_views import EntityExposureRow
 from pension_data.entities.models import SponsorPlanKey
 from pension_data.normalize.entity_tokens import normalize_entity_token
-from pension_data.sources.form5500 import Form5500ScheduleRecord
+
+if TYPE_CHECKING:
+    from pension_data.sources.form5500 import Form5500ScheduleRecord
 
 
 @dataclass(frozen=True, slots=True)

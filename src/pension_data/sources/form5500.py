@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,28 +32,35 @@ class Form5500ScheduleRecord:
 
 
 def parse_form5500_schedule_rows(
-    rows: Iterable[dict[str, str]], *, source_document_id: str
+    rows: Iterable[Mapping[str | None, str | None]], *, source_document_id: str
 ) -> list[Form5500ScheduleRecord]:
     """Parse local fixture rows only; invalid or unsupported rows fail explicitly."""
     parsed: list[Form5500ScheduleRecord] = []
     for source_row, row in enumerate(rows, start=2):
-        schedule = row.get("schedule", "").strip().upper()
+        validated_row: dict[str, str] = {}
+        for key, value in row.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                raise ValueError(f"row {source_row}: CSV fields must be strings")
+            validated_row[key] = value
+
+        schedule = validated_row.get("schedule", "").strip().upper()
         if schedule not in SUPPORTED_SCHEDULES:
             raise ValueError(f"row {source_row}: schedule must be SB or MB")
         try:
-            filing_year = int(row.get("filing_year", ""))
+            filing_year = int(validated_row.get("filing_year", ""))
         except ValueError as error:
             raise ValueError(f"row {source_row}: filing_year must be an integer") from error
         parsed.append(
             Form5500ScheduleRecord(
                 sponsor_plan_key=SponsorPlanKey(
-                    ein=row.get("ein", ""), plan_number=row.get("plan_number", "")
+                    ein=validated_row.get("ein", ""),
+                    plan_number=validated_row.get("plan_number", ""),
                 ),
                 filing_year=filing_year,
                 schedule=schedule,
                 source_row=source_row,
                 source_document_id=source_document_id,
-                raw_row=tuple(sorted((key, value) for key, value in row.items())),
+                raw_row=tuple(sorted(validated_row.items())),
             )
         )
     return sorted(
