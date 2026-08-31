@@ -26,7 +26,8 @@ SQL and NL-to-SQL requests emit one replayable JSON run record per request. The 
 
 ## Artifact Layout
 
-Artifacts are written under the local `artifacts/` root:
+Artifacts are written under the local `artifacts/` root, which callers may override with the
+`run_record_root` argument:
 
 - `artifacts/query/sql_runs/runs/<query_id>.json`
 - `artifacts/query/sql_runs/rows/<query_id>.json`
@@ -34,6 +35,12 @@ Artifacts are written under the local `artifacts/` root:
 - `artifacts/langchain/nl_runs/rows/<request_id>.json`
 
 Run IDs are path-normalized by replacing non-alphanumeric separators with `-`. JSON is written with sorted keys.
+
+Tests must pass a `tmp_path`-derived `run_record_root` (and `log_path`) to any entry point
+that records a run. Left at the default, the recorders resolve a repo-relative root and drop
+JSON into the checkout, where autofix's `git add -A` commits it; 26 such files reached `main`
+that way. The session-scoped `_no_run_artifacts_written_into_checkout` guard in
+`tests/conftest.py` fails the suite if that recurs.
 
 ## Replay
 

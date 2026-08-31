@@ -357,6 +357,7 @@ def test_nl_error_run_record_preserves_provider_usage_metadata(tmp_path: Path) -
                 }
             ),
             policy=_sample_policy(),
+            log_path=tmp_path / "nl_operations.jsonl",
             run_record_root=tmp_path,
         )
     finally:
@@ -403,6 +404,7 @@ def test_nl_query_run_record_preserves_zero_usage_values(tmp_path: Path) -> None
                 }
             ),
             policy=_sample_policy(),
+            log_path=tmp_path / "nl_operations.jsonl",
             run_record_root=tmp_path,
         )
     finally:
@@ -459,6 +461,7 @@ def test_nl_route_persists_nested_provider_usage_and_replayable_rows_artifact(
                 }
             ),
             policy=_provenance_policy(),
+            log_path=tmp_path / "nl_operations.jsonl",
             run_record_root=tmp_path,
         )
     finally:
