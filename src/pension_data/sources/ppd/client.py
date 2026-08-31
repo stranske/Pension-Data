@@ -94,9 +94,9 @@ class PpdClient:
                 charset = response.headers.get_content_charset() or "utf-8"
                 body: bytes = response.read()
                 return body.decode(charset)
-        except urllib.error.HTTPError as exc:  # pragma: no cover - network path
+        except urllib.error.HTTPError as exc:
             raise PpdApiError(f"PPD API HTTP error {exc.code} for {url}") from exc
-        except urllib.error.URLError as exc:  # pragma: no cover - network path
+        except urllib.error.URLError as exc:
             raise PpdApiError(f"PPD API request failed for {url}: {exc.reason}") from exc
 
     def qvariables_url(

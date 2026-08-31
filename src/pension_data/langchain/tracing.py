@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator, MutableMapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Any, Literal
 
 _TRUTHY = {"1", "true", "yes", "on"}
@@ -58,6 +58,27 @@ def resolve_trace_url(run: Any) -> str | None:
     return None
 
 
+class _QuietExit:
+    """Wrap a context manager so its own exit failure cannot replace the caller's exception.
+
+    Submitting a run happens on exit, so a network failure there would otherwise propagate out of
+    a helper whose entire contract is that observability cannot break the operation observed.
+    Returning False never suppresses the caller's exception — only the tracer's own.
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def __enter__(self) -> Any:
+        return self._inner.__enter__()
+
+    def __exit__(self, *exc_info: Any) -> bool:
+        try:
+            return bool(self._inner.__exit__(*exc_info))
+        except Exception:
+            return False
+
+
 @contextmanager
 def langsmith_tracing_context(
     *,
@@ -98,21 +119,43 @@ def langsmith_tracing_context(
         yield None
         return
 
+    tracer_factory: Any | None
     try:
         from langchain_core.tracers.context import tracing_v2_enabled
-    except Exception:
-        with trace_cm as run:
-            yield run
-        return
 
-    with trace_cm as run:
-        if project:
-            try:
-                with tracing_v2_enabled(project_name=project):
-                    yield run
-            except TypeError:
-                with tracing_v2_enabled():
-                    yield run
-        else:
-            with tracing_v2_enabled():
-                yield run
+        tracer_factory = tracing_v2_enabled
+    except Exception:
+        tracer_factory = None
+
+    with ExitStack() as stack:
+        try:
+            run = stack.enter_context(_QuietExit(trace_cm))
+        except Exception:
+            # Entering the trace is where LangSmith first contacts its backend, so it fails far
+            # more often than constructing it. Losing the trace is acceptable; losing the
+            # operation being traced is not.
+            yield None
+            return
+        if tracer_factory is not None:
+            _enter_tracer(stack, tracer_factory, project)
+        yield run
+
+
+def _enter_tracer(stack: ExitStack, tracing_v2_enabled: Any, project: str | None) -> None:
+    """Enter the LangChain tracer, tolerating a client that predates `project_name`.
+
+    The keyword probe belongs HERE, around the entry alone. Wrapping the caller's body in
+    `except TypeError` instead swallows the caller's own TypeError and re-yields, which surfaces
+    as `RuntimeError: generator didn't stop after throw()` — the caller's error replaced by one
+    from the tracing helper.
+    """
+
+    attempts = [{"project_name": project}, {}] if project else [{}]
+    for kwargs in attempts:
+        try:
+            stack.enter_context(_QuietExit(tracing_v2_enabled(**kwargs)))
+            return
+        except TypeError:
+            continue
+        except Exception:
+            return
