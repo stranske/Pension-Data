@@ -119,10 +119,13 @@ def langsmith_tracing_context(
         yield None
         return
 
+    tracer_factory: Any | None
     try:
         from langchain_core.tracers.context import tracing_v2_enabled
+
+        tracer_factory = tracing_v2_enabled
     except Exception:
-        tracing_v2_enabled = None
+        tracer_factory = None
 
     with ExitStack() as stack:
         try:
@@ -133,8 +136,8 @@ def langsmith_tracing_context(
             # operation being traced is not.
             yield None
             return
-        if tracing_v2_enabled is not None:
-            _enter_tracer(stack, tracing_v2_enabled, project)
+        if tracer_factory is not None:
+            _enter_tracer(stack, tracer_factory, project)
         yield run
 
 
