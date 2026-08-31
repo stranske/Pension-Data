@@ -506,6 +506,7 @@ def test_run_nl_query_endpoint_emits_fleet_artifact_when_category_set(
             provider="openai",
             model="gpt-4o-mini",
             log_path=log_path,
+            run_record_root=tmp_path / "run-records",
             policy=_policy(),
             query_category="funded_ratio_lookup",
             fleet_artifact_path=fleet_path,
@@ -577,6 +578,7 @@ def test_run_nl_query_endpoint_uses_default_langsmith_sink(
                 "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"
             ),
             log_path=tmp_path / "nl_operations.jsonl",
+            run_record_root=tmp_path / "run-records",
             policy=_policy(),
         )
     finally:
@@ -622,6 +624,7 @@ def test_run_nl_query_endpoint_correlates_default_sink_trace_to_fleet_and_audit(
                 "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"
             ),
             log_path=tmp_path / "nl_operations.jsonl",
+            run_record_root=tmp_path / "run-records",
             policy=_policy(),
             query_category="funded_ratio_lookup",
             fleet_artifact_path=fleet_path,
@@ -664,6 +667,7 @@ def test_run_nl_query_endpoint_skips_fleet_artifact_when_no_category(
                 "SELECT id, value FROM sample_metrics WHERE metric = 'funded_ratio'"
             ),
             log_path=log_path,
+            run_record_root=tmp_path / "run-records",
             policy=_policy(),
         )
     finally:
@@ -727,6 +731,7 @@ def test_fleet_artifact_never_contains_raw_question_sql_or_row_data(
             request=NLToSQLRequest(question=question, max_rows=10),
             chain=_StaticChain(raw_sql),
             log_path=log_path,
+            run_record_root=tmp_path / "run-records",
             policy=_policy(),
             query_category="funded_ratio_lookup",
             fleet_artifact_path=fleet_path,

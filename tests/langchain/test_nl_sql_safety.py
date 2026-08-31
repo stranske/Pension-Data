@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Mapping
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -329,7 +330,7 @@ def test_nl_sql_chain_timeout_path_emits_timeout_error_code() -> None:
     assert traces.events[-1].payload["error_code"] == "TIMEOUT"
 
 
-def test_nl_route_requires_nl_scope_and_emits_audit_event() -> None:
+def test_nl_route_requires_nl_scope_and_emits_audit_event(tmp_path: Path) -> None:
     key_store = APIKeyStore()
     unauthorized_secret, _ = key_store.create_key(scopes=(SCOPE_QUERY,))
     connection = _seed_connection()
@@ -359,6 +360,8 @@ def test_nl_route_requires_nl_scope_and_emits_audit_event() -> None:
             trace_sink=traces,
             policy=_sample_policy(),
             event={"request_origin": "unit-test"},
+            log_path=tmp_path / "nl_operations.jsonl",
+            run_record_root=tmp_path / "run-records",
         )
     finally:
         connection.close()
