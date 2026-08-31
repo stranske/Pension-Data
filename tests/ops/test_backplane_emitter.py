@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,22 @@ _FIXTURE = _REPO_ROOT / "tests" / "parser" / "fixtures" / "calpers_fy2024_excerp
 _REGISTRY = _REPO_ROOT / "config" / "backplane_participants.json"
 _SCHEMA_DIR = _REPO_ROOT / "docs" / "contracts" / "schemas"
 _VALIDATOR = _REPO_ROOT / "scripts" / "validate_run_contract.py"
+
+
+def _subprocess_env() -> dict[str, str]:
+    """Put `src` on the child's path the way `pyproject.toml` does for the parent.
+
+    `[tool.pytest.ini_options] pythonpath = ["src", "."]` only reaches the pytest process, so a
+    child interpreter imports `pension_data` only where the package happens to be installed.
+    That made this test pass on CI (which runs `pip install -e .`) and fail on any checkout
+    without an editable install — an environment dependency the test never declared.
+    """
+
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH")
+    src = str(_REPO_ROOT / "src")
+    env["PYTHONPATH"] = f"{src}{os.pathsep}{existing}" if existing else src
+    return env
 
 
 def valid_reference_run(tmp_path: Path) -> dict[str, Path]:
@@ -117,6 +134,7 @@ def test_documented_one_pdf_pilot_command_emits_backplane_artifacts(tmp_path: Pa
             "pension-data-backplane-cli-test",
         ],
         cwd=_REPO_ROOT,
+        env=_subprocess_env(),
         text=True,
         capture_output=True,
     )
