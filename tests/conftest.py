@@ -51,12 +51,22 @@ def _run_artifact_watch_paths() -> tuple[Path, ...]:
     ``artifacts/langsmith/langsmith-fleet.ndjson`` into the checkout on purpose,
     for the workflow's upload-artifact step to collect. Watching the whole root
     fails CI on that intentional write. Do not widen this to ``artifacts/``.
+
+    Filtered to paths that actually land inside the checkout, because
+    ``default_nl_log_path()`` honours ``PENSION_DATA_NL_LOG_PATH`` and can
+    therefore resolve anywhere. An external log destination is somebody's
+    deliberate configuration, and failing the session over a write there would
+    repeat the langsmith mistake above -- with a message that names a checkout
+    the file is not in. Keep the filter: it is what makes this guard's name, its
+    assertion text, and what it actually watches the same claim.
     """
     root = default_run_record_root()
-    return (
+    checkout = root.parent.resolve()
+    candidates = (
         *(root / _surface_dir(surface) for surface in get_args(RunSurface)),
         default_nl_log_path(),
     )
+    return tuple(path for path in candidates if path.resolve().is_relative_to(checkout))
 
 
 def _run_artifact_sizes() -> dict[Path, int]:
