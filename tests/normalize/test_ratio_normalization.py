@@ -17,7 +17,7 @@ from pension_data.sources.ppd.mapping import _allocation_percent, _as_fraction
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [(0.75, 0.75), (1.0, 1.0), (1.5, 0.015), (-1.5, -0.015), (75.0, 0.75)],
+    [(0.75, 0.75), (1.0, 1.0), (1.5, 0.015), (75.0, 0.75)],
 )
 def test_rate_normalizer_uses_the_shared_ratio_contract(value: float, expected: float) -> None:
     assert normalize_rate_to_ratio(value) == expected
@@ -37,10 +37,18 @@ def test_ppd_allocation_percent_preserves_documented_fraction_boundary() -> None
     assert _allocation_percent(1.0001) == to_percent(1.0001) == 1.0001
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_shared_helpers_reject_non_finite_values(value: float) -> None:
+    with pytest.raises(ValueError):
+        to_ratio(value)
+    with pytest.raises(ValueError):
+        to_percent(value)
+
+
 def test_shared_helpers_keep_optional_values_optional() -> None:
     assert to_ratio(None) is None
     assert to_percent(None) is None
 
 
 def test_explicit_negative_percent_is_converted_to_ratio_units() -> None:
-    assert to_ratio(-6.8, percent_threshold=0.0) == -0.068
+    assert to_ratio(-6.8, explicitly_percent=True) == -0.068

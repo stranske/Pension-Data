@@ -10,23 +10,26 @@ from __future__ import annotations
 from pension_data.finite_guards import require_finite
 
 RATIO_PERCENT_THRESHOLD = 1.0
-"""Values whose magnitude exceeds this threshold are percentage-form ratios."""
+"""Values above this generic threshold are percentage-form ratios."""
 
 PPD_FUNDED_RATIO_PERCENT_THRESHOLD = 3.0
-"""PPD funded-ratio values beyond this magnitude are expressed as percentages."""
+"""PPD funded-ratio values above this threshold are expressed as percentages."""
 
 ALLOCATION_FRACTION_MAX = 1.0
 """PPD allocation values through this threshold are expressed as fractions."""
 
 
 def to_ratio(
-    value: float | None, *, percent_threshold: float = RATIO_PERCENT_THRESHOLD
+    value: float | None,
+    *,
+    percent_threshold: float = RATIO_PERCENT_THRESHOLD,
+    explicitly_percent: bool = False,
 ) -> float | None:
-    """Return a finite value in ratio units using a named percentage threshold."""
+    """Return a finite value in ratio units using a threshold or explicit unit marker."""
     if value is None:
         return None
     value = require_finite(value, field="ratio")
-    if abs(value) > percent_threshold:
+    if explicitly_percent or value > percent_threshold:
         return round(value / 100.0, 9)
     return round(value, 9)
 

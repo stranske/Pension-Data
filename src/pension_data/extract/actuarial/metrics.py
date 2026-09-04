@@ -112,7 +112,7 @@ def _normalize_metric_value(
 
     if metric_kind == "ratio":
         if "%" in raw_text or "percent" in lowered:
-            normalized = to_ratio(raw_value, percent_threshold=0.0)
+            normalized = to_ratio(raw_value, explicitly_percent=True)
             if normalized is None:
                 raise ValueError("ratio normalization unexpectedly returned None")
             return raw_value, normalized, "percent", "ratio"
