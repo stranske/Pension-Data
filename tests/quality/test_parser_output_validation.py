@@ -112,6 +112,24 @@ def test_invalid_parser_outputs_block_promotion_and_route_failures_for_review() 
     assert all(row.priority == "high" for row in result.review_queue_rows)
 
 
+def test_nan_normalized_value_blocks_promotion_for_money_and_count_metrics() -> None:
+    rows = _complete_rows()
+    rows = [
+        replace(row, normalized_value=float("nan"))
+        if row.metric_name in {"aal_usd", "participant_count"}
+        else row
+        for row in rows
+    ]
+
+    result = validate_parser_outputs(rows=rows)
+
+    assert result.publish_blocked is True
+    assert result.promotable_rows == ()
+    assert {
+        finding.metric_name for finding in result.findings if finding.code == "numeric_out_of_range"
+    } == {"aal_usd", "participant_count"}
+
+
 def test_low_confidence_parser_outputs_are_visible_in_review_queue_without_blocking() -> None:
     result = validate_parser_outputs(rows=_complete_rows(low_confidence_metric="discount_rate"))
 
