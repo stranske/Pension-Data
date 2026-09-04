@@ -102,6 +102,12 @@ def test_a_negative_allocation_is_refused():
     assert _allocation_percent(-1) is None
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_allocation_percent_is_refused(value):
+    """A non-finite allocation cannot enter peer analytics as a real weight."""
+    assert _allocation_percent(value) is None
+
+
 def test_zero_is_a_real_allocation_and_survives():
     """Zero means the plan holds none of this asset class, which is a measurement. Returning None
     would make it indistinguishable from a class the filing never mentioned."""

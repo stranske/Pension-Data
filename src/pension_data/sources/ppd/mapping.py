@@ -125,6 +125,8 @@ def to_funding_trend_input(record: dict[str, object]) -> FundingTrendInput:
 
 def _allocation_percent(value: float | None) -> float | None:
     """Normalize an allocation weight to a 0-100 percent (fractions <=1 scaled up)."""
+    if value is None or not is_finite_number(value):
+        return None
     return to_percent(value)
 
 
