@@ -135,6 +135,21 @@ def test_a_threshold_outside_zero_to_one_is_refused(raw):
         _parse_thresholds({"min_safety_pass_rate": raw})
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "min_schema_validity_rate",
+        "min_citation_coverage_rate",
+        "min_no_hallucination_rate",
+        "min_safety_pass_rate",
+    ],
+)
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_threshold_is_refused(name: str, value: float) -> None:
+    with pytest.raises(DatasetValidationError, match=f"threshold {name} must be between 0 and 1"):
+        _parse_thresholds({name: value})
+
+
 def test_an_absent_threshold_keeps_its_default():
     parsed = _parse_thresholds({})
     assert 0.0 <= parsed.min_schema_validity_rate <= 1.0

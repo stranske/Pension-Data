@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -51,7 +52,7 @@ class AnomalyThresholds:
 
 
 def _validate_threshold_range(name: str, value: float) -> None:
-    if value < 0.0 or value > 1.0:
+    if not math.isfinite(value) or value < 0.0 or value > 1.0:
         raise ValueError(f"{name} must be within [0.0, 1.0]")
 
 
