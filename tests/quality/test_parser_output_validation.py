@@ -115,9 +115,11 @@ def test_invalid_parser_outputs_block_promotion_and_route_failures_for_review() 
 def test_nan_normalized_value_blocks_promotion_for_money_and_count_metrics() -> None:
     rows = _complete_rows()
     rows = [
-        replace(row, normalized_value=float("nan"))
-        if row.metric_name in {"aal_usd", "participant_count"}
-        else row
+        (
+            replace(row, normalized_value=float("nan"))
+            if row.metric_name in {"aal_usd", "participant_count"}
+            else row
+        )
         for row in rows
     ]
 
