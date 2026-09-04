@@ -15,6 +15,7 @@ from pension_data.db.models.funded_actuarial import (
 )
 from pension_data.db.models.review_queue import ExtractionReviewQueueRecord
 from pension_data.extract.common.ids import stable_id
+from pension_data.finite_guards import is_finite_number
 from pension_data.quality.confidence import (
     ConfidenceRoutingDecision,
     ExtractionConfidenceInput,
@@ -199,6 +200,18 @@ def _metric_range_finding(row: FundedActuarialStagingFact) -> ParserOutputValida
             plan_period=row.plan_period,
             metric_name=row.metric_name,
             message="normalized_value is required for promotion",
+            evidence_refs=row.evidence_refs,
+            incident_class_id="parser_output_validation_failure",
+        )
+
+    if not is_finite_number(value):
+        return _finding(
+            code="numeric_out_of_range",
+            severity="error",
+            plan_id=row.plan_id,
+            plan_period=row.plan_period,
+            metric_name=row.metric_name,
+            message=f"{row.metric_name} must be a finite number, got {value}",
             evidence_refs=row.evidence_refs,
             incident_class_id="parser_output_validation_failure",
         )
