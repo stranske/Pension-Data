@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pension_data.finite_guards import require_finite
 from pension_data.normalize.financial_units import UnitScale, normalize_money_to_usd
+from pension_data.normalize.ratio_normalization import to_ratio
 
 _ALLOCATION_CATEGORY_ALIASES: dict[str, str] = {
     "public equity": "public_equity",
@@ -28,12 +28,7 @@ def normalize_allocation_category(label: str) -> str:
 
 def normalize_rate_to_ratio(rate: float | None) -> float | None:
     """Normalize fee or contribution rates into ratio units."""
-    if rate is None:
-        return None
-    rate = require_finite(rate, field="rate")
-    if rate > 1.0:
-        return round(rate / 100.0, 9)
-    return round(rate, 9)
+    return to_ratio(rate)
 
 
 def normalize_amount_to_usd(amount: float | None, *, unit_scale: UnitScale) -> float | None:

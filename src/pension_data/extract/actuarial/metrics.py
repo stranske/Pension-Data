@@ -23,6 +23,7 @@ from pension_data.normalize.numeric_parsing import (
 from pension_data.normalize.numeric_parsing import (
     truncate_at_sentence_boundary as _truncate_at_sentence_boundary,
 )
+from pension_data.normalize.ratio_normalization import to_ratio
 
 ParserMetricKind = Literal["money", "ratio", "count"]
 
@@ -111,10 +112,16 @@ def _normalize_metric_value(
 
     if metric_kind == "ratio":
         if "%" in raw_text or "percent" in lowered:
-            return raw_value, round(raw_value / 100.0, 9), "percent", "ratio"
+            normalized = to_ratio(raw_value, explicitly_percent=True)
+            if normalized is None:
+                raise ValueError("ratio normalization unexpectedly returned None")
+            return raw_value, normalized, "percent", "ratio"
+        normalized = to_ratio(raw_value)
+        if normalized is None:
+            raise ValueError("ratio normalization unexpectedly returned None")
         if raw_value > 1.0:
-            return raw_value, round(raw_value / 100.0, 9), "percent_assumed", "ratio"
-        return raw_value, raw_value, "ratio", "ratio"
+            return raw_value, normalized, "percent_assumed", "ratio"
+        return raw_value, normalized, "ratio", "ratio"
 
     return raw_value, float(int(round(raw_value))), "count", "count"
 

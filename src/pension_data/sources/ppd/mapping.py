@@ -9,6 +9,7 @@ the source never crosses into the analytics inputs.
 from __future__ import annotations
 
 from pension_data.finite_guards import is_finite_number
+from pension_data.normalize.ratio_normalization import ppd_funded_ratio_fraction, to_percent
 from pension_data.query.saved_views.models import (
     AllocationPeerInput,
     BenchmarkPanelInput,
@@ -92,9 +93,7 @@ def fiscal_year_of(record: dict[str, object]) -> int:
 
 def _as_fraction(value: float | None) -> float | None:
     """Normalize a funded ratio to a fraction (percent inputs >3 are divided by 100)."""
-    if value is None:
-        return None
-    return value / 100.0 if value > 3.0 else value
+    return ppd_funded_ratio_fraction(value)
 
 
 def _funded_ratio_mva(record: dict[str, object]) -> float | None:
@@ -126,11 +125,7 @@ def to_funding_trend_input(record: dict[str, object]) -> FundingTrendInput:
 
 def _allocation_percent(value: float | None) -> float | None:
     """Normalize an allocation weight to a 0-100 percent (fractions <=1 scaled up)."""
-    if value is None:
-        return None
-    if value < 0.0:
-        return None
-    return value * 100.0 if value <= 1.0 else value
+    return to_percent(value)
 
 
 def to_allocation_peer_inputs(record: dict[str, object]) -> list[AllocationPeerInput]:
