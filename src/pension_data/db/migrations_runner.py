@@ -74,7 +74,10 @@ def applied_migration_versions(connection: Any) -> tuple[str, ...]:
 
 def _apply_sql_file(connection: Any, *, dialect: DatabaseDialect, sql: str) -> None:
     if dialect == "sqlite" and hasattr(connection, "executescript"):
-        connection.executescript(sql)
+        # executescript commits any pending transaction before running. Start the
+        # migration transaction inside the script so the caller's rollback can
+        # remove partial DDL when a later statement fails.
+        connection.executescript(f"BEGIN;\n{sql}")
         return
 
     for statement in _split_sql_statements(sql):

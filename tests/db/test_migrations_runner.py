@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import sqlite3
+from pathlib import Path
+
+import pytest
+
 from pension_data.db.migrations_runner import applied_migration_versions, apply_migrations
 from pension_data.db.strategy import connect_database, resolve_database_config
 
@@ -21,3 +26,27 @@ def test_sqlite_migrations_apply_and_record_versions_idempotently() -> None:
     assert second.applied_versions == ()
     assert len(second.skipped_versions) == 3
     assert versions == tuple(sorted(first.applied_versions))
+
+
+def test_sqlite_failed_migration_rolls_back_partial_schema_and_version(tmp_path: Path) -> None:
+    migration = tmp_path / "999_partial_failure.sql"
+    migration.write_text(
+        "CREATE TABLE must_not_survive (id INTEGER);\n"
+        "INSERT INTO missing_table (id) VALUES (1);\n",
+        encoding="utf-8",
+    )
+    connection = sqlite3.connect(":memory:")
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="missing_table"):
+            apply_migrations(connection, dialect="sqlite", paths=(migration,))
+
+        partial_table = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            ("must_not_survive",),
+        ).fetchone()
+        versions = applied_migration_versions(connection)
+    finally:
+        connection.close()
+
+    assert partial_table is None
+    assert versions == ()
