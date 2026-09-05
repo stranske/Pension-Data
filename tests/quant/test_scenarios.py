@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from pension_data.quant.scenarios import (
@@ -77,3 +79,68 @@ def test_simulation_output_shape_is_chart_ready() -> None:
     assert len(result.rows) == (3 * len(_baseline_metrics()))
     suffixes = {row.metric_name.split(".")[-1] for row in result.rows}
     assert suffixes == {"mean", "p05", "p95"}
+
+
+NON_FINITE_BASELINES = (float("nan"), float("inf"), float("-inf"))
+
+
+@pytest.mark.parametrize("bad_value", NON_FINITE_BASELINES)
+def test_scenarios_reject_non_finite_baseline_metrics(bad_value: float) -> None:
+    """A NaN/inf baseline must raise, not flow into chart-ready result rows."""
+    baseline = _baseline_metrics()
+    baseline["funded_ratio"] = bad_value
+
+    with pytest.raises(ValueError, match=r"baseline_metrics\[funded_ratio\] must be a finite"):
+        run_deterministic_scenario(
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            baseline_metrics=baseline,
+            scenario=ScenarioInput(name="bad-baseline", macro_shocks={"funded_ratio": -0.01}),
+            config=ScenarioRunConfig(module_version="v0.1.0"),
+            source_snapshot_id="snapshot:2026-03-03",
+        )
+
+    with pytest.raises(ValueError, match=r"baseline_metrics\[funded_ratio\] must be a finite"):
+        run_monte_carlo_scenario(
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            baseline_metrics=baseline,
+            scenario=ScenarioInput(name="bad-baseline", macro_shocks={"funded_ratio": -0.01}),
+            config=ScenarioRunConfig(module_version="v0.1.0", random_seed=42, simulation_draws=100),
+            source_snapshot_id="snapshot:2026-03-03",
+        )
+
+
+def test_scenarios_reject_empty_baseline_metric_name() -> None:
+    with pytest.raises(ValueError, match="baseline_metrics keys must be non-empty"):
+        run_deterministic_scenario(
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            baseline_metrics={"  ": 0.5},
+            scenario=ScenarioInput(name="blank-key", macro_shocks={}),
+            config=ScenarioRunConfig(module_version="v0.1.0"),
+            source_snapshot_id="snapshot:2026-03-03",
+        )
+
+
+def test_finite_baselines_still_produce_rows_in_both_modes() -> None:
+    """The guard must reject only non-finite baselines, not valid runs."""
+    kwargs = {
+        "plan_id": "CA-PERS",
+        "plan_period": "FY2024",
+        "baseline_metrics": _baseline_metrics(),
+        "scenario": ScenarioInput(name="ok", macro_shocks={"funded_ratio": -0.02}),
+        "source_snapshot_id": "snapshot:2026-03-03",
+    }
+    deterministic = run_deterministic_scenario(
+        config=ScenarioRunConfig(module_version="v0.1.0"), **kwargs
+    )
+    simulation = run_monte_carlo_scenario(
+        config=ScenarioRunConfig(module_version="v0.1.0", random_seed=7, simulation_draws=50),
+        **kwargs,
+    )
+
+    assert len(deterministic.rows) == len(_baseline_metrics())
+    assert len(simulation.rows) == 3 * len(_baseline_metrics())
+    assert all(math.isfinite(row.baseline_value) for row in deterministic.rows)
+    assert all(math.isfinite(row.scenario_value) for row in simulation.rows)

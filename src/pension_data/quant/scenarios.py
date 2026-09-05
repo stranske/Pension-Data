@@ -93,6 +93,19 @@ def _validate_input(scenario: ScenarioInput, config: ScenarioRunConfig) -> None:
             require_finite(value, field=field)
 
 
+def _validate_baseline_metrics(baseline_metrics: Mapping[str, float]) -> None:
+    """Reject non-finite baseline metrics before any result row is built.
+
+    ``_validate_input`` guards the scenario adjustments, but the baseline values are
+    copied straight into :class:`ScenarioResultRow` (and into every derived delta),
+    so an unvalidated NaN/inf baseline reaches the chart/table layer intact.
+    """
+    for metric_name, value in baseline_metrics.items():
+        if not metric_name.strip():
+            raise ValueError("baseline_metrics keys must be non-empty")
+        require_finite(value, field=f"baseline_metrics[{metric_name}]")
+
+
 def _normalized_macro_shocks(values: Mapping[str, float]) -> dict[str, float]:
     normalized: dict[str, float] = {}
     for metric_name, shock in sorted(values.items(), key=lambda item: item[0]):
@@ -175,6 +188,7 @@ def run_deterministic_scenario(
 ) -> ScenarioResult:
     """Run deterministic baseline-vs-scenario comparison."""
     _validate_input(scenario, config)
+    _validate_baseline_metrics(baseline_metrics)
     rows: list[ScenarioResultRow] = []
     for metric_name in sorted(baseline_metrics):
         baseline_value = baseline_metrics[metric_name]
@@ -229,6 +243,7 @@ def run_monte_carlo_scenario(
 ) -> ScenarioResult:
     """Run seeded simulation and return mean/p05/p95-style output rows."""
     _validate_input(scenario, config)
+    _validate_baseline_metrics(baseline_metrics)
     if config.random_seed is None:
         raise ValueError("config.random_seed is required for simulation mode")
     rng = Random(config.random_seed)
