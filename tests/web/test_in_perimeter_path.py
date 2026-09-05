@@ -8,9 +8,14 @@ import json
 import socket
 import sys
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import BinaryIO, cast
 from unittest.mock import Mock
-from urllib.request import urlopen
+from urllib.error import HTTPError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -44,7 +49,7 @@ def _generated_bundle(tmp_path: Path) -> Path:
                         "plan_period": "FY2024",
                         "provenance": {
                             "evidence_refs": ["page=52"],
-                            "source_document": "calpers-fy2024",
+                            "source_document": "documents/annual report.pdf",
                         },
                         "value": 0.81,
                     }
@@ -124,6 +129,191 @@ def test_external_artifact_url_is_rejected() -> None:
 def test_runtime_config_has_no_llm_endpoint_keys() -> None:
     config = serve_local.build_runtime_config(artifact_base_url="/artifacts")
     assert serve_local.DISALLOWED_LLM_CONFIG_KEYS.isdisjoint(config)
+
+
+@contextmanager
+def _artifact_server(tmp_path: Path, artifact_base_url: str = "/artifacts") -> Iterator[str]:
+    artifact_root = tmp_path / "evidence"
+    artifact_root.mkdir(exist_ok=True)
+    handler = serve_local.make_handler(
+        web_root=ROOT / "apps" / "web",
+        workspace_bundle=serve_local.load_workspace_bundle(_generated_bundle(tmp_path)),
+        runtime_config=serve_local.build_runtime_config(artifact_base_url=artifact_base_url),
+        artifact_root=artifact_root,
+    )
+    server = serve_local.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+
+@pytest.mark.parametrize("artifact_base_url", ["/artifacts", "/review/evidence/"])
+def test_local_server_serves_artifact_links_from_configured_root(
+    tmp_path: Path, artifact_base_url: str
+) -> None:
+    evidence = tmp_path / "evidence" / "documents"
+    evidence.mkdir(parents=True)
+    content = b"%PDF-1.4\nlocal evidence bytes\n"
+    (evidence / "annual report.pdf").write_bytes(content)
+    with _artifact_server(tmp_path, artifact_base_url) as base_url:
+        config = _fetch_json(f"{base_url}/config/runtime.json")
+        with urlopen(f"{base_url}/data/workspace.json", timeout=5) as response:
+            workspace = json.load(response)
+        provenance = workspace["datasets"][0]["rows"][0]["provenance"]
+        # Match app.js: encodeURIComponent(source_document) plus the evidence token.
+        document = quote(provenance["source_document"], safe="")
+        token = quote(provenance["evidence_refs"][0], safe="")
+        artifact_url = f"{base_url}{config['artifactBaseUrl']}/{document}#{token}"
+        with urlopen(artifact_url, timeout=5) as response:
+            assert response.status == 200
+            assert response.read() == content
+            assert response.headers["Content-Type"] == "application/pdf"
+            assert response.headers["Content-Length"] == str(len(content))
+            assert response.headers["Content-Security-Policy"] == serve_local.CSP_HEADER
+            assert response.headers["Referrer-Policy"] == "no-referrer"
+            assert response.headers["Cache-Control"] == "no-store"
+        with urlopen(Request(artifact_url, method="HEAD"), timeout=5) as response:
+            assert response.status == 200
+            assert response.read() == b""
+            assert response.headers["Content-Length"] == str(len(content))
+        assert _fetch_json(f"{base_url}/data/workspace.json")["data_origin"] == "generated"
+        with urlopen(f"{base_url}/app.js", timeout=5) as response:
+            assert response.status == 200
+
+
+def test_local_server_refuses_artifact_traversal_and_directory_listing(tmp_path: Path) -> None:
+    root = tmp_path / "evidence"
+    root.mkdir()
+    outside = tmp_path / "private.txt"
+    outside.write_text("must never be served")
+    sibling = tmp_path / "evidence-private"
+    sibling.mkdir()
+    (sibling / "secret.txt").write_text("sibling secret")
+    (root / "escape.txt").symlink_to(outside)
+    (root / "escape-dir").symlink_to(sibling, target_is_directory=True)
+    rejected = {
+        "../private.txt": 403,
+        "%2e%2e/private.txt": 403,
+        "%2e%2e%2fprivate.txt": 403,
+        "nested/../../private.txt": 403,
+        "..%5cprivate.txt": 403,
+        "escape.txt": 403,
+        "escape-dir/secret.txt": 403,
+        "%00": 403,
+        "%252e%252e/private.txt": 404,
+        "missing.pdf": 404,
+        "": 404,
+    }
+    with _artifact_server(tmp_path) as base_url:
+        for method in ("GET", "HEAD"):
+            for suffix, status in rejected.items():
+                with pytest.raises(HTTPError) as exc:
+                    urlopen(Request(f"{base_url}/artifacts/{suffix}", method=method), timeout=5)
+                assert exc.value.code == status, (method, suffix)
+                assert exc.value.headers["Content-Security-Policy"] == serve_local.CSP_HEADER
+                assert exc.value.headers["Cache-Control"] == "no-store"
+                exc.value.close()
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "",
+        "/",
+        "artifacts",
+        "//localhost/artifacts",
+        "http://localhost/artifacts",
+        "/artifacts?x=1",
+        "/artifacts#page",
+        "/a/../b",
+        "/a//b",
+        "/a%2fb",
+        "/a\\b",
+        "/config",
+        "/data/evidence",
+    ],
+)
+def test_artifact_base_url_requires_a_local_mount_path(base_url: str) -> None:
+    with pytest.raises(ValueError, match="artifactBaseUrl"):
+        serve_local.build_runtime_config(artifact_base_url=base_url)
+
+
+def test_main_passes_artifact_root_to_handler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "evidence"
+    root.mkdir()
+    make_handler = Mock(wraps=serve_local.make_handler)
+    monkeypatch.setattr(serve_local, "make_handler", make_handler)
+    monkeypatch.setattr(serve_local, "ThreadingHTTPServer", Mock())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SERVE_LOCAL_PATH),
+            "--bundle",
+            str(_generated_bundle(tmp_path)),
+            "--artifact-root",
+            str(root),
+            "--artifact-base-url",
+            "/evidence",
+        ],
+    )
+    assert serve_local.main() == 0
+    assert make_handler.call_args.kwargs["artifact_root"] == root
+    assert make_handler.call_args.kwargs["runtime_config"]["artifactBaseUrl"] == "/evidence"
+
+
+def test_artifact_route_without_root_does_not_fall_back_to_static_files(tmp_path: Path) -> None:
+    (tmp_path / "artifacts").mkdir()
+    (tmp_path / "artifacts" / "secret.txt").write_text("not an evidence root")
+    handler = serve_local.make_handler(
+        web_root=tmp_path,
+        workspace_bundle=serve_local.load_workspace_bundle(_generated_bundle(tmp_path)),
+        runtime_config=serve_local.build_runtime_config(artifact_base_url="/artifacts"),
+    )
+    server = serve_local.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with pytest.raises(HTTPError) as exc:
+            urlopen(f"http://127.0.0.1:{server.server_port}/artifacts/secret.txt", timeout=5)
+        assert exc.value.code == 404
+        exc.value.close()
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+
+@pytest.mark.parametrize("root_kind", ["missing", "file"])
+def test_invalid_artifact_root_is_rejected_before_listening(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, root_kind: str
+) -> None:
+    root = tmp_path / "evidence"
+    if root_kind == "file":
+        root.write_text("not a directory")
+    server = Mock()
+    monkeypatch.setattr(serve_local, "ThreadingHTTPServer", server)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SERVE_LOCAL_PATH),
+            "--bundle",
+            str(_generated_bundle(tmp_path)),
+            "--artifact-root",
+            str(root),
+        ],
+    )
+    with pytest.raises((FileNotFoundError, ValueError)):
+        serve_local.main()
+    server.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -224,3 +414,67 @@ def test_in_perimeter_ipv6_server_binds_loopback() -> None:
         assert server.server_address[0] == "::1"
     finally:
         server.server_close()
+
+
+@pytest.mark.parametrize("replacement", ["file", "directory", "root"])
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+def test_artifact_replacement_race_cannot_escape_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, replacement: str, method: str
+) -> None:
+    root = tmp_path / "evidence"
+    document_dir = root / "documents"
+    document_dir.mkdir(parents=True)
+    document = document_dir / "report.pdf"
+    document.write_bytes(b"intended artifact")
+    outside = tmp_path / "private"
+    (outside / "documents").mkdir(parents=True)
+    secret = outside / "documents" / "report.pdf"
+    secret.write_bytes(b"outside-root secret must never be served")
+    original_open = serve_local._open_artifact_file
+    replaced = False
+
+    def replace_before_open(path: Path) -> BinaryIO:
+        nonlocal replaced
+        assert path == document.resolve()
+        # Controlled seam: validation completed, but no file descriptor was opened.
+        if replacement == "file":
+            document.unlink()
+            document.symlink_to(secret)
+        elif replacement == "directory":
+            document_dir.rename(root / "original-documents")
+            document_dir.symlink_to(secret.parent, target_is_directory=True)
+        else:
+            root.rename(tmp_path / "original-evidence")
+            root.symlink_to(outside, target_is_directory=True)
+        replaced = True
+        return cast(BinaryIO, original_open(path))
+
+    monkeypatch.setattr(serve_local, "_open_artifact_file", replace_before_open)
+    with _artifact_server(tmp_path) as base_url:
+        with pytest.raises(HTTPError) as exc:
+            urlopen(
+                Request(f"{base_url}/artifacts/documents%2Freport.pdf", method=method),
+                timeout=5,
+            )
+        assert replaced
+        assert exc.value.code == 403
+        assert exc.value.headers["Cache-Control"] == "no-store"
+        assert b"outside-root secret" not in exc.value.read()
+        exc.value.close()
+
+
+@pytest.mark.parametrize(
+    "endpoint", ["/data/workspace.json", "/config/default.json", "/config/runtime.json"]
+)
+def test_dynamic_json_head_matches_generated_get(tmp_path: Path, endpoint: str) -> None:
+    with _artifact_server(tmp_path) as base_url:
+        with urlopen(base_url + endpoint, timeout=5) as response:
+            payload = response.read()
+            content_type = response.headers["Content-Type"]
+        with urlopen(Request(base_url + endpoint, method="HEAD"), timeout=5) as response:
+            assert response.status == 200
+            assert response.read() == b""
+            assert response.headers["Content-Length"] == str(len(payload))
+            assert response.headers["Content-Type"] == content_type
+            assert response.headers["Cache-Control"] == "no-store"
+            assert response.headers["Content-Security-Policy"] == serve_local.CSP_HEADER

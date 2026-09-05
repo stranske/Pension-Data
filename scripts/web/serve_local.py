@@ -4,15 +4,19 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import ipaddress
 import json
+import os
 import socket
+import stat
 import sys
 from collections.abc import Mapping
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 from pathlib import Path
-from typing import Any
-from urllib.parse import urlsplit
+from typing import Any, BinaryIO
+from urllib.parse import unquote, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from workspace_contract import validate_workspace_bundle  # noqa: E402
@@ -101,10 +105,24 @@ def is_external_url(value: str) -> bool:
 
 def build_runtime_config(*, artifact_base_url: str) -> dict[str, Any]:
     """Config for bundle-only real-data viewing with no external API endpoint."""
+    parsed = urlsplit(artifact_base_url)
+    if (
+        parsed.scheme
+        or parsed.netloc
+        or parsed.query
+        or parsed.fragment
+        or not artifact_base_url.startswith("/")
+        or any(part in {"", ".", ".."} for part in artifact_base_url.strip("/").split("/"))
+        or any(char in artifact_base_url for char in "%\\\x00\r\n\t")
+        or artifact_base_url.split("/")[1] in {"config", "data"}
+    ):
+        raise ValueError(
+            "artifactBaseUrl must be a non-root local URL path outside /config and /data"
+        )
     config = {
         "environment": "internal",
         "apiBaseUrl": "",
-        "artifactBaseUrl": artifact_base_url,
+        "artifactBaseUrl": artifact_base_url.rstrip("/"),
         "enableQueryOverrides": False,
     }
     for key in ("apiBaseUrl", "artifactBaseUrl"):
@@ -117,12 +135,49 @@ def build_runtime_config(*, artifact_base_url: str) -> dict[str, Any]:
     return config
 
 
+def _open_artifact_file(path: Path) -> BinaryIO:
+    """Open a validated absolute path without following replacement symlinks.
+
+    Walk from the filesystem root so no mutable ancestor is reopened by name.
+    Each directory descriptor pins the directory used for the next lookup.
+    """
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    directory_fd = os.open(path.anchor, directory_flags)
+    try:
+        for component in path.parts[1:-1]:
+            next_fd = os.open(component, directory_flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = next_fd
+        file_fd = os.open(
+            path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd
+        )
+        try:
+            if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+                raise FileNotFoundError("Artifact is not a regular file")
+            return os.fdopen(file_fd, "rb")
+        except BaseException:
+            os.close(file_fd)
+            raise
+    finally:
+        os.close(directory_fd)
+
+
 def make_handler(
     *,
     web_root: Path,
     workspace_bundle: Mapping[str, Any],
     runtime_config: Mapping[str, Any],
+    artifact_root: Path | None = None,
 ) -> type[SimpleHTTPRequestHandler]:
+    artifact_prefix = str(runtime_config["artifactBaseUrl"]).rstrip("/")
+    resolved_artifact_root = artifact_root.resolve(strict=True) if artifact_root else None
+    if resolved_artifact_root is not None:
+        if not resolved_artifact_root.is_dir():
+            raise ValueError("artifact root must be a directory")
+        if os.open not in os.supports_dir_fd or not all(
+            hasattr(os, flag) for flag in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK")
+        ):
+            raise ValueError("artifact serving requires descriptor-relative no-follow support")
     workspace_bytes = json.dumps(workspace_bundle, indent=2, sort_keys=True).encode("utf-8")
     config_bytes = json.dumps(runtime_config, indent=2, sort_keys=True).encode("utf-8")
 
@@ -133,25 +188,60 @@ def make_handler(
         def end_headers(self) -> None:
             self.send_header("Content-Security-Policy", CSP_HEADER)
             self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Cache-Control", "no-store")
             super().end_headers()
 
-        def _send_json(self, payload: bytes) -> None:
+        def _json_file(self, payload: bytes) -> BinaryIO:
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
-            self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(payload)
+            return BytesIO(payload)
 
-        def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
-            path = urlsplit(self.path).path
-            if path == "/data/workspace.json":
-                self._send_json(workspace_bytes)
-                return
-            if path in {"/config/default.json", "/config/runtime.json"}:
-                self._send_json(config_bytes)
-                return
-            super().do_GET()
+        def send_head(self) -> BinaryIO | None:
+            raw_path = urlsplit(self.path).path
+            if raw_path == "/data/workspace.json":
+                return self._json_file(workspace_bytes)
+            if raw_path in {"/config/default.json", "/config/runtime.json"}:
+                return self._json_file(config_bytes)
+            # Handle both GET and HEAD before the static server can normalize '..'.
+            path = unquote(urlsplit(self.path).path)
+            if path != artifact_prefix and not path.startswith(artifact_prefix + "/"):
+                return super().send_head()
+            if resolved_artifact_root is None:
+                self.send_error(404, "No artifact root configured")
+                return None
+            relative_path = path[len(artifact_prefix) :].lstrip("/")
+            if ".." in relative_path.split("/") or "\\" in relative_path or "\x00" in relative_path:
+                self.send_error(403, "Artifact path is not permitted")
+                return None
+            try:
+                artifact = (resolved_artifact_root / relative_path).resolve(strict=True)
+                if not artifact.is_relative_to(resolved_artifact_root):
+                    self.send_error(403, "Artifact path is outside the configured root")
+                    return None
+                if not artifact.is_file():
+                    self.send_error(404, "Artifact file not found")
+                    return None
+                file = _open_artifact_file(artifact)
+            except OSError as exc:
+                if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                    self.send_error(403, "Artifact path changed or contains a symlink")
+                else:
+                    self.send_error(404, "Artifact file not found")
+                return None
+            except (RuntimeError, ValueError):
+                self.send_error(404, "Artifact file not found")
+                return None
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", self.guess_type(str(artifact)))
+                self.send_header("Content-Length", str(os.fstat(file.fileno()).st_size))
+                self.end_headers()
+                return file
+            except BaseException:
+                file.close()
+                raise
 
     return InPerimeterWorkspaceHandler
 
@@ -178,9 +268,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--port", default=8766, type=int, help="Bind port.")
     parser.add_argument(
+        "--artifact-root",
+        type=Path,
+        help="Directory containing evidence artifacts; required to serve evidence links.",
+    )
+    parser.add_argument(
         "--artifact-base-url",
         default="/artifacts",
-        help="Relative, localhost, or loopback artifact URL exposed to the SPA.",
+        help="Local URL path for the artifact root; defaults to /artifacts.",
     )
     parser.add_argument(
         "--allow-fixture-demo",
@@ -194,7 +289,12 @@ def main() -> int:
     args = parse_args()
     bundle = load_workspace_bundle(args.bundle, allow_fixture_demo=args.allow_fixture_demo)
     config = build_runtime_config(artifact_base_url=args.artifact_base_url)
-    handler = make_handler(web_root=args.web_root, workspace_bundle=bundle, runtime_config=config)
+    handler = make_handler(
+        web_root=args.web_root,
+        workspace_bundle=bundle,
+        runtime_config=config,
+        artifact_root=args.artifact_root,
+    )
     server_type = IPv6ThreadingHTTPServer if ":" in args.host else ThreadingHTTPServer
     server = server_type((args.host, args.port), handler)
     url_host = f"[{args.host}]" if ":" in args.host else args.host
