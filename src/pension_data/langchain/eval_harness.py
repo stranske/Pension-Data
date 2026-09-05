@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import math
 import re
 import shlex
 import subprocess
@@ -178,7 +179,7 @@ def _parse_thresholds(payload: Mapping[str, object]) -> EvalThresholds:
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
             raise DatasetValidationError(f"threshold {name} must be numeric")
         value = float(raw)
-        if value < 0.0 or value > 1.0:
+        if not math.isfinite(value) or value < 0.0 or value > 1.0:
             raise DatasetValidationError(f"threshold {name} must be between 0 and 1")
         return value
 

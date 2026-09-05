@@ -10,6 +10,22 @@ from pension_data.quality.anomaly_rules import AnomalyThresholds, TimeSeriesPoin
 from pension_data.review_queue.anomalies import route_anomalies_to_review_queue
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "funded_shift_warning",
+        "funded_shift_critical",
+        "allocation_shift_warning",
+        "allocation_shift_critical",
+        "min_confidence_for_medium_priority",
+    ],
+)
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_anomaly_thresholds_reject_non_finite_values(name: str, value: float) -> None:
+    with pytest.raises(ValueError, match=rf"{name} must be within \[0.0, 1.0\]"):
+        AnomalyThresholds(**{name: value})
+
+
 def _point(
     *,
     plan_id: str,
