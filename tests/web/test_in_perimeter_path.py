@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import importlib.util
 import json
 import socket
@@ -208,8 +209,16 @@ def test_in_perimeter_ipv6_server_binds_loopback() -> None:
         server = serve_local.IPv6ThreadingHTTPServer(
             ("::1", 0), serve_local.SimpleHTTPRequestHandler
         )
-    except PermissionError as exc:
-        pytest.skip(f"socket bind not permitted in this environment: {exc}")
+    except OSError as exc:
+        if exc.errno in {
+            errno.EACCES,
+            errno.EPERM,
+            errno.EAFNOSUPPORT,
+            errno.EPROTONOSUPPORT,
+            errno.EADDRNOTAVAIL,
+        }:
+            pytest.skip(f"IPv6 loopback bind unavailable in this environment: {exc}")
+        raise
     try:
         assert server.address_family == socket.AF_INET6
         assert server.server_address[0] == "::1"
