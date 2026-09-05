@@ -32,13 +32,24 @@ Open `apps/web/index.html` in a browser or run a static file server.
   `python scripts/web/build_workspace_bundle.py --pilot-run-dir <run-dir> --out apps/web/data/workspace.json`.
   The generator reads `run_manifest.json` and `staging_core_metrics.json`, emits `data_origin: "generated"`, and validates the bundle before writing.
 - Serve a generated or live bundle without copying it over the checked-in
-  fixture with `python scripts/web/serve_local.py --bundle <workspace.generated.json>`.
+  fixture with `python scripts/web/serve_local.py --bundle <workspace.generated.json> --artifact-root <evidence-directory>`.
   This in-perimeter path returns an empty `apiBaseUrl` and relative artifact
   links so the browser does not call an external API host.
   It binds only loopback addresses: `--host` accepts IPv4 loopback addresses,
   IPv6 `::1`, or `localhost` (bound directly to `127.0.0.1` without DNS lookup).
   Wildcard, LAN, public, and other hostname values are rejected before listener
   creation. Remote serving requires a separate surface with access control.
+  Evidence files must be stored beneath the explicit `--artifact-root` directory,
+  with paths matching the bundle's evidence links. For example,
+  `<evidence-directory>/documents/report.pdf` is served at
+  `/artifacts/documents/report.pdf`; page fragments such as `#page=52` still work.
+  `--artifact-base-url /review/evidence` changes this local route and the runtime
+  config together. Only a local URL path is accepted; external hosts, absolute
+  URLs, traversal segments, and the reserved `/config` and `/data` prefixes are
+  rejected. Requests cannot traverse outside the artifact root, including through
+  symlinks, and directories are not listed. If `--artifact-root` is omitted,
+  bundle viewing still works but evidence requests return 404. Use a directory
+  containing only evidence intended for this local review.
 
 ## Zero-Install Usage
 
