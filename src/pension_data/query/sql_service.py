@@ -117,6 +117,11 @@ class DBConnection(Protocol):
 
 
 def _validate_request(request: SQLQueryRequest) -> None:
+    for field in ("page", "page_size", "timeout_ms", "max_rows"):
+        value = getattr(request, field)
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise SQLExecutionValidationError(f"{field} must be a finite integer")
+
     if request.page < 1:
         raise SQLExecutionValidationError("page must be >= 1")
     if request.page_size < 1:
@@ -368,6 +373,7 @@ def execute_sql_query(
             )
         return response
 
+    timeout_installed = False
     try:
         _validate_request(request)
         try:
@@ -384,6 +390,7 @@ def execute_sql_query(
             deadline_s=deadline,
             clock=clock,
         )
+        timeout_installed = True
 
         count_cursor = connection.execute(_count_query(sql), _count_params(params))
         total_rows = int(count_cursor.fetchone()[0])
@@ -432,4 +439,5 @@ def execute_sql_query(
             executed_sql=None,
         )
     finally:
-        _clear_timeout_handler(connection, dialect=dialect)
+        if timeout_installed:
+            _clear_timeout_handler(connection, dialect=dialect)

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
+from typing import Any, Literal
+from unittest.mock import Mock
 
 import pytest
 
@@ -338,3 +340,161 @@ def test_sql_service_persists_serialized_run_record(tmp_path: Path) -> None:
     rows_payload = json.loads(rows_path.read_text(encoding="utf-8"))
     assert rows_payload["columns"] == ["id", "metric"]
     assert rows_payload["rows"] == [[1, "m-001"], [2, "m-002"]]
+
+
+@pytest.mark.parametrize("field", ["page", "page_size", "timeout_ms", "max_rows"])
+@pytest.mark.parametrize(
+    "value", [float("nan"), float("inf"), float("-inf"), 1.5, 1.0, True, False, "1", None]
+)
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_sql_service_rejects_non_finite_resource_controls(
+    field: str,
+    value: Any,
+    dialect: Literal["sqlite", "postgresql"],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = Mock(spec=["execute", "set_progress_handler"])
+    validate_sql = Mock(side_effect=AssertionError("SQL validation must not run"))
+    monkeypatch.setattr("pension_data.query.sql_service.validate_read_only_sql", validate_sql)
+    request = replace(SQLQueryRequest(sql="SELECT 1"), **{field: value})
+    audit_logs: list[SQLExecutionAuditLog] = []
+
+    response = execute_sql_query(
+        connection=connection,
+        request=request,
+        dialect=dialect,
+        caller_key_id="key:test",
+        audit_log_store=audit_logs,
+    )
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert response.error.message == f"{field} must be a finite integer"
+    assert response.rows == ()
+    assert response.metadata.executed_sql is None
+    assert audit_logs[0].error_code == "INVALID_REQUEST"
+    validate_sql.assert_not_called()
+    assert connection.method_calls == []
+
+
+@pytest.mark.parametrize("field", ["page", "page_size", "timeout_ms", "max_rows"])
+@pytest.mark.parametrize("value", [0, -1])
+def test_sql_service_preserves_resource_control_lower_bounds(field: str, value: int) -> None:
+    connection = Mock(spec=["execute", "set_progress_handler"])
+    overrides: dict[str, Any] = {field: value}
+    response = execute_sql_query(
+        connection=connection,
+        request=replace(SQLQueryRequest(sql="SELECT 1"), **overrides),
+        caller_key_id="key:test",
+    )
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert response.error.message == f"{field} must be >= 1"
+    assert connection.method_calls == []
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize(
+    "invalid_request",
+    [
+        SQLQueryRequest(sql="SELECT 1; SELECT 2"),
+        SQLQueryRequest(sql="EXPLAIN SELECT 1"),
+        SQLQueryRequest(sql="SELECT 1", params={"_pd_limit": 100}),
+        SQLQueryRequest(sql="SELECT 1", params="invalid"),  # type: ignore[arg-type]
+    ],
+    ids=["multiple-statements", "explain", "reserved-params", "string-params"],
+)
+def test_sql_service_validation_leaves_connection_untouched(
+    invalid_request: SQLQueryRequest,
+    dialect: Literal["sqlite", "postgresql"],
+) -> None:
+    methods = ["execute", "rollback"]
+    if dialect == "sqlite":
+        methods.append("set_progress_handler")
+    connection = Mock(spec=methods)
+
+    response = execute_sql_query(
+        connection=connection,
+        request=invalid_request,
+        dialect=dialect,
+        caller_key_id="key:test",
+    )
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert connection.method_calls == []
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize("execution_error", [False, True])
+def test_sql_service_clears_installed_timeout_after_execution(
+    dialect: Literal["sqlite", "postgresql"],
+    execution_error: bool,
+) -> None:
+    methods = ["execute"]
+    if dialect == "sqlite":
+        methods.append("set_progress_handler")
+    connection = Mock(spec=methods)
+    count_cursor = Mock()
+    count_cursor.fetchone.return_value = (1,)
+    page_cursor = Mock()
+    page_cursor.description = (("value",),)
+    page_cursor.fetchall.return_value = [(1,)]
+    results: list[Any] = [
+        RuntimeError("query failed") if execution_error else count_cursor,
+    ]
+    if not execution_error:
+        results.append(page_cursor)
+    if dialect == "postgresql":
+        results = [None, *results, None]
+    connection.execute.side_effect = results
+
+    response = execute_sql_query(
+        connection=connection,
+        request=SQLQueryRequest(sql="SELECT 1 AS value", timeout_ms=1234),
+        dialect=dialect,
+        caller_key_id="key:test",
+    )
+
+    assert response.status == ("error" if execution_error else "ok")
+    if execution_error:
+        assert response.error is not None
+        assert response.error.message == "query failed"
+    else:
+        assert response.rows == ((1,),)
+    if dialect == "sqlite":
+        assert connection.set_progress_handler.call_count == 2
+        assert callable(connection.set_progress_handler.call_args_list[0].args[0])
+        assert connection.set_progress_handler.call_args_list[0].args[1] == 1000
+        connection.set_progress_handler.assert_called_with(None, 0)
+        assert connection.method_calls[-1][0] == "set_progress_handler"
+    else:
+        assert connection.execute.call_args_list[0].args == ("SET statement_timeout = 1234",)
+        connection.execute.assert_called_with("SET statement_timeout = DEFAULT")
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_sql_service_does_not_clear_timeout_when_installation_fails(
+    dialect: Literal["sqlite", "postgresql"],
+) -> None:
+    methods = ["execute", "rollback"]
+    if dialect == "sqlite":
+        methods.append("set_progress_handler")
+    connection = Mock(spec=methods)
+    setter = connection.set_progress_handler if dialect == "sqlite" else connection.execute
+    setter.side_effect = RuntimeError("timeout installation failed")
+
+    response = execute_sql_query(
+        connection=connection,
+        request=SQLQueryRequest(sql="SELECT 1"),
+        dialect=dialect,
+        caller_key_id="key:test",
+    )
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.message == "timeout installation failed"
+    assert len(connection.method_calls) == 1
+    setter.assert_called_once()
