@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
+from typing import Any, Literal
+from unittest.mock import Mock
 
 import pytest
 
@@ -338,3 +340,54 @@ def test_sql_service_persists_serialized_run_record(tmp_path: Path) -> None:
     rows_payload = json.loads(rows_path.read_text(encoding="utf-8"))
     assert rows_payload["columns"] == ["id", "metric"]
     assert rows_payload["rows"] == [[1, "m-001"], [2, "m-002"]]
+
+
+@pytest.mark.parametrize("field", ["page", "page_size", "timeout_ms", "max_rows"])
+@pytest.mark.parametrize(
+    "value", [float("nan"), float("inf"), float("-inf"), 1.5, 1.0, True, False, "1", None]
+)
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_sql_service_rejects_non_finite_resource_controls(
+    field: str,
+    value: Any,
+    dialect: Literal["sqlite", "postgresql"],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = Mock(spec=["execute", "set_progress_handler"])
+    validate_sql = Mock(side_effect=AssertionError("SQL validation must not run"))
+    monkeypatch.setattr("pension_data.query.sql_service.validate_read_only_sql", validate_sql)
+    request = replace(SQLQueryRequest(sql="SELECT 1"), **{field: value})
+    audit_logs: list[SQLExecutionAuditLog] = []
+
+    response = execute_sql_query(
+        connection=connection,
+        request=request,
+        dialect=dialect,
+        caller_key_id="key:test",
+        audit_log_store=audit_logs,
+    )
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert response.error.message == f"{field} must be a finite integer"
+    assert response.rows == ()
+    assert response.metadata.executed_sql is None
+    assert audit_logs[0].error_code == "INVALID_REQUEST"
+    validate_sql.assert_not_called()
+    assert connection.method_calls == []
+
+
+@pytest.mark.parametrize("field", ["page", "page_size", "timeout_ms", "max_rows"])
+@pytest.mark.parametrize("value", [0, -1])
+def test_sql_service_preserves_resource_control_lower_bounds(field: str, value: int) -> None:
+    connection = Mock(spec=["execute", "set_progress_handler"])
+    response = execute_sql_query(
+        connection=connection,
+        request=replace(SQLQueryRequest(sql="SELECT 1"), **{field: value}),
+        caller_key_id="key:test",
+    )
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert response.error.message == f"{field} must be >= 1"
+    assert connection.method_calls == []

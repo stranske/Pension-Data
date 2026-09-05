@@ -117,6 +117,11 @@ class DBConnection(Protocol):
 
 
 def _validate_request(request: SQLQueryRequest) -> None:
+    for field in ("page", "page_size", "timeout_ms", "max_rows"):
+        value = getattr(request, field)
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise SQLExecutionValidationError(f"{field} must be a finite integer")
+
     if request.page < 1:
         raise SQLExecutionValidationError("page must be >= 1")
     if request.page_size < 1:
@@ -368,8 +373,10 @@ def execute_sql_query(
             )
         return response
 
+    request_validated = False
     try:
         _validate_request(request)
+        request_validated = True
         try:
             sql = validate_read_only_sql(request.sql)
         except SQLSafetyValidationError as exc:
@@ -432,4 +439,5 @@ def execute_sql_query(
             executed_sql=None,
         )
     finally:
-        _clear_timeout_handler(connection, dialect=dialect)
+        if request_validated:
+            _clear_timeout_handler(connection, dialect=dialect)
