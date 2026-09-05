@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
+import socket
 import sys
 from collections.abc import Mapping
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -36,6 +38,25 @@ DISALLOWED_LLM_CONFIG_KEYS = frozenset(
         "langchainEndpoint",
     }
 )
+
+
+def loopback_host(value: str) -> str:
+    """Return a numeric loopback bind address without trusting DNS resolution."""
+    host = value.strip().casefold()
+    if host in {"localhost", "localhost."}:
+        return "127.0.0.1"
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        if address.is_loopback:
+            return str(address)
+    raise argparse.ArgumentTypeError("--host must be a loopback IP address or localhost")
+
+
+class IPv6ThreadingHTTPServer(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -149,7 +170,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Static web app root; defaults to apps/web.",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="Bind host; loopback by default.")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        type=loopback_host,
+        help="Loopback IP address or localhost only; defaults to 127.0.0.1.",
+    )
     parser.add_argument("--port", default=8766, type=int, help="Bind port.")
     parser.add_argument(
         "--artifact-base-url",
@@ -169,8 +195,10 @@ def main() -> int:
     bundle = load_workspace_bundle(args.bundle, allow_fixture_demo=args.allow_fixture_demo)
     config = build_runtime_config(artifact_base_url=args.artifact_base_url)
     handler = make_handler(web_root=args.web_root, workspace_bundle=bundle, runtime_config=config)
-    server = ThreadingHTTPServer((args.host, args.port), handler)
-    print(f"serving in-perimeter workspace at http://{args.host}:{args.port}/")
+    server_type = IPv6ThreadingHTTPServer if ":" in args.host else ThreadingHTTPServer
+    server = server_type((args.host, args.port), handler)
+    url_host = f"[{args.host}]" if ":" in args.host else args.host
+    print(f"serving in-perimeter workspace at http://{url_host}:{args.port}/")
     print(f"bundle: {args.bundle} (data_origin={bundle['data_origin']})")
     try:
         server.serve_forever()

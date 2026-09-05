@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import socket
+import sys
 import threading
 from pathlib import Path
+from unittest.mock import Mock
 from urllib.request import urlopen
 
 import pytest
@@ -62,7 +65,7 @@ def _fetch_json(url: str) -> dict[str, object]:
 
 def _fetch_header(url: str, header: str) -> str:
     with urlopen(url, timeout=5) as response:  # noqa: S310 - local test server
-        value = response.headers.get(header, "")
+        value: str = response.headers.get(header, "")
     return value
 
 
@@ -120,3 +123,95 @@ def test_external_artifact_url_is_rejected() -> None:
 def test_runtime_config_has_no_llm_endpoint_keys() -> None:
     config = serve_local.build_runtime_config(artifact_base_url="/artifacts")
     assert serve_local.DISALLOWED_LLM_CONFIG_KEYS.isdisjoint(config)
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "0.0.0.0",
+        "::",
+        "192.168.1.10",
+        "10.0.0.1",
+        "8.8.8.8",
+        "2001:db8::1",
+        "localhost.example.com",
+        "example.com",
+        "",
+        "   ",
+        "127.0.0.1.example.com",
+        "127.1",
+    ],
+)
+def test_in_perimeter_server_rejects_non_loopback_host(
+    host: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    server = Mock()
+    monkeypatch.setattr(serve_local, "ThreadingHTTPServer", server)
+    monkeypatch.setattr(serve_local, "IPv6ThreadingHTTPServer", server)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(SERVE_LOCAL_PATH), "--bundle", str(_generated_bundle(tmp_path)), "--host", host],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        serve_local.main()
+
+    assert exc.value.code == 2
+    assert "--host must be a loopback IP address or localhost" in capsys.readouterr().err
+    server.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("host", "expected", "ipv6"),
+    [
+        (None, "127.0.0.1", False),
+        ("127.0.0.1", "127.0.0.1", False),
+        ("127.0.0.2", "127.0.0.2", False),
+        ("localhost", "127.0.0.1", False),
+        (" LOCALHOST. ", "127.0.0.1", False),
+        ("::1", "::1", True),
+        ("0:0:0:0:0:0:0:1", "::1", True),
+    ],
+)
+def test_in_perimeter_server_accepts_loopback_host(
+    host: str | None,
+    expected: str,
+    ipv6: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    ipv4_server, ipv6_server = Mock(), Mock()
+    monkeypatch.setattr(serve_local, "ThreadingHTTPServer", ipv4_server)
+    monkeypatch.setattr(serve_local, "IPv6ThreadingHTTPServer", ipv6_server)
+    argv = [str(SERVE_LOCAL_PATH), "--bundle", str(_generated_bundle(tmp_path))]
+    if host is not None:
+        argv.extend(["--host", host])
+    monkeypatch.setattr(sys, "argv", argv)
+
+    assert serve_local.main() == 0
+
+    selected, unused = (ipv6_server, ipv4_server) if ipv6 else (ipv4_server, ipv6_server)
+    selected.assert_called_once()
+    assert selected.call_args.args[0] == (expected, 8766)
+    unused.assert_not_called()
+    selected.return_value.serve_forever.assert_called_once_with()
+    selected.return_value.server_close.assert_called_once_with()
+    url_host = f"[{expected}]" if ipv6 else expected
+    assert f"http://{url_host}:8766/" in capsys.readouterr().out
+
+
+@pytest.mark.skipif(not socket.has_ipv6, reason="IPv6 unavailable")
+def test_in_perimeter_ipv6_server_binds_loopback() -> None:
+    try:
+        server = serve_local.IPv6ThreadingHTTPServer(
+            ("::1", 0), serve_local.SimpleHTTPRequestHandler
+        )
+    except PermissionError as exc:
+        pytest.skip(f"socket bind not permitted in this environment: {exc}")
+    try:
+        assert server.address_family == socket.AF_INET6
+        assert server.server_address[0] == "::1"
+    finally:
+        server.server_close()

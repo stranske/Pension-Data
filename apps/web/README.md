@@ -35,6 +35,10 @@ Open `apps/web/index.html` in a browser or run a static file server.
   fixture with `python scripts/web/serve_local.py --bundle <workspace.generated.json>`.
   This in-perimeter path returns an empty `apiBaseUrl` and relative artifact
   links so the browser does not call an external API host.
+  It binds only loopback addresses: `--host` accepts IPv4 loopback addresses,
+  IPv6 `::1`, or `localhost` (bound directly to `127.0.0.1` without DNS lookup).
+  Wildcard, LAN, public, and other hostname values are rejected before listener
+  creation. Remote serving requires a separate surface with access control.
 
 ## Zero-Install Usage
 
@@ -42,7 +46,7 @@ Open `apps/web/index.html` in a browser or run a static file server.
 - If available, use `Install App` for PWA mode.
 - Use `Load Local Bundle` to open a workspace JSON export directly from disk.
 - Use `scripts/web/serve_local.py --bundle <generated-or-live-workspace.json>` for
-  a loopback/internal-host review where the app loads the generated bundle at
+  a loopback-only review where the app loads the generated bundle at
   `/data/workspace.json`.
 - If network access is unavailable, the app falls back to the last cached workspace bundle.
 - Treat the packaged `apps/web/data/workspace.json` bundle as demo data, not a live or generated review artifact.
