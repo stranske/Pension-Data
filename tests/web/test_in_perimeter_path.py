@@ -11,6 +11,7 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import BinaryIO, cast
 from unittest.mock import Mock
 from urllib.error import HTTPError
 from urllib.parse import quote
@@ -215,6 +216,7 @@ def test_local_server_refuses_artifact_traversal_and_directory_listing(tmp_path:
                     urlopen(Request(f"{base_url}/artifacts/{suffix}", method=method), timeout=5)
                 assert exc.value.code == status, (method, suffix)
                 assert exc.value.headers["Content-Security-Policy"] == serve_local.CSP_HEADER
+                assert exc.value.headers["Cache-Control"] == "no-store"
                 exc.value.close()
 
 
@@ -412,3 +414,67 @@ def test_in_perimeter_ipv6_server_binds_loopback() -> None:
         assert server.server_address[0] == "::1"
     finally:
         server.server_close()
+
+
+@pytest.mark.parametrize("replacement", ["file", "directory", "root"])
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+def test_artifact_replacement_race_cannot_escape_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, replacement: str, method: str
+) -> None:
+    root = tmp_path / "evidence"
+    document_dir = root / "documents"
+    document_dir.mkdir(parents=True)
+    document = document_dir / "report.pdf"
+    document.write_bytes(b"intended artifact")
+    outside = tmp_path / "private"
+    (outside / "documents").mkdir(parents=True)
+    secret = outside / "documents" / "report.pdf"
+    secret.write_bytes(b"outside-root secret must never be served")
+    original_open = serve_local._open_artifact_file
+    replaced = False
+
+    def replace_before_open(path: Path) -> BinaryIO:
+        nonlocal replaced
+        assert path == document.resolve()
+        # Controlled seam: validation completed, but no file descriptor was opened.
+        if replacement == "file":
+            document.unlink()
+            document.symlink_to(secret)
+        elif replacement == "directory":
+            document_dir.rename(root / "original-documents")
+            document_dir.symlink_to(secret.parent, target_is_directory=True)
+        else:
+            root.rename(tmp_path / "original-evidence")
+            root.symlink_to(outside, target_is_directory=True)
+        replaced = True
+        return cast(BinaryIO, original_open(path))
+
+    monkeypatch.setattr(serve_local, "_open_artifact_file", replace_before_open)
+    with _artifact_server(tmp_path) as base_url:
+        with pytest.raises(HTTPError) as exc:
+            urlopen(
+                Request(f"{base_url}/artifacts/documents%2Freport.pdf", method=method),
+                timeout=5,
+            )
+        assert replaced
+        assert exc.value.code == 403
+        assert exc.value.headers["Cache-Control"] == "no-store"
+        assert b"outside-root secret" not in exc.value.read()
+        exc.value.close()
+
+
+@pytest.mark.parametrize(
+    "endpoint", ["/data/workspace.json", "/config/default.json", "/config/runtime.json"]
+)
+def test_dynamic_json_head_matches_generated_get(tmp_path: Path, endpoint: str) -> None:
+    with _artifact_server(tmp_path) as base_url:
+        with urlopen(base_url + endpoint, timeout=5) as response:
+            payload = response.read()
+            content_type = response.headers["Content-Type"]
+        with urlopen(Request(base_url + endpoint, method="HEAD"), timeout=5) as response:
+            assert response.status == 200
+            assert response.read() == b""
+            assert response.headers["Content-Length"] == str(len(payload))
+            assert response.headers["Content-Type"] == content_type
+            assert response.headers["Cache-Control"] == "no-store"
+            assert response.headers["Content-Security-Policy"] == serve_local.CSP_HEADER

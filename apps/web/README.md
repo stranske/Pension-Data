@@ -42,12 +42,18 @@ Open `apps/web/index.html` in a browser or run a static file server.
   Evidence files must be stored beneath the explicit `--artifact-root` directory,
   with paths matching the bundle's evidence links. For example,
   `<evidence-directory>/documents/report.pdf` is served at
-  `/artifacts/documents/report.pdf`; page fragments such as `#page=52` still work.
+  `/artifacts/documents%2Freport.pdf`; the SPA encodes the document path and
+  evidence token (for example, `#page%3D52`). The server also accepts unencoded
+  path separators.
   `--artifact-base-url /review/evidence` changes this local route and the runtime
   config together. Only a local URL path is accepted; external hosts, absolute
   URLs, traversal segments, and the reserved `/config` and `/data` prefixes are
   rejected. Requests cannot traverse outside the artifact root, including through
-  symlinks, and directories are not listed. If `--artifact-root` is omitted,
+  symlinks replaced during a request, and directories are not listed. Artifact
+  serving requires OS support for descriptor-relative no-follow file opening
+  (available on macOS and Linux); unsupported platforms reject artifact-root
+  configuration before listening. Responses, including errors, use `no-store`.
+  If `--artifact-root` is omitted,
   bundle viewing still works but evidence requests return 404. Use a directory
   containing only evidence intended for this local review.
 
