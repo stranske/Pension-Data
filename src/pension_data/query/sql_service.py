@@ -373,10 +373,9 @@ def execute_sql_query(
             )
         return response
 
-    request_validated = False
+    timeout_installed = False
     try:
         _validate_request(request)
-        request_validated = True
         try:
             sql = validate_read_only_sql(request.sql)
         except SQLSafetyValidationError as exc:
@@ -391,6 +390,7 @@ def execute_sql_query(
             deadline_s=deadline,
             clock=clock,
         )
+        timeout_installed = True
 
         count_cursor = connection.execute(_count_query(sql), _count_params(params))
         total_rows = int(count_cursor.fetchone()[0])
@@ -439,5 +439,5 @@ def execute_sql_query(
             executed_sql=None,
         )
     finally:
-        if request_validated:
+        if timeout_installed:
             _clear_timeout_handler(connection, dialect=dialect)
