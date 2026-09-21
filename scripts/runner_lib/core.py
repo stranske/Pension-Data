@@ -19,7 +19,7 @@ import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeGuard
 
 from scripts.state_fingerprint import GitHubApi, _github_context
 
@@ -906,16 +906,18 @@ class RepoVariableRunnerStorage:
         repo, token = _github_context()
         return cls(GitHubApi(repo, token))
 
-    def read_record(self, pr_number: int, provider: str) -> dict[str, Any] | None:
+    def read_record(
+        self, pr_number: int, provider: str, *, require_access: bool = False
+    ) -> dict[str, Any] | None:
         name = _variable_name(pr_number, provider)
         try:
             payload = self.api.request("GET", f"/repos/{self.api.repo}/actions/variables/{name}")
         except RuntimeError as exc:
             message = str(exc)
-            if (
-                " failed: 404 " in message
-                or " failed: 401 " in message
-                or " failed: 403 " in message
+            # Explicit single-store callers retain their historical best-effort
+            # read. Migration checks must distinguish denied access from absence.
+            if " failed: 404 " in message or (
+                not require_access and (" failed: 401 " in message or " failed: 403 " in message)
             ):
                 return None
             raise
@@ -934,19 +936,18 @@ class RepoVariableRunnerStorage:
         except RuntimeError as exc:
             message = str(exc)
             if " failed: 404 " in message:
-                self.api.request(
-                    "POST",
-                    f"/repos/{self.api.repo}/actions/variables",
-                    {"name": name, "value": value},
-                )
+                try:
+                    self.api.request(
+                        "POST",
+                        f"/repos/{self.api.repo}/actions/variables",
+                        {"name": name, "value": value},
+                    )
+                except RuntimeError as create_exc:
+                    raise RuntimeError("Repository-variable creation failed.") from create_exc
                 return
-            if " failed: 401 " in message or " failed: 403 " in message:
-                print(
-                    f"warning: runner dispatch write skipped for {name}: {message}",
-                    file=sys.stderr,
-                )
-                return
-            raise
+            # A denied write is not a persisted reservation or completion.
+            # Propagate failure rather than reporting successful progress.
+            raise RuntimeError("Repository-variable write failed.") from exc
 
 
 class FallbackRunnerStorage:
@@ -1013,6 +1014,20 @@ def _pending_record_is_stale(prior: dict[str, Any], *, now: dt.datetime | None =
     return (current - started_at).total_seconds() > PENDING_STALE_AFTER_SECONDS
 
 
+def _authority_pending_is_live(
+    prior: dict[str, Any] | None,
+) -> TypeGuard[dict[str, Any]]:
+    """Fail closed for an authority bypass when another dispatch may still own the slot."""
+    if not prior or str(prior.get("status") or "") != "pending":
+        return False
+    # Ordinary debounce historically treats an unparseable timestamp as stale so work can
+    # recover.  An authority challenge is a privileged bypass, however, and must not overwrite
+    # ownership that it cannot prove has expired.
+    if _parse_timestamp(prior.get("started_at")) is None:
+        return True
+    return not _pending_record_is_stale(prior)
+
+
 def _utc_now_dt() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
 
@@ -1051,6 +1066,27 @@ def _unproductive_completion_count(prior: dict[str, Any] | None) -> int:
         return 0
 
 
+def _workflow_attempt_id() -> str:
+    """Identify the reserving workflow attempt across its jobs, not just the PR head."""
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
+    if repository and run_id and attempt:
+        return f"{repository}:{run_id}:{attempt}"
+    return ""
+
+
+def _unavailable_dispatch(key: str, prior: dict[str, Any] | None = None) -> DebounceDecision:
+    return DebounceDecision(
+        False,
+        "authoritative-storage-unavailable",
+        key,
+        prior_status=str(prior.get("status")) if prior else None,
+        prior_head_sha=str(prior.get("head_sha")) if prior else None,
+        drainable="retry reservation after primary storage and legacy-state reads recover",
+    )
+
+
 def _reserve_dispatch(
     storage: RunnerDispatchStorage,
     pr_number: int,
@@ -1070,12 +1106,26 @@ def _reserve_dispatch(
         "status": "pending",
         "started_at": _utc_now(),
     }
+    attempt_id = _workflow_attempt_id()
+    if attempt_id:
+        record["workflow_attempt_id"] = attempt_id
     # Carry the unproductive tally across the retry so the allowance is bounded: it is the only
     # thing that makes "retry an unproductive completion" terminate instead of cycling forever.
     unproductive = _unproductive_completion_count(prior)
     if unproductive and prior and prior.get("head_sha") == head_sha:
         record["unproductive_completions"] = unproductive
-    storage.write_record(pr_number, provider, record)
+        if _completion_was_unproductive(prior):
+            record["productive"] = False
+    # Auto completions only accept the primary reservation. Never start work
+    # whose ownership would exist only in the fallback and could not complete.
+    reservation_storage = storage.primary if isinstance(storage, FallbackRunnerStorage) else storage
+    try:
+        reservation_storage.write_record(pr_number, provider, record)
+    except Exception as exc:
+        if not isinstance(storage, FallbackRunnerStorage):
+            raise
+        _log_storage_failure("write", exc, phase="reservation")
+        return _unavailable_dispatch(key, prior)
     return DebounceDecision(
         True,
         reason,
@@ -1090,6 +1140,8 @@ def should_dispatch(
     head_sha: str,
     provider: str,
     storage: RunnerDispatchStorage | None = None,
+    *,
+    authority_challenge: bool = False,
 ) -> DebounceDecision:
     """Reserve dispatch unless the same PR/head SHA completed or is actively pending.
 
@@ -1106,9 +1158,125 @@ def should_dispatch(
     """
     provider = _validate_provider(provider)
     storage = storage or _storage_from_name("auto")
+    if authority_challenge and not isinstance(storage, FallbackRunnerStorage):
+        raise ValueError("Authority challenge reservation requires authoritative auto storage.")
     key = _runner_key(pr_number, head_sha, provider)
-    prior = storage.read_record(pr_number, provider)
+    try:
+        if isinstance(storage, FallbackRunnerStorage):
+            prior = storage.primary.read_record(pr_number, provider)
+            if prior is None:
+                # Respect legacy fallback reservations until they finish/age out,
+                # but any newly granted reservation must be written to primary.
+                if isinstance(storage.fallback, RepoVariableRunnerStorage):
+                    prior = storage.fallback.read_record(pr_number, provider, require_access=True)
+                else:
+                    prior = storage.fallback.read_record(pr_number, provider)
+        else:
+            prior = storage.read_record(pr_number, provider)
+    except Exception as exc:
+        if not isinstance(storage, FallbackRunnerStorage):
+            raise
+        _log_storage_failure("read", exc, phase="reservation")
+        return _unavailable_dispatch(key)
     unproductive_completions = _unproductive_completion_count(prior)
+
+    if authority_challenge:
+        # The validation above guarantees this invariant at runtime. Repeat the
+        # narrowing inside the branch so stricter consumer mypy configurations
+        # also know that the authoritative primary/fallback stores are present.
+        if not isinstance(storage, FallbackRunnerStorage):
+            raise AssertionError("authority challenge storage invariant violated")
+        if _authority_pending_is_live(prior):
+            return DebounceDecision(
+                False,
+                "duplicate-pending",
+                key,
+                prior_status="pending",
+                prior_head_sha=str(prior.get("head_sha")),
+                drainable=(
+                    "the in-flight run finishing, or this pending record ageing past "
+                    f"{PENDING_STALE_AFTER_SECONDS}s"
+                ),
+            )
+        preparation = _authority_challenge_command("prepare", pr_number, head_sha, provider)
+        if not preparation or preparation.get("prepared") is not True:
+            return DebounceDecision(False, "invalid-or-consumed-authority-challenge", key)
+        # Preparation does not lock the runner reservation. Re-read immediately before the
+        # write so a dispatch that acquired ownership during preparation is not overwritten.
+        try:
+            prior = storage.primary.read_record(pr_number, provider)
+            if prior is None:
+                if isinstance(storage.fallback, RepoVariableRunnerStorage):
+                    prior = storage.fallback.read_record(pr_number, provider, require_access=True)
+                else:
+                    prior = storage.fallback.read_record(pr_number, provider)
+        except Exception as exc:
+            _log_storage_failure("read", exc, phase="authority-reservation-prewrite")
+            return _unavailable_dispatch(key, prior)
+        if _authority_pending_is_live(prior):
+            # No reservation write occurred, so this prepared receipt can be released safely.
+            released = _authority_challenge_command("release", pr_number, head_sha, provider)
+            if not released or released.get("released") is not True:
+                return _unavailable_dispatch(key, prior)
+            return DebounceDecision(
+                False,
+                "duplicate-pending",
+                key,
+                prior_status="pending",
+                prior_head_sha=str(prior.get("head_sha")),
+                drainable=(
+                    "the in-flight run finishing, or this pending record ageing past "
+                    f"{PENDING_STALE_AFTER_SECONDS}s"
+                ),
+            )
+        decision = _reserve_dispatch(
+            storage,
+            pr_number,
+            head_sha,
+            provider,
+            key,
+            prior,
+            reason="due-authority-challenge",
+        )
+        if not decision.should_dispatch:
+            # A write can time out after the primary store has persisted it.  Never refund the
+            # prepared ledger entry on that ambiguous result: doing so could leave a live primary
+            # reservation and a reusable authority generation.  Re-read the authoritative store;
+            # only a confirmed absence permits release, while an exact attempt-bound reservation
+            # lets this same workflow continue safely.
+            try:
+                reservation = storage.primary.read_record(pr_number, provider)
+            except Exception as exc:
+                _log_storage_failure("read", exc, phase="authority-reservation-reconcile")
+                return decision
+            if reservation is None:
+                released = _authority_challenge_command("release", pr_number, head_sha, provider)
+                if not released or released.get("released") is not True:
+                    return _unavailable_dispatch(key, prior)
+                return decision
+            if (
+                reservation.get("status") != "pending"
+                or reservation.get("head_sha") != head_sha
+                or reservation.get("workflow_attempt_id") != _workflow_attempt_id()
+            ):
+                return decision
+            decision = DebounceDecision(True, "due-authority-challenge", key)
+        finalized = _authority_challenge_command("finalize", pr_number, head_sha, provider)
+        if not finalized or finalized.get("granted") is not True:
+            return DebounceDecision(False, "invalid-or-consumed-authority-challenge", key)
+        try:
+            reservation = storage.primary.read_record(pr_number, provider)
+        except Exception as exc:
+            _log_storage_failure("read", exc, phase="authority-reservation-readback")
+            return _unavailable_dispatch(key, prior)
+        if (
+            not reservation
+            or reservation.get("status") != "pending"
+            or reservation.get("head_sha") != head_sha
+            or reservation.get("workflow_attempt_id") != _workflow_attempt_id()
+        ):
+            return DebounceDecision(False, "authority-reservation-changed", key)
+        return decision
 
     if prior and prior.get("head_sha") == head_sha:
         status = str(prior.get("status") or "")
@@ -1173,6 +1341,76 @@ def should_dispatch(
     return _reserve_dispatch(storage, pr_number, head_sha, provider, key, prior, reason=reason)
 
 
+def _authority_challenge_command(
+    command: str, pr_number: int, head_sha: str, provider: str
+) -> dict[str, Any] | None:
+    """Run one phase of the conditional PR-wide authority transaction."""
+    if command not in {"prepare", "finalize", "release"}:
+        raise ValueError(f"Unsupported authority challenge command: {command}")
+    if (
+        not _workflow_attempt_id()
+        or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
+        or os.environ.get("GITHUB_ACTOR") != "github-actions[bot]"
+    ):
+        return None
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "AUTHORITY_PR_NUMBER": str(pr_number),
+            "AUTHORITY_HEAD_SHA": head_sha,
+            "AUTHORITY_PROVIDER": provider,
+        }
+    )
+    try:
+        result = subprocess.run(
+            ["node", ".github/scripts/keepalive_authority_state.js", command],
+            cwd=Path(__file__).resolve().parents[2],
+            capture_output=True,
+            timeout=30,
+            check=False,
+            env=environment,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(
+            f"warning: authority challenge helper unavailable: {type(exc).__name__}",
+            file=sys.stderr,
+        )
+        return None
+    if result.returncode != 0:
+        print(f"warning: authority challenge helper exited {result.returncode}", file=sys.stderr)
+        return None
+    try:
+        payload = json.loads(result.stdout)
+        return payload if isinstance(payload, dict) else None
+    except (ValueError, AttributeError):
+        print("warning: authority challenge helper emitted invalid JSON", file=sys.stderr)
+        return None
+
+
+def _log_storage_failure(operation: str, exc: Exception, *, phase: str = "completion") -> None:
+    # GitHubApi preserves the HTTP/network exception as its cause. Log diagnostic
+    # metadata, not raw exception text, which can contain URLs or response bodies.
+    cause = exc.__cause__ or exc
+    code = getattr(cause, "code", None)
+    status = str(code) if isinstance(code, int) and 100 <= code <= 599 else "unknown"
+    print(
+        f"warning: authoritative {phase} {operation} failed: "
+        f"error_type={type(exc).__name__} cause_type={type(cause).__name__} "
+        f"http_status={status}",
+        file=sys.stderr,
+    )
+
+
+def _unrecorded_completion(prior: dict[str, Any], key: str, reason: str) -> dict[str, Any]:
+    return {
+        **prior,
+        "status": "unknown",
+        "key": key,
+        "completion_recorded": False,
+        "completion_reason": reason,
+    }
+
+
 def record_completion(
     pr_number: int,
     head_sha: str,
@@ -1184,7 +1422,8 @@ def record_completion(
     """Persist terminal runner state after a dispatch finishes.
 
     ``produced_work`` is the caller's verdict on whether the run actually moved the branch.
-    ``None`` means unmeasured and preserves the pre-#3433 behavior. ``False`` marks the
+    ``None`` means unmeasured and preserves an existing same-head unproductive retry streak;
+    otherwise it preserves the pre-#3433 behavior. ``False`` marks the
     completion unproductive so ``should_dispatch`` will grant a bounded retry on the same head
     instead of refusing forever (#3433).
     """
@@ -1196,7 +1435,31 @@ def record_completion(
     )
     status = "completed" if result_payload.get("success") else "error"
     compact_result = _compact_runner_result_payload(result_payload)
-    prior = storage.read_record(pr_number, provider) or {}
+    # Dispatch and completion both require the authoritative reservation.
+    # An empty/stale fallback cannot prove that a newer attempt does not own the
+    # primary, even if caller identity is absent.
+    uses_fallback = isinstance(storage, FallbackRunnerStorage)
+    completion_storage = storage.primary if isinstance(storage, FallbackRunnerStorage) else storage
+    try:
+        prior_record = completion_storage.read_record(pr_number, provider)
+    except Exception as exc:
+        if not uses_fallback:
+            raise
+        _log_storage_failure("read", exc)
+        return _unrecorded_completion({}, key, "authoritative-storage-unavailable")
+    if uses_fallback and prior_record is None:
+        return _unrecorded_completion({}, key, "authoritative-reservation-missing")
+    prior = prior_record or {}
+    if prior.get("workflow_attempt_id") and (
+        prior.get("workflow_attempt_id") != _workflow_attempt_id()
+        or (prior.get("key") != key and produced_work is not True)
+    ):
+        # A completion rerun from an earlier attempt must not overwrite a newer reservation,
+        # including when both attempts target the same head. The owning attempt may report
+        # a new head only when it explicitly measured productive work. Return an observation only.
+        return _unrecorded_completion(prior, key, "stale-attempt")
+    if produced_work is None and prior.get("key") == key and _completion_was_unproductive(prior):
+        produced_work = False
     completed_at = (
         prior.get("completed_at")
         if prior.get("key") == key and prior.get("status") in TERMINAL_STATUSES
@@ -1231,7 +1494,15 @@ def record_completion(
             record["unproductive_completions"] = min(
                 previous + 1, UNPRODUCTIVE_COMPLETION_RETRY_LIMIT + 1
             )
-    storage.write_record(pr_number, provider, record)
+    try:
+        completion_storage.write_record(pr_number, provider, record)
+    except Exception as exc:
+        if not uses_fallback:
+            raise
+        _log_storage_failure("write", exc)
+        # Never redirect a checked primary reservation into an unchecked fallback.
+        # A failed response may be ambiguous; a retry re-reads primary state first.
+        return _unrecorded_completion(prior, key, "authoritative-storage-unavailable")
     return record
 
 
@@ -1309,6 +1580,7 @@ def _cmd_should_dispatch(args: argparse.Namespace) -> int:
         args.head_sha,
         args.provider,
         storage=_storage_from_name(args.storage),
+        authority_challenge=args.authority_challenge,
     )
     outputs = {
         "should_dispatch": "true" if decision.should_dispatch else "false",
@@ -1369,7 +1641,8 @@ def _cmd_record_completion(args: argparse.Namespace) -> int:
         produced_work=_parse_produced_work(args.produced_work),
     )
     outputs = {
-        "recorded": "true",
+        "recorded": "false" if record.get("completion_recorded") is False else "true",
+        "reason": str(record.get("completion_reason", "")),
         "status": str(record["status"]),
         "key": str(record["key"]),
         "productive": "" if "productive" not in record else str(record["productive"]).lower(),
@@ -1427,6 +1700,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--storage", choices=["auto", "pr-comment", "repo-variable"], default="auto"
     )
     dispatch.set_defaults(func=_cmd_should_dispatch)
+    dispatch.add_argument(
+        "--authority-challenge",
+        action="store_true",
+        help="reserve a signed authority challenge before bypassing ordinary debounce",
+    )
 
     complete = subparsers.add_parser("record-completion", help="persist runner completion")
     complete.add_argument("--provider", choices=sorted(PROVIDERS), required=True)
@@ -1443,7 +1721,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help=(
             "whether the run actually moved the branch (true/false). Anything else, including "
-            "the default, means unmeasured and keeps the completion terminal."
+            "the default, means unmeasured and preserves an existing unproductive retry streak."
         ),
     )
     complete.set_defaults(func=_cmd_record_completion)
