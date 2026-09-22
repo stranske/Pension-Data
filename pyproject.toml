@@ -39,6 +39,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+doc_lineage = [
+    "doc-lineage @ git+https://github.com/stranske/Doc-Lineage.git@5203f516b79102a2453ebc88df1a9cd61d4ddeff",
+    "pypdfium2>=4.30.0,<6.0.0",
+    "pytesseract==0.3.13",
+]
 postgres = [
     "psycopg[binary]>=3.2.0",
 ]
@@ -143,7 +148,7 @@ disallow_untyped_defs = false
 
 # Workflows shared packages ship no type stubs; don't fail strict mypy on import-untyped.
 [[tool.mypy.overrides]]
-module = ["baseline_kit", "baseline_kit.*", "stranske_pdf_extract", "stranske_pdf_extract.*"]
+module = ["baseline_kit", "baseline_kit.*", "doc_lineage", "doc_lineage.*", "stranske_pdf_extract", "stranske_pdf_extract.*"]
 ignore_missing_imports = true
 
 # openpyxl is an optional dep (the 'source_collection' extra) and ships no stubs;

@@ -20,7 +20,11 @@ pip install -e ".[dev]"
 pip install -e ".[langchain]"
 # Optional source collection/bootstrap tooling:
 pip install -e ".[source_collection]"
+# Optional shared PDF extraction and local OCR support:
+pip install -e ".[doc_lineage]"
 ```
+
+See [shared PDF extraction](docs/parser/doc-lineage.md) for backend selection and its test gate.
 
 Run the internal/on-prem workspace server:
 

@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import cast
+from typing import Literal, cast
 
 from pension_data.coverage.component_completeness import (
     build_component_coverage_report_from_manifest,
@@ -47,7 +47,7 @@ ONE_PDF_PILOT_OPTIONAL_METADATA_FIELDS: tuple[str, ...] = (
     "mime_type",
     "default_money_unit_scale",
 )
-ONE_PDF_PILOT_OPTIONAL_RUNTIME_FIELDS: tuple[str, ...] = ("output_root", "run_id")
+ONE_PDF_PILOT_OPTIONAL_RUNTIME_FIELDS: tuple[str, ...] = ("output_root", "run_id", "parser_backend")
 
 ONE_PDF_PILOT_ENV_VAR_BY_FIELD: Mapping[str, str] = MappingProxyType(
     {
@@ -79,6 +79,7 @@ def one_pdf_pilot_input_contract() -> dict[str, object]:
             "mime_type": "application/pdf",
             "default_money_unit_scale": "million_usd",
             "output_root": "outputs",
+            "parser_backend": "auto",
         },
     }
 
@@ -125,6 +126,7 @@ def resolve_one_pdf_pilot_input(
     fetched_at: str | None = None,
     mime_type: str | None = None,
     default_money_unit_scale: str | UnitScale | None = None,
+    parser_backend: Literal["auto", "doc-lineage", "legacy"] = "auto",
     env: Mapping[str, str] | None = None,
 ) -> OnePdfPilotInput:
     """Resolve the canonical one-PDF contract from CLI args with env var fallback."""
@@ -189,6 +191,7 @@ def resolve_one_pdf_pilot_input(
         source_document_id=resolved_source_document_id,
         fetched_at=resolved_fetched_at,
         mime_type=resolved_mime_type,
+        parser_backend=parser_backend,
     )
 
 
@@ -206,6 +209,7 @@ class OnePdfPilotInput:
     source_document_id: str | None = None
     fetched_at: str | None = None
     mime_type: str = "application/pdf"
+    parser_backend: Literal["auto", "doc-lineage", "legacy"] = "auto"
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -325,6 +329,7 @@ def run_one_pdf_pilot(
             ingestion_date=pilot_input.ingestion_date,
             default_money_unit_scale=pilot_input.default_money_unit_scale,
             pdf_bytes=pdf_bytes,
+            parser_backend=pilot_input.parser_backend,
         )
     )
     if parser_result.raw is None or parser_result.missing_metrics:

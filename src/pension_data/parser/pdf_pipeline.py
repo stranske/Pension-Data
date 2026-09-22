@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from importlib.util import find_spec
 from io import BytesIO
+from typing import Literal
 
 from pypdf import PdfReader
 from stranske_pdf_extract.contract import EscalationEvent, ParserAttempt
@@ -115,6 +117,8 @@ class PDFParserInput:
     ocr_extract: Callable[[bytes], Sequence[str]] | None = None
     hybrid_config: HybridBackendConfig | None = None
     docling_backend: ParserBackend | None = None
+    parser_backend: Literal["auto", "doc-lineage", "legacy"] = "auto"
+    doc_lineage_ocr_backend: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +261,13 @@ def _metric_like_row_from_line(line: str) -> tuple[str, str] | None:
             continue
         label = line[hint_index : hint_index + len(hint)]
         value = value_match.group(0)
+        unit_match = re.match(
+            r"\s*(million|billion|thousand|mn|bn)\b",
+            tail[value_match.end() :],
+            re.IGNORECASE,
+        )
+        if unit_match is not None:
+            value += " " + unit_match.group(1)
         if "%" in tail[value_match.start() : value_match.end() + 4] and not value.endswith("%"):
             value += "%"
         return (label, value)
@@ -406,6 +417,33 @@ def _build_text_stage(input_payload: PDFParserInput) -> ParserStageOutput:
     return output
 
 
+def _build_doc_lineage_stage(input_payload: PDFParserInput) -> tuple[ParserStageOutput, int]:
+    from pension_data.parser.doc_lineage_backend import extract
+
+    document = extract(
+        input_payload.pdf_bytes,
+        enable_ocr=True,
+        ocr_backend=input_payload.doc_lineage_ocr_backend,
+    )
+    text_blocks: list[str] = []
+    refs: list[str] = []
+    table_rows: list[dict[str, str]] = []
+    for page_number, source_lines in document.page_lines:
+        lines = _normalize_candidate_lines(source_lines)
+        text_blocks.extend(lines)
+        refs.extend(f"p.{page_number}#text" for _ in lines)
+        table_rows.extend(_extract_table_rows(page_number=page_number, lines=lines))
+    return (
+        ParserStageOutput(
+            text_blocks=tuple(text_blocks),
+            text_block_evidence_refs=tuple(refs),
+            table_rows=tuple(table_rows),
+            stage_confidence=0.94,
+        ),
+        document.pages_unreadable,
+    )
+
+
 def _build_table_only_stage(input_payload: PDFParserInput) -> ParserStageOutput:
     full = _build_text_stage(input_payload)
     return ParserStageOutput(
@@ -492,6 +530,7 @@ def _run_optional_hybrid_backend(
 def parse_pdf_to_funded_input(input_payload: PDFParserInput) -> PDFParserResult:
     """Parse pension PDF bytes into funded/actuarial extraction-ready structures."""
     stage_candidates: dict[str, _StageCandidate] = {}
+    unreadable_pages = 0
 
     def _stage(
         name: str, parser_name: str, builder: Callable[[PDFParserInput], ParserStageOutput]
@@ -507,35 +546,59 @@ def parse_pdf_to_funded_input(input_payload: PDFParserInput) -> PDFParserResult:
 
         return ParserStage(stage_name=name, parser_name=parser_name, parse=_parse)
 
-    ordered_stages = (
+    legacy_stages = (
         _stage("table_primary", "pdf_table_primary", _build_table_only_stage),
         _stage("text_fallback", "pdf_text_fallback", _build_text_only_stage),
         _stage("full_fallback", "pdf_ocr_fallback", _build_ocr_stage),
     )
+
+    def _doc_lineage_stage(payload: PDFParserInput) -> ParserStageOutput:
+        nonlocal unreadable_pages
+        output, unreadable_pages = _build_doc_lineage_stage(payload)
+        return output
+
+    available = find_spec("doc_lineage") is not None
+    if input_payload.parser_backend == "doc-lineage" and not available:
+        raise ValueError("Doc-Lineage backend requested but the doc_lineage extra is not installed")
+    use_doc_lineage = input_payload.parser_backend != "legacy" and available
+    doc_lineage_stage = _stage("doc_lineage", "doc_lineage_extract", _doc_lineage_stage)
+    ordered_stages: tuple[ParserStage[_StageCandidate], ...]
+    if input_payload.parser_backend == "doc-lineage":
+        ordered_stages = (doc_lineage_stage,)
+    elif use_doc_lineage:
+        ordered_stages = (doc_lineage_stage,) + legacy_stages
+    else:
+        ordered_stages = legacy_stages
     outcome = run_fallback_chain(
         domain="funded",
         stages=ordered_stages,
-        is_complete=lambda candidate: not candidate.missing_metrics,
+        is_complete=lambda candidate: not candidate.missing_metrics
+        and (candidate.stage_name != "doc_lineage" or unreadable_pages == 0),
     )
     selected = outcome.result if outcome.result is not None else _best_partial(stage_candidates)
     escalation = outcome.escalation
     selected_raw = selected.raw if selected is not None else None
     hybrid_result = _run_optional_hybrid_backend(input_payload=input_payload, raw=selected_raw)
+    flags = list(
+        _build_actionable_flags(
+            attempts=outcome.attempts,
+            escalation=escalation,
+            partial=selected,
+        )
+    )
+    if unreadable_pages:
+        flags.append(f"doc_lineage_unreadable_pages:{unreadable_pages}")
     return PDFParserResult(
         raw=selected_raw,
         stage_name=selected.stage_name if selected is not None else None,
         stage_confidence=selected.output.stage_confidence if selected is not None else 0.0,
         attempts=outcome.attempts,
         escalation=escalation,
-        escalation_required=escalation is not None,
+        escalation_required=escalation is not None or unreadable_pages > 0,
         missing_metrics=(
             selected.missing_metrics if selected is not None else FUNDED_ACTUARIAL_REQUIRED_METRICS
         ),
-        actionable_flags=_build_actionable_flags(
-            attempts=outcome.attempts,
-            escalation=escalation,
-            partial=selected,
-        ),
+        actionable_flags=_dedupe_non_empty(flags),
         provenance_refs=_collect_provenance_refs(selected_raw),
         hybrid_result=hybrid_result,
     )
