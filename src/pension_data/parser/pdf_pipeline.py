@@ -561,11 +561,14 @@ def parse_pdf_to_funded_input(input_payload: PDFParserInput) -> PDFParserResult:
     if input_payload.parser_backend == "doc-lineage" and not available:
         raise ValueError("Doc-Lineage backend requested but the doc_lineage extra is not installed")
     use_doc_lineage = input_payload.parser_backend != "legacy" and available
-    ordered_stages = (
-        (_stage("doc_lineage", "doc_lineage_extract", _doc_lineage_stage),) + legacy_stages
-        if use_doc_lineage
-        else legacy_stages
-    )
+    doc_lineage_stage = _stage("doc_lineage", "doc_lineage_extract", _doc_lineage_stage)
+    ordered_stages: tuple[ParserStage[_StageCandidate], ...]
+    if input_payload.parser_backend == "doc-lineage":
+        ordered_stages = (doc_lineage_stage,)
+    elif use_doc_lineage:
+        ordered_stages = (doc_lineage_stage,) + legacy_stages
+    else:
+        ordered_stages = legacy_stages
     outcome = run_fallback_chain(
         domain="funded",
         stages=ordered_stages,

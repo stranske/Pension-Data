@@ -10,7 +10,11 @@ from pension_data.parser.hybrid_backend import (
     HybridBackendConfig,
     SelfHostedDoclingBackend,
 )
-from pension_data.parser.pdf_pipeline import PDFParserInput, parse_pdf_to_funded_input
+from pension_data.parser.pdf_pipeline import (
+    ParserStageOutput,
+    PDFParserInput,
+    parse_pdf_to_funded_input,
+)
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "calpers_fy2024_excerpt.pdf"
 
@@ -275,6 +279,39 @@ def test_ocr_stage_runs_after_low_signal_native_text_stage() -> None:
     assert parser_result.attempts[1].failure_reason == "incomplete-required-fields"
     assert parser_result.attempts[2].stage_name == "full_fallback"
     assert parser_result.attempts[2].succeeded is True
+
+
+def test_explicit_doc_lineage_does_not_fall_back_when_result_is_incomplete(monkeypatch) -> None:
+    monkeypatch.setattr("pension_data.parser.pdf_pipeline.find_spec", lambda _name: object())
+    monkeypatch.setattr(
+        "pension_data.parser.pdf_pipeline._build_doc_lineage_stage",
+        lambda _payload: (
+            ParserStageOutput(
+                text_blocks=(),
+                text_block_evidence_refs=(),
+                table_rows=(),
+                stage_confidence=0.0,
+            ),
+            0,
+        ),
+    )
+
+    parser_result = parse_pdf_to_funded_input(
+        PDFParserInput(
+            source_document_id="doc:explicit-doc-lineage",
+            source_url="https://example.invalid/report.pdf",
+            effective_date="2024-06-30",
+            ingestion_date="2026-09-22",
+            default_money_unit_scale="million_usd",
+            pdf_bytes=FIXTURE_PATH.read_bytes(),
+            parser_backend="doc-lineage",
+        )
+    )
+
+    assert parser_result.stage_name == "doc_lineage"
+    assert [attempt.stage_name for attempt in parser_result.attempts] == ["doc_lineage"]
+    assert parser_result.escalation_required is True
+    assert parser_result.missing_metrics
 
 
 def test_table_primary_parses_pdf_tj_array_text_tokens() -> None:
