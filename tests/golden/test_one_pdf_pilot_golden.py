@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
+
+import pytest
 
 from pension_data.ops.one_pdf_pilot import OnePdfPilotInput, run_one_pdf_pilot
 from tools.ci_quality.manifest_gate import diff_manifest
@@ -56,3 +59,27 @@ def test_perturbing_ledger_status_is_detected(tmp_path: Path) -> None:
     baseline["ledger_status"] = "definitely-not-the-real-status"
     report = diff_manifest(baseline=baseline, current_manifest=manifest)
     assert any(change["field"] == "ledger_status" for change in report["changes"])
+
+
+def test_pilot_can_select_doc_lineage_backend(tmp_path: Path) -> None:
+    if importlib.util.find_spec("doc_lineage") is None:
+        pytest.skip("Doc-Lineage optional extra is not installed")
+    source = (
+        _REPO_ROOT / "tests" / "parser" / "fixtures" / "doc_lineage" / "calpers_fy2024_excerpt.pdf"
+    )
+    result = run_one_pdf_pilot(
+        pilot_input=OnePdfPilotInput(
+            pdf_path=source,
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            effective_date="2024-06-30",
+            ingestion_date="2026-09-22",
+            parser_backend="doc-lineage",
+        ),
+        output_root=tmp_path / "out",
+        run_id="doc-lineage-golden",
+    )
+    parser_result = json.loads(Path(result["parser_result_json"]).read_text(encoding="utf-8"))
+    assert parser_result["stage_name"] == "doc_lineage"
+    assert parser_result["missing_metrics"] == []
+    assert "p.2#text" in parser_result["provenance_refs"]

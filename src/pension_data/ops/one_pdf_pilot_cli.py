@@ -91,6 +91,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=f"Optional deterministic run ID override (or ${env_var_by_field['run_id']}).",
     )
+    parser.add_argument(
+        "--parser-backend",
+        choices=("auto", "doc-lineage", "legacy"),
+        default="auto",
+        help="Extraction backend: auto selects Doc-Lineage when installed.",
+    )
     return parser
 
 
@@ -109,6 +115,7 @@ def main() -> int:
             source_document_id=args.source_document_id,
             fetched_at=args.fetched_at,
             mime_type=args.mime_type,
+            parser_backend=args.parser_backend,
         )
         output_root, run_id = resolve_one_pdf_pilot_runtime_options(
             output_root=args.output_root,

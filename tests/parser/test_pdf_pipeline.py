@@ -26,6 +26,7 @@ def _base_input(*, pdf_bytes: bytes) -> PDFParserInput:
         ingestion_date="2026-03-02",
         default_money_unit_scale="million_usd",
         pdf_bytes=pdf_bytes,
+        parser_backend="legacy",
     )
 
 
@@ -85,6 +86,7 @@ def test_hybrid_docling_routes_complex_multi_year_table_from_pipeline() -> None:
             ingestion_date="2026-07-04",
             default_money_unit_scale="million_usd",
             pdf_bytes=complex_table_pdf,
+            parser_backend="legacy",
             hybrid_config=HybridBackendConfig(enable_docling=True),
             docling_backend=SelfHostedDoclingBackend(_docling_values),
         )
@@ -158,6 +160,7 @@ def test_ocr_fallback_stage_handles_non_selectable_pdf_bytes() -> None:
             ingestion_date="2026-03-02",
             default_money_unit_scale="million_usd",
             pdf_bytes=scanned_like_pdf,
+            parser_backend="legacy",
             ocr_extract=_ocr_stub,
         )
     )
@@ -259,6 +262,7 @@ def test_ocr_stage_runs_after_low_signal_native_text_stage() -> None:
             ingestion_date="2026-03-02",
             default_money_unit_scale="million_usd",
             pdf_bytes=low_signal_pdf,
+            parser_backend="legacy",
             ocr_extract=_ocr_stub,
         )
     )
