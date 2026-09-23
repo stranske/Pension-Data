@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
 
+from tools.replay.corpus_manifest import load_manifest_corpus
 from tools.replay.harness import (
     CorpusDocument,
     FieldExtraction,
@@ -129,8 +130,17 @@ def _coerce_field_payload(payload: object) -> FieldExtraction:
 def run(argv: list[str] | None = None) -> int:
     """Execute replay runner from command-line style arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
+    corpus_source = parser.add_mutually_exclusive_group(required=True)
+    corpus_source.add_argument("--corpus", type=Path, help="Path to golden corpus JSON/JSONL")
+    corpus_source.add_argument(
+        "--corpus-manifest",
+        type=Path,
+        help="Path to pinned replay corpus manifest configuration",
+    )
     parser.add_argument(
-        "--corpus", required=True, type=Path, help="Path to golden corpus JSON/JSONL"
+        "--artifact-root",
+        type=Path,
+        help="Local upstream checkout root required by --corpus-manifest",
     )
     parser.add_argument(
         "--parser", required=True, help="Parser callable path in '<module>:<symbol>' format"
@@ -168,7 +178,17 @@ def run(argv: list[str] | None = None) -> int:
             raise ValueError(
                 "--overwrite requires --baseline-update-ticket to enforce controlled baseline updates"
             )
-        corpus = load_corpus(args.corpus)
+        if args.corpus_manifest is not None:
+            if args.artifact_root is None:
+                raise ValueError("--corpus-manifest requires --artifact-root")
+            corpus = load_manifest_corpus(
+                args.corpus_manifest,
+                artifact_root=args.artifact_root,
+            )
+        else:
+            if args.artifact_root is not None:
+                raise ValueError("--artifact-root is only valid with --corpus-manifest")
+            corpus = load_corpus(args.corpus)
         replay_parser = load_parser(args.parser)
         generated_at = _parse_iso_datetime(args.generated_at) if args.generated_at else None
         replay_results = run_replay(corpus, replay_parser)

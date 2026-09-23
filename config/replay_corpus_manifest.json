@@ -1,0 +1,15 @@
+{
+  "schema_version": "pension-replay-corpus/v1",
+  "upstream": {
+    "repository": "stranske/Doc-Lineage",
+    "revision": "09681ce1f1b39ffa912b43a7013ed60c7a3d6a94",
+    "manifest_path": "tests/fixtures/public_corpus/manifest.json",
+    "manifest_schema": "artifact-manifest/v1"
+  },
+  "entries": [
+    {
+      "entry_id": "calpers-ic-default",
+      "sha256": "4c3b40a2609796c87b7796ac6b19d08aa1091cc1bc406222c254adb53b4953e4"
+    }
+  ]
+}
