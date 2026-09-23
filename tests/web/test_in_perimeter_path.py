@@ -184,6 +184,10 @@ def test_local_server_serves_artifact_links_from_configured_root(
         assert _fetch_json(f"{base_url}/data/workspace.json")["data_origin"] == "generated"
         with urlopen(f"{base_url}/app.js", timeout=5) as response:
             assert response.status == 200
+            assert response.read() == b'import "./renderer-shell/app.js";\n'
+        with urlopen(f"{base_url}/renderer-shell/app.js", timeout=5) as response:
+            assert response.status == 200
+            assert b"Demo data - not live" in response.read()
 
 
 def test_local_server_refuses_artifact_traversal_and_directory_listing(tmp_path: Path) -> None:

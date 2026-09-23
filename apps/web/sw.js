@@ -1,4 +1,4 @@
-const CACHE_NAME = "pension-data-web-v1";
+const CACHE_NAME = "pension-data-web-v2";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const CORE_ASSETS = [
   "./components.css",
   "./styles.css",
   "./app.js",
+  "./renderer-shell/app.js",
   "./vendor/plotly-2.35.2.min.js",
   "./manifest.webmanifest",
   "./config/default.json",
