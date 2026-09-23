@@ -153,6 +153,8 @@ def build_public_doc_manifest(
             raise ValueError(f"missing downloaded content for {document.source_url}") from exc
         if not content:
             raise ValueError(f"downloaded content is empty for {document.source_url}")
+        if not content.lstrip().startswith(b"%PDF-"):
+            raise ValueError(f"downloaded content is not a PDF for {document.source_url}")
 
         content_sha256 = hashlib.sha256(content).hexdigest()
         url_digest = hashlib.sha256(document.source_url.encode("utf-8")).hexdigest()[:24]

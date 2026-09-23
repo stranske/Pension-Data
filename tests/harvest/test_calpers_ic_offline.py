@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
 from jsonschema import Draft202012Validator
 
 from pension_data.harvest.calpers_ic import build_public_doc_manifest, parse_calpers_ic_page
@@ -70,3 +71,35 @@ def test_ic_items_register_as_artifact_manifest() -> None:
         assert artifact["sha256"] == hashlib.sha256(content_by_url[source_url]).hexdigest()
         assert artifact["path"].startswith("calpers-ic/march-17-2026/")
         assert artifact["path"].endswith(".pdf")
+
+
+def test_ic_manifest_rejects_missing_download() -> None:
+    document = parse_calpers_ic_page(FIXTURE.read_text(encoding="utf-8"), page_url=PAGE_URL)[0]
+
+    with pytest.raises(ValueError, match="missing downloaded content"):
+        build_public_doc_manifest([document], content_by_url={}, run_id="test-run")
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        (b"", "downloaded content is empty"),
+        (b"<html>temporary upstream error</html>", "downloaded content is not a PDF"),
+    ],
+)
+def test_ic_manifest_rejects_invalid_download(content: bytes, message: str) -> None:
+    document = parse_calpers_ic_page(FIXTURE.read_text(encoding="utf-8"), page_url=PAGE_URL)[0]
+
+    with pytest.raises(ValueError, match=message):
+        build_public_doc_manifest(
+            [document], content_by_url={document.source_url: content}, run_id="test-run"
+        )
+
+
+def test_ic_manifest_rejects_blank_run_id() -> None:
+    document = parse_calpers_ic_page(FIXTURE.read_text(encoding="utf-8"), page_url=PAGE_URL)[0]
+
+    with pytest.raises(ValueError, match="run_id must be non-empty"):
+        build_public_doc_manifest(
+            [document], content_by_url={document.source_url: b"%PDF-1.7"}, run_id="  "
+        )
