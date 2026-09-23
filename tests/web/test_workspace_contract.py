@@ -194,6 +194,7 @@ def test_remote_expect_runtime_rejects_fixture_bundle(monkeypatch: pytest.Monkey
             return json.dumps({"name": "Pension Data", "start_url": "/"})
         if (
             url.endswith("sw.js")
+            or url.endswith("app.js")
             or url.endswith("icons/pension-data-mark-192.png")
             or url.endswith("icons/pension-data-mark-512.png")
         ):
@@ -232,6 +233,7 @@ def test_remote_public_deploy_rejects_live_bundle(monkeypatch: pytest.MonkeyPatc
             return json.dumps({"name": "Pension Data", "start_url": "/"})
         if (
             url.endswith("sw.js")
+            or url.endswith("app.js")
             or url.endswith("icons/pension-data-mark-192.png")
             or url.endswith("icons/pension-data-mark-512.png")
         ):
@@ -274,6 +276,7 @@ def test_remote_public_deploy_accepts_fixture_bundle(monkeypatch: pytest.MonkeyP
             return json.dumps({"name": "Pension Data", "start_url": "/"})
         if (
             url.endswith("sw.js")
+            or url.endswith("app.js")
             or url.endswith("icons/pension-data-mark-192.png")
             or url.endswith("icons/pension-data-mark-512.png")
         ):
@@ -320,7 +323,7 @@ def test_workspace_contract_version_must_match_runtime_contract() -> None:
 
 def test_ui_surfaces_fixture_origin_marker() -> None:
     index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
-    app = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    app = (WEB_DIR / "renderer-shell" / "app.js").read_text(encoding="utf-8")
 
     assert 'data-testid="data-origin-badge"' in index
     assert "Using packaged fixture bundle (demo data)." in index
@@ -356,7 +359,7 @@ const document = {{
   createTextNode: (text) => {{ const node = new Element(); node.textContent = text; return node; }},
   querySelector: () => new Element(),
 }};
-const source = fs.readFileSync({json.dumps(str(WEB_DIR / "app.js"))}, "utf8")
+const source = fs.readFileSync({json.dumps(str(WEB_DIR / "renderer-shell" / "app.js"))}, "utf8")
   .replace(/init\\(\\)\\.catch\\([\\s\\S]*$/, "")
   + "\\nglobalThis.__app = {{ state, renderTable, bindFilterHandlers }};";
 const context = {{ document, Node: Element, window: {{ setTimeout: () => 0, clearTimeout: () => {{}} }}, console, URLSearchParams }};

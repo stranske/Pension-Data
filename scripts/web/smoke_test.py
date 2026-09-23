@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
@@ -24,6 +25,7 @@ REQUIRED_LOCAL_FILES = (
     "index.html",
     "styles.css",
     "app.js",
+    "renderer-shell/app.js",
     "sw.js",
     "manifest.webmanifest",
     "icons/pension-data-mark.svg",
@@ -48,7 +50,8 @@ def _assert_config(payload: dict[str, object], *, path_label: str) -> None:
         if not isinstance(value, str):
             raise ValueError(f"missing required config key '{key}' in {path_label}")
     for key in ("environment", "artifactBaseUrl"):
-        if not payload[key].strip():
+        value = payload[key]
+        if not isinstance(value, str) or not value.strip():
             raise ValueError(f"missing required non-empty config key '{key}' in {path_label}")
 
 
@@ -100,7 +103,10 @@ def _smoke_local(base_dir: Path, *, require_runtime: bool, require_fixture: bool
     for marker in markers:
         if marker not in index:
             raise ValueError(f"index.html missing marker: {marker}")
-    app = (base_dir / "app.js").read_text(encoding="utf-8")
+    wrapper = (base_dir / "app.js").read_text(encoding="utf-8")
+    if wrapper.strip() != 'import "./renderer-shell/app.js";':
+        raise ValueError("app.js must import the materialized renderer shell")
+    app = (base_dir / "renderer-shell" / "app.js").read_text(encoding="utf-8")
     if "Demo data - not live" not in app:
         raise ValueError("app.js missing fixture-origin warning text")
     if "packaged bundle (fixture demo)" not in app:
@@ -129,7 +135,7 @@ def _fetch_text(url: str, *, headers: dict[str, str] | None = None) -> str:
             body = response.read().decode("utf-8", errors="replace")
             if response.status < 200 or response.status >= 300:
                 raise ValueError(f"request failed ({response.status}): {url}")
-            return body
+            return cast(str, body)
     except HTTPError as exc:
         raise ValueError(f"HTTP error {exc.code} for {url}") from exc
     except URLError as exc:
@@ -164,6 +170,8 @@ def _smoke_url(base_url: str, *, expect_runtime: bool, headers: dict[str, str] |
         raise ValueError("manifest missing required start_url field")
 
     _fetch_text(urljoin(root, "sw.js"), headers=headers)
+    _fetch_text(urljoin(root, "app.js"), headers=headers)
+    _fetch_text(urljoin(root, "renderer-shell/app.js"), headers=headers)
     _fetch_text(urljoin(root, "icons/pension-data-mark-192.png"), headers=headers)
     _fetch_text(urljoin(root, "icons/pension-data-mark-512.png"), headers=headers)
 

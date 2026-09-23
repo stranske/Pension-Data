@@ -7,6 +7,7 @@ WEB_ROOT = Path("apps/web")
 PLOTLY_VENDOR = WEB_ROOT / "vendor" / "plotly-2.35.2.min.js"
 TOKENS_CSS = WEB_ROOT / "tokens.css"
 COMPONENTS_CSS = WEB_ROOT / "components.css"
+SHELL_APP = WEB_ROOT / "renderer-shell" / "app.js"
 EXTERNAL_ASSET_RE = re.compile(
     r"""<(?:script|link)\b[^>]+(?:src|href)=["']https?://""",
     re.IGNORECASE,
@@ -14,7 +15,7 @@ EXTERNAL_ASSET_RE = re.compile(
 
 
 def test_offline_web_bundle_uses_no_external_scripts_or_styles() -> None:
-    for path in [WEB_ROOT / "index.html", WEB_ROOT / "app.js"]:
+    for path in [WEB_ROOT / "index.html", WEB_ROOT / "app.js", SHELL_APP]:
         content = path.read_text(encoding="utf-8")
         assert not EXTERNAL_ASSET_RE.search(
             content
@@ -38,10 +39,12 @@ def test_offline_web_bundle_links_shared_design_system_locally() -> None:
 
 def test_plotly_is_vendored_and_precached_for_offline_chart_studio() -> None:
     index_html = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
-    app_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
+    wrapper_js = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
+    app_js = SHELL_APP.read_text(encoding="utf-8")
     service_worker = (WEB_ROOT / "sw.js").read_text(encoding="utf-8")
 
     assert PLOTLY_VENDOR.exists()
+    assert wrapper_js.strip() == 'import "./renderer-shell/app.js";'
     assert (
         "Licensed under the MIT license"
         in PLOTLY_VENDOR.read_text(encoding="utf-8", errors="ignore")[:500]

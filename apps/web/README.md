@@ -2,6 +2,12 @@
 
 Static browser-first data interaction workspace for Cloudflare Pages.
 
+The reusable shell is owned by `packages/renderer-shell`. The deployable web
+root keeps byte-identical materializations because browser imports cannot escape
+the static root. After changing shell files, run
+`python scripts/web/sync_renderer_shell.py` and verify with
+`python scripts/web/sync_renderer_shell.py --check`.
+
 ## Included in This Stage
 
 - Dataset inventory panel (domain, kind, freshness, row count)
