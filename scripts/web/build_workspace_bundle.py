@@ -6,11 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from workspace_contract import (  # noqa: E402
     allowed_data_origins,
@@ -18,20 +19,18 @@ from workspace_contract import (  # noqa: E402
     validate_workspace_bundle,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
+from pension_data.export.workspace_bundle import (  # noqa: E402
+    build_workspace_bundle as build_generated_workspace_bundle,
+)
+from pension_data.export.workspace_bundle import (  # noqa: E402
+    write_workspace_bundle,
+)
+
 CONTRACT_PATH = ROOT / "apps" / "contracts" / "runtime-contract.json"
 
 
 def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
 
 
 def _artifact_path(pilot_run_dir: Path, manifest: Mapping[str, Any], key: str) -> Path:
@@ -54,50 +53,6 @@ def _as_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
-
-
-def _as_number(value: Any, *, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _evidence_refs(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return []
-        try:
-            decoded = json.loads(stripped)
-        except json.JSONDecodeError:
-            return [stripped]
-        return _evidence_refs(decoded)
-    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
-        return [_as_text(item) for item in value if _as_text(item)]
-    return [_as_text(value)] if _as_text(value) else []
-
-
-def map_staging_row_to_ui_row(row: Mapping[str, Any]) -> dict[str, Any]:
-    """Convert a staged core metric row into the static SPA row contract."""
-    value = row.get("normalized_value")
-    if value in (None, ""):
-        value = row.get("as_reported_value")
-    source_document_id = _as_text(row.get("source_document_id"))
-    return {
-        "confidence": _as_number(row.get("confidence")),
-        "entity": _as_text(row.get("plan_id")) or "unknown-plan",
-        "metric": _as_text(row.get("metric_name")),
-        "metric_family": _as_text(row.get("metric_family")) or "core_metric",
-        "plan_period": _as_text(row.get("plan_period")),
-        "provenance": {
-            "evidence_refs": _evidence_refs(row.get("evidence_refs")),
-            "source_document": source_document_id,
-        },
-        "value": value,
-    }
 
 
 def _load_staging_rows(path: Path) -> list[Mapping[str, Any]]:
@@ -126,7 +81,7 @@ def _last_updated(manifest: Mapping[str, Any]) -> str:
             value = _as_text(input_payload.get(key))
             if value:
                 return value
-    return datetime.now(UTC).date().isoformat()
+    return ""
 
 
 def build_workspace_bundle(pilot_run_dir: Path) -> dict[str, Any]:
@@ -139,32 +94,13 @@ def build_workspace_bundle(pilot_run_dir: Path) -> dict[str, Any]:
     staging_rows = _load_staging_rows(
         _artifact_path(pilot_run_dir, manifest, "staging_core_metrics_json")
     )
-    rows = [map_staging_row_to_ui_row(row) for row in staging_rows]
-    rows.sort(
-        key=lambda row: (
-            _as_text(row["entity"]),
-            _as_text(row["plan_period"]),
-            _as_text(row["metric_family"]),
-            _as_text(row["metric"]),
-        )
-    )
     run_id = _as_text(manifest.get("run_id")) or pilot_run_dir.name
     contract = load_runtime_contract(CONTRACT_PATH)
-    bundle = {
-        "contractVersion": str(contract["version"]),
-        "data_origin": "generated",
-        "datasets": [
-            {
-                "domain": "pension",
-                "freshness": "generated",
-                "id": f"one-pdf-pilot-{run_id}",
-                "kind": "core_metrics",
-                "lastUpdated": _last_updated(manifest),
-                "name": f"One-PDF Pilot Generated Metrics ({run_id})",
-                "rows": rows,
-            }
-        ],
-    }
+    bundle = build_generated_workspace_bundle(
+        staging_rows,
+        run_id=run_id,
+        last_updated=_last_updated(manifest),
+    )
     # This builder emits real generated data, so "fixture" is not an acceptable
     # origin for its output even though the runtime contract permits it elsewhere.
     validate_workspace_bundle(
@@ -196,7 +132,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     bundle = build_workspace_bundle(args.pilot_run_dir)
-    _write_json(args.out, bundle)
+    write_workspace_bundle(args.out, bundle)
     print(f"wrote generated workspace bundle: {args.out}")
 
 

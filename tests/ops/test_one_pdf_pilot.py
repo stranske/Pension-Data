@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from pension_data.db.models.artifacts import RawArtifactRecord
+from pension_data.ops.document_orchestration import DocumentOrchestrationState
 from pension_data.ops.one_pdf_pilot import (
     OnePdfPilotInput,
     one_pdf_pilot_input_contract,
@@ -62,6 +64,7 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
     assert Path(result["staging_manager_fund_vehicle_relationships_json"]).exists()
     assert Path(result["extraction_warnings_json"]).exists()
     assert Path(result["schema_component_datasets_manifest_json"]).exists()
+    assert Path(result["workspace_bundle_json"]).exists()
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     artifact_files = manifest["artifact_files"]
@@ -78,6 +81,7 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
         "orchestration_published_rows_json",
         "orchestration_review_queue_rows_json",
         "orchestration_state_json",
+        "workspace_bundle_json",
     }
     assert set(artifact_files) == expected_keys
     expected_result_keys = expected_keys | {"run_id", "run_manifest_json"}
@@ -128,6 +132,7 @@ def test_one_pdf_pilot_artifacts_follow_deterministic_layout(tmp_path: Path) -> 
     expected_run_root = output_root / "one_pdf_pilot" / run_id
     assert Path(result["run_manifest_json"]) == expected_run_root / "run_manifest.json"
     assert Path(result["parser_result_json"]) == expected_run_root / "parser_result.json"
+    assert Path(result["workspace_bundle_json"]) == expected_run_root / "workspace-bundle.json"
     assert Path(result["coverage_summary_json"]) == (
         expected_run_root / "coverage" / "component_coverage_summary.json"
     )
@@ -281,6 +286,60 @@ def test_one_pdf_pilot_default_run_id_is_input_stable(tmp_path: Path) -> None:
 
     assert first["run_id"] == second["run_id"]
     assert first["run_manifest_json"] == second["run_manifest_json"]
+
+
+def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "pilot.pdf"
+    _write_pdf_like_text(
+        pdf_path,
+        "\n".join(
+            (
+                "Funded Ratio: 78.4%",
+                "AAL: $640 million",
+                "AVA: $501.8 million",
+                "Discount Rate: 6.8%",
+                "Employer Contribution Rate: 12.4%",
+                "Employee Contribution Rate: 7.5%",
+                "Participant Count: 325000",
+            )
+        ),
+    )
+    pilot_input = OnePdfPilotInput(
+        pdf_path=pdf_path,
+        plan_id="CA-PERS",
+        plan_period="FY2024",
+        effective_date="2024-06-30",
+        ingestion_date="2026-03-03",
+    )
+    output_root = tmp_path / "outputs"
+
+    first = run_one_pdf_pilot(
+        pilot_input=pilot_input,
+        output_root=output_root,
+        run_id="pilot-skipped-rerun",
+    )
+    prior_state_payload = json.loads(
+        Path(first["orchestration_state_json"]).read_text(encoding="utf-8")
+    )
+    prior_state = DocumentOrchestrationState(
+        artifact_records=tuple(
+            RawArtifactRecord(**row) for row in prior_state_payload["artifact_records"]
+        ),
+        processed_artifact_ids=tuple(prior_state_payload["processed_artifact_ids"]),
+        published_fact_ids=tuple(prior_state_payload["published_fact_ids"]),
+    )
+
+    second = run_one_pdf_pilot(
+        pilot_input=pilot_input,
+        output_root=output_root,
+        run_id="pilot-skipped-rerun",
+        state=prior_state,
+    )
+
+    first_bundle = json.loads(Path(first["workspace_bundle_json"]).read_text(encoding="utf-8"))
+    second_bundle = json.loads(Path(second["workspace_bundle_json"]).read_text(encoding="utf-8"))
+    assert first_bundle["datasets"]
+    assert second_bundle == first_bundle
 
 
 def test_one_pdf_input_contract_includes_required_path_env_and_metadata_fields() -> None:

@@ -16,6 +16,7 @@ from pension_data.coverage.component_completeness import (
     build_component_coverage_report_from_manifest,
 )
 from pension_data.db.models.artifacts import RawArtifactRecord
+from pension_data.export.workspace_bundle import build_workspace_bundle, write_workspace_bundle
 from pension_data.extract.actuarial.metrics import RawFundedActuarialInput
 from pension_data.extract.persistence import (
     build_schema_component_datasets,
@@ -217,6 +218,20 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _read_json_row_list(path: Path) -> list[dict[str, object]]:
+    if not path.is_file():
+        return []
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        return []
+    return [dict(row) for row in payload if isinstance(row, dict)]
+
+
+def _ledger_has_skipped_outcomes(ledger: object) -> bool:
+    document_outcomes = getattr(ledger, "document_outcomes", ())
+    return any(getattr(outcome, "status", None) == "skipped" for outcome in document_outcomes)
+
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -412,6 +427,17 @@ def run_one_pdf_pilot(
         orchestration_artifacts["extraction_warning_rows"],
     )
 
+    if _ledger_has_skipped_outcomes(ledger):
+        persistence_dir = run_root / "extraction_persistence"
+        if not core_rows:
+            core_rows = _read_json_row_list(persistence_dir / "staging_core_metrics.json")
+        if not relationship_rows:
+            relationship_rows = _read_json_row_list(
+                persistence_dir / "staging_manager_fund_vehicle_relationships.json"
+            )
+        if not warning_rows:
+            warning_rows = _read_json_row_list(persistence_dir / "extraction_warnings.json")
+
     schema_component_datasets = build_schema_component_datasets(
         persisted_core_metrics=core_rows,
         relationship_rows=relationship_rows,
@@ -447,6 +473,14 @@ def run_one_pdf_pilot(
     _write_json(coverage_json, coverage_summary)
     _write_json(component_coverage_report_json, component_coverage_report)
 
+    workspace_bundle_json = run_root / "workspace-bundle.json"
+    workspace_bundle = build_workspace_bundle(
+        core_rows,
+        run_id=effective_run_id,
+        last_updated=pilot_input.effective_date,
+    )
+    write_workspace_bundle(workspace_bundle_json, workspace_bundle)
+
     manifest_json = run_root / "run_manifest.json"
     manifest = {
         "run_id": effective_run_id,
@@ -469,6 +503,7 @@ def run_one_pdf_pilot(
             "parser_result_json": str(parser_json),
             "coverage_summary_json": str(coverage_json),
             "component_coverage_report_json": str(component_coverage_report_json),
+            "workspace_bundle_json": str(workspace_bundle_json),
             "persistence_contract_json": persistence_paths["persistence_contract_json"],
             "staging_core_metrics_json": persistence_paths["staging_core_metrics_json"],
             "staging_manager_fund_vehicle_relationships_json": persistence_paths[
@@ -500,6 +535,7 @@ def run_one_pdf_pilot(
         "parser_result_json": str(parser_json),
         "coverage_summary_json": str(coverage_json),
         "component_coverage_report_json": str(component_coverage_report_json),
+        "workspace_bundle_json": str(workspace_bundle_json),
         "persistence_contract_json": persistence_paths["persistence_contract_json"],
         "staging_core_metrics_json": persistence_paths["staging_core_metrics_json"],
         "staging_manager_fund_vehicle_relationships_json": persistence_paths[

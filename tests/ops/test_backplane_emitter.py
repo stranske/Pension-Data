@@ -141,6 +141,12 @@ def test_reference_run_validates_strictly(tmp_path: Path) -> None:
 
     assert run_payload["identity_refs"] == sorted(published_refs)
     artifacts_by_id = {artifact["artifact_id"]: artifact for artifact in manifest["artifacts"]}
+    workspace_artifact = artifacts_by_id["one-pdf-pilot:workspace_bundle_json"]
+    workspace_path = artifact_root / workspace_artifact["path"]
+    workspace_bytes = workspace_path.read_bytes()
+    assert json.loads(workspace_bytes)["data_origin"] == "generated"
+    assert workspace_artifact["sha256"] == hashlib.sha256(workspace_bytes).hexdigest()
+    assert workspace_artifact["bytes"] == len(workspace_bytes)
     for evidence_id in run_payload["evidence_refs"]:
         evidence_path = artifact_root / artifacts_by_id[evidence_id]["path"]
         evidence_payload = json.loads(evidence_path.read_text(encoding="utf-8"))

@@ -59,6 +59,7 @@ def test_pilot_extracts_required_metrics_from_calpers_fixture(tmp_path: Path) ->
         "parser_result_json",
         "staging_core_metrics_json",
         "coverage_summary_json",
+        "workspace_bundle_json",
         "run_manifest_json",
     ):
         assert Path(result[key]).exists(), f"missing emitted artifact: {key}"
@@ -68,6 +69,11 @@ def test_pilot_extracts_required_metrics_from_calpers_fixture(tmp_path: Path) ->
     )
     assert isinstance(staging_core_metrics, list)
     assert staging_core_metrics, "CalPERS excerpt pilot must persist at least one core metric row"
+
+    workspace_bundle = json.loads(Path(result["workspace_bundle_json"]).read_text(encoding="utf-8"))
+    assert workspace_bundle["data_origin"] == "generated"
+    assert workspace_bundle["datasets"][0]["rows"]
+    assert manifest["artifact_files"]["workspace_bundle_json"] == result["workspace_bundle_json"]
 
 
 def test_pilot_raises_when_required_metrics_missing(tmp_path: Path) -> None:

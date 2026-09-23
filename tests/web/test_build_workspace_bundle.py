@@ -181,6 +181,7 @@ def test_cli_writes_bundle_that_runtime_smoke_accepts(tmp_path: Path) -> None:
         ],
         check=True,
         capture_output=True,
+        cwd=tmp_path,
         text=True,
     )
 
