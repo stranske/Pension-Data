@@ -17,3 +17,8 @@ def parser(document: CorpusDocument) -> dict[str, object]:
         },
         "funded_ratio": funded_ratio,
     }
+
+
+def content_parser(document: CorpusDocument) -> dict[str, object]:
+    """Return a field proving manifest-backed PDF text reached the parser."""
+    return {"contains_funded_ratio": "Funded Ratio 76.8%" in document.content}
