@@ -85,6 +85,9 @@ reviewable-findings-artifact = "scripts.langchain.build_reviewable_findings_arti
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"pension_data.staging.schemas" = ["*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
@@ -156,6 +159,12 @@ ignore_missing_imports = true
 # absent (base install / CI test gate) or untyped (when the extra is installed).
 [[tool.mypy.overrides]]
 module = ["openpyxl", "openpyxl.*"]
+ignore_missing_imports = true
+
+# jsonschema does not publish inline typing metadata; some developer environments
+# provide third-party stubs, but the base CI environment intentionally does not.
+[[tool.mypy.overrides]]
+module = ["jsonschema", "jsonschema.*"]
 ignore_missing_imports = true
 
 [tool.black]
