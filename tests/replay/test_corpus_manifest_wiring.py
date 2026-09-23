@@ -51,7 +51,7 @@ def _write_manifest_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     pdf_path.parent.mkdir(parents=True)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(
-        Path("tests/parser/fixtures/doc_lineage/calpers_fy2024_excerpt.pdf"),
+        _REPO_ROOT / "tests/parser/fixtures/doc_lineage/calpers_fy2024_excerpt.pdf",
         pdf_path,
     )
     data = pdf_path.read_bytes()
