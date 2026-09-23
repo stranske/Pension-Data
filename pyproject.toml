@@ -158,6 +158,12 @@ ignore_missing_imports = true
 module = ["openpyxl", "openpyxl.*"]
 ignore_missing_imports = true
 
+# jsonschema does not publish inline typing metadata; some developer environments
+# provide third-party stubs, but the base CI environment intentionally does not.
+[[tool.mypy.overrides]]
+module = ["jsonschema", "jsonschema.*"]
+ignore_missing_imports = true
+
 [tool.black]
 line-length = 100
 target-version = ["py312"]
