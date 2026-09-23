@@ -85,6 +85,9 @@ reviewable-findings-artifact = "scripts.langchain.build_reviewable_findings_arti
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"pension_data.staging.schemas" = ["*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"

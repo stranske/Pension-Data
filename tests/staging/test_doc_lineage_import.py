@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from pension_data.staging.doc_lineage_vars import import_tracked_variables
+from pension_data.staging.doc_lineage_vars import import_tracked_variables, stage_tracked_variables
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _synthetic_variable() -> dict[str, object]:
@@ -74,3 +79,102 @@ def test_import_rejects_duplicate_variable_ids(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="duplicate tracked variable_id"):
         import_tracked_variables(_write_payload(tmp_path, [variable, variable]))
+
+
+def test_import_rejects_invalid_embedded_evidence(tmp_path: Path) -> None:
+    variable = _synthetic_variable()
+    evidence = variable["evidence"]
+    assert isinstance(evidence, dict)
+    del evidence["excerpt"]
+
+    with pytest.raises(ValueError, match="fails tracked-variable/v1"):
+        import_tracked_variables(_write_payload(tmp_path, variable))
+
+
+def test_non_finite_confidence_is_rejected_by_both_entry_points(tmp_path: Path) -> None:
+    variable = _synthetic_variable()
+    variable["confidence"] = float("nan")
+
+    with pytest.raises(ValueError, match="requires finite confidence"):
+        stage_tracked_variables(variable)
+    with pytest.raises(ValueError, match="non-standard JSON constant NaN"):
+        import_tracked_variables(_write_payload(tmp_path, variable))
+
+
+def test_staged_nested_values_are_independent_snapshots() -> None:
+    variable = _synthetic_variable()
+    variable["value_structured"] = {"bands": [{"name": "base"}]}
+    row = stage_tracked_variables(variable)[0]
+
+    value_structured = variable["value_structured"]
+    provenance = variable["provenance"]
+    evidence = variable["evidence"]
+    assert isinstance(value_structured, dict)
+    assert isinstance(provenance, dict)
+    assert isinstance(evidence, dict)
+    value_structured["bands"] = []
+    provenance["document"] = {}
+    evidence["excerpt"] = "mutated"
+
+    assert row.value_structured == {"bands": [{"name": "base"}]}
+    assert row.provenance["document"]["source_id"] == "document:calpers-2025"
+    assert row.evidence["excerpt"] == "The discount rate remains 6.8%."
+
+
+def test_non_editable_wheel_loads_packaged_schemas(tmp_path: Path) -> None:
+    wheel_dir = tmp_path / "wheel"
+    site_dir = tmp_path / "site"
+    wheel_dir.mkdir()
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--wheel-dir",
+            str(wheel_dir),
+            str(_REPO_ROOT),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    wheel = next(wheel_dir.glob("pension_data-*.whl"))
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--target",
+            str(site_dir),
+            str(wheel),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload_path = _write_payload(tmp_path, _synthetic_variable())
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(site_dir)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from pension_data.staging import import_tracked_variables; "
+                "import sys; "
+                "row = import_tracked_variables(sys.argv[1])[0]; "
+                "assert row.ontology_key == 'consultant.assumptions.discount_rate'"
+            ),
+            str(payload_path),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

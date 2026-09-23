@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import Any, Never
 
 from jsonschema import Draft202012Validator
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_SCHEMA_ROOT = _REPO_ROOT / "docs" / "contracts" / "schemas"
-_TRACKED_VARIABLE_SCHEMA = _SCHEMA_ROOT / "tracked-variable-v1.schema.json"
-_EVIDENCE_SCHEMA = _SCHEMA_ROOT / "evidence-object-v1.schema.json"
+_SCHEMA_PACKAGE = "pension_data.staging.schemas"
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,16 +34,16 @@ class DocLineageVariableRow:
     provenance: Mapping[str, Any]
 
 
-def _load_schema(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+def _load_schema(name: str) -> dict[str, Any]:
+    payload = json.loads(files(_SCHEMA_PACKAGE).joinpath(name).read_text(encoding="utf-8"))
     if not isinstance(payload, dict):  # pragma: no cover - repository integrity guard
-        raise RuntimeError(f"schema at {path} must be a JSON object")
+        raise RuntimeError(f"packaged schema {name} must be a JSON object")
     return payload
 
 
 def _validator() -> Draft202012Validator:
-    tracked_schema = copy.deepcopy(_load_schema(_TRACKED_VARIABLE_SCHEMA))
-    evidence_schema = _load_schema(_EVIDENCE_SCHEMA)
+    tracked_schema = copy.deepcopy(_load_schema("tracked-variable-v1.schema.json"))
+    evidence_schema = _load_schema("evidence-object-v1.schema.json")
     properties = tracked_schema.get("properties")
     if not isinstance(properties, dict):  # pragma: no cover - repository integrity guard
         raise RuntimeError("tracked-variable schema must define object properties")
@@ -87,6 +86,10 @@ def _objects(payload: object) -> list[Mapping[str, Any]]:
     return objects
 
 
+def _reject_json_constant(value: str) -> Never:
+    raise ValueError(f"non-standard JSON constant {value} is not allowed")
+
+
 def stage_tracked_variables(payload: object) -> tuple[DocLineageVariableRow, ...]:
     """Validate and normalize one Doc-Lineage variable object or array."""
     validator = _validator()
@@ -120,6 +123,9 @@ def stage_tracked_variables(payload: object) -> tuple[DocLineageVariableRow, ...
             raise ValueError("tracked variable field value_structured must be an object or null")
 
         confidence = item.get("confidence")
+        normalized_confidence = float(confidence) if confidence is not None else None
+        if normalized_confidence is not None and not math.isfinite(normalized_confidence):
+            raise ValueError(f"tracked variable at index {index} requires finite confidence")
         rows.append(
             DocLineageVariableRow(
                 variable_id=variable_id,
@@ -129,11 +135,13 @@ def stage_tracked_variables(payload: object) -> tuple[DocLineageVariableRow, ...
                 period=_optional_string(item, "period"),
                 status=_optional_string(item, "status"),
                 value_text=_optional_string(item, "value_text"),
-                value_structured=(dict(value_structured) if value_structured is not None else None),
-                confidence=(float(confidence) if confidence is not None else None),
+                value_structured=(
+                    copy.deepcopy(value_structured) if value_structured is not None else None
+                ),
+                confidence=normalized_confidence,
                 supersedes_variable_id=_optional_string(item, "supersedes_variable_id"),
-                evidence=dict(evidence),
-                provenance=dict(provenance),
+                evidence=copy.deepcopy(evidence),
+                provenance=copy.deepcopy(provenance),
             )
         )
 
@@ -144,7 +152,9 @@ def import_tracked_variables(path: str | Path) -> tuple[DocLineageVariableRow, .
     """Load a UTF-8 Doc-Lineage JSON artifact into validated staging rows."""
     source = Path(path)
     try:
-        payload = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        payload = json.loads(
+            source.read_text(encoding="utf-8"), parse_constant=_reject_json_constant
+        )
+    except (OSError, UnicodeError, ValueError) as exc:
         raise ValueError(f"unable to load tracked-variable JSON from {source}: {exc}") from exc
     return stage_tracked_variables(payload)
