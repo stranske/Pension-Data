@@ -1,6 +1,7 @@
 {
   "repository": "stranske/Doc-Lineage",
   "revision": "09681ce1f1b39ffa912b43a7013ed60c7a3d6a94",
+  "manifest_path": "tests/fixtures/public_corpus/manifest.json",
   "manifest": {
     "schema_version": "artifact-manifest/v1",
     "artifacts": [

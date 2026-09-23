@@ -35,6 +35,7 @@ def _assert_committed_pin_matches_retained_upstream() -> None:
     )
     assert config["upstream"]["repository"] == retained["repository"]
     assert config["upstream"]["revision"] == retained["revision"]
+    assert config["upstream"]["manifest_path"] == retained["manifest_path"]
     assert config["upstream"]["manifest_schema"] == retained["manifest"]["schema_version"]
     selected = {entry["entry_id"]: entry["sha256"] for entry in config["entries"]}
     upstream = {
