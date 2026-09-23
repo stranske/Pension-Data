@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from tools.replay.harness import CorpusDocument
 
 _CONFIG_SCHEMA = "pension-replay-corpus/v1"
 _PDF_MEDIA_TYPE = "application/pdf"
+_GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
@@ -51,6 +53,26 @@ def _validate_sha256(value: object, *, label: str) -> str:
     return value
 
 
+def _verify_checkout_revision(artifact_root: Path, *, expected_revision: str) -> None:
+    if _GIT_SHA_PATTERN.fullmatch(expected_revision) is None:
+        raise ValueError("upstream revision must be a lowercase 40-character Git commit SHA")
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(artifact_root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        raise ValueError("artifact root must be a Git checkout at the configured revision") from exc
+    actual_revision = completed.stdout.strip()
+    if actual_revision != expected_revision:
+        raise ValueError(
+            "artifact root revision mismatch: "
+            f"expected {expected_revision}, got {actual_revision or '<empty>'}"
+        )
+
+
 def _extract_pdf_text(data: bytes, *, entry_id: str) -> str:
     try:
         reader = PdfReader(BytesIO(data))
@@ -72,9 +94,10 @@ def load_manifest_corpus(config_path: Path, *, artifact_root: Path) -> list[Corp
     if not isinstance(upstream, dict):
         raise ValueError("replay corpus config requires object 'upstream'")
     _required_string(upstream, "repository", label="upstream")
-    _required_string(upstream, "revision", label="upstream")
+    expected_revision = _required_string(upstream, "revision", label="upstream")
     manifest_relative_path = _required_string(upstream, "manifest_path", label="upstream")
     expected_manifest_schema = _required_string(upstream, "manifest_schema", label="upstream")
+    _verify_checkout_revision(artifact_root, expected_revision=expected_revision)
 
     manifest_path = _safe_repo_path(
         artifact_root,

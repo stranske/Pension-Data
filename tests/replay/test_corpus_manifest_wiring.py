@@ -5,10 +5,42 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 from tools.replay.corpus_manifest import load_manifest_corpus
 from tools.replay.runner import run
+
+_REPO_ROOT = Path(__file__).parents[2]
+
+
+def _git(*args: str, cwd: Path) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _assert_committed_pin_matches_retained_upstream() -> None:
+    config = json.loads(
+        (_REPO_ROOT / "config/replay_corpus_manifest.json").read_text(encoding="utf-8")
+    )
+    retained = json.loads(
+        (_REPO_ROOT / "tests/replay/fixtures/doc_lineage_public_corpus_pin.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert config["upstream"]["repository"] == retained["repository"]
+    assert config["upstream"]["revision"] == retained["revision"]
+    assert config["upstream"]["manifest_schema"] == retained["manifest"]["schema_version"]
+    selected = {entry["entry_id"]: entry["sha256"] for entry in config["entries"]}
+    upstream = {
+        entry["artifact_id"]: entry["sha256"] for entry in retained["manifest"]["artifacts"]
+    }
+    assert selected == upstream
 
 
 def _write_manifest_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -40,6 +72,19 @@ def _write_manifest_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
         ),
         encoding="utf-8",
     )
+    _git("init", "-q", cwd=artifact_root)
+    _git("add", ".", cwd=artifact_root)
+    _git(
+        "-c",
+        "user.name=Replay Test",
+        "-c",
+        "user.email=replay@example.invalid",
+        "commit",
+        "-qm",
+        "fixture",
+        cwd=artifact_root,
+    )
+    revision = _git("rev-parse", "HEAD", cwd=artifact_root)
     config_path = tmp_path / "replay_corpus_manifest.json"
     config_path.write_text(
         json.dumps(
@@ -47,7 +92,7 @@ def _write_manifest_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
                 "schema_version": "pension-replay-corpus/v1",
                 "upstream": {
                     "repository": "stranske/Doc-Lineage",
-                    "revision": "a" * 40,
+                    "revision": revision,
                     "manifest_path": "tests/fixtures/public_corpus/manifest.json",
                     "manifest_schema": "artifact-manifest/v1",
                 },
@@ -60,6 +105,7 @@ def _write_manifest_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 
 def test_replay_loads_manifest_entry(tmp_path: Path) -> None:
+    _assert_committed_pin_matches_retained_upstream()
     config_path, artifact_root, _ = _write_manifest_fixture(tmp_path)
 
     documents = load_manifest_corpus(config_path, artifact_root=artifact_root)
@@ -90,9 +136,11 @@ def test_replay_loads_manifest_entry(tmp_path: Path) -> None:
     assert snapshot["documents"][0]["fields"]["contains_funded_ratio"]["value"] is True
 
 
-def test_replay_manifest_rejects_changed_artifact_bytes(tmp_path: Path) -> None:
-    config_path, artifact_root, pdf_path = _write_manifest_fixture(tmp_path)
-    pdf_path.write_bytes(pdf_path.read_bytes() + b"changed")
+def test_replay_manifest_rejects_changed_config_digest(tmp_path: Path) -> None:
+    config_path, artifact_root, _ = _write_manifest_fixture(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["entries"][0]["sha256"] = "0" * 64
+    config_path.write_text(json.dumps(config), encoding="utf-8")
 
     snapshot_path = tmp_path / "snapshot.json"
     assert (
@@ -111,3 +159,29 @@ def test_replay_manifest_rejects_changed_artifact_bytes(tmp_path: Path) -> None:
         == 1
     )
     assert not snapshot_path.exists()
+
+
+def test_replay_manifest_rejects_changed_artifact_bytes(tmp_path: Path) -> None:
+    config_path, artifact_root, pdf_path = _write_manifest_fixture(tmp_path)
+    pdf_path.write_bytes(pdf_path.read_bytes() + b"changed")
+
+    try:
+        load_manifest_corpus(config_path, artifact_root=artifact_root)
+    except ValueError as exc:
+        assert "byte count mismatch" in str(exc)
+    else:  # pragma: no cover - explicit failure message for the integrity gate
+        raise AssertionError("modified artifact bytes were accepted")
+
+
+def test_replay_manifest_rejects_checkout_revision_drift(tmp_path: Path) -> None:
+    config_path, artifact_root, _ = _write_manifest_fixture(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["upstream"]["revision"] = "f" * 40
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    try:
+        load_manifest_corpus(config_path, artifact_root=artifact_root)
+    except ValueError as exc:
+        assert "artifact root revision mismatch" in str(exc)
+    else:  # pragma: no cover - explicit failure message for the provenance gate
+        raise AssertionError("checkout revision drift was accepted")
