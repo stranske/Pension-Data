@@ -13,6 +13,9 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
+from pension_data.emit.evidence_object import build_evidence_objects
+from pension_data.emit.identity_map import build_identity_maps, identity_refs_from_maps
+
 RUN_SCHEMA_VERSION = "run-contract/v1"
 MANIFEST_SCHEMA_VERSION = "artifact-manifest/v1"
 REPO = "stranske/Pension-Data"
@@ -37,6 +40,20 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _artifact_entry(
+    *, artifact_id: str, name: str, kind: str, path: Path, root: Path
+) -> dict[str, object]:
+    return {
+        "artifact_id": artifact_id,
+        "name": name,
+        "kind": kind,
+        "path": _relative_artifact_path(path, root),
+        "sha256": _sha256(path),
+        "bytes": path.stat().st_size,
+        "media_type": "application/json",
+    }
+
+
 def _git_sha(repo_root: Path | None = None) -> str | None:
     try:
         result = subprocess.run(
@@ -57,15 +74,6 @@ def _tool_version() -> str:
         return metadata.version("pension-data")
     except metadata.PackageNotFoundError:
         return "0.0+local"
-
-
-def _safe_ref(prefix: str, value: object) -> str:
-    text = str(value or "unknown").strip().lower()
-    safe = "".join(ch if ch.isalnum() or ch in "_.:-" else "-" for ch in text)
-    safe = safe.strip("-") or "unknown"
-    if not safe[0].isalnum():
-        safe = f"id-{safe}"
-    return f"{prefix}:{safe}"
 
 
 def _relative_artifact_path(path: Path, root: Path) -> str:
@@ -128,32 +136,86 @@ def build_backplane_reference_run(
         artifact_id = f"one-pdf-pilot:{name}"
         artifact_ids.append(artifact_id)
         artifact_entries.append(
-            {
-                "artifact_id": artifact_id,
-                "name": name,
-                "kind": "data",
-                "path": _relative_artifact_path(path, output_dir),
-                "sha256": _sha256(path),
-                "bytes": path.stat().st_size,
-                "media_type": "application/json",
-            }
+            _artifact_entry(
+                artifact_id=artifact_id,
+                name=name,
+                kind="data",
+                path=path,
+                root=output_dir,
+            )
         )
 
     source_pdf = Path(str(pilot_manifest["input"]["pdf_path"]))
     parser_result = _read_json(Path(str(artifact_files["parser_result_json"])))
+    core_rows = _read_json(Path(str(artifact_files["staging_core_metrics_json"])))
+    relationship_rows = _read_json(
+        Path(str(artifact_files["staging_manager_fund_vehicle_relationships_json"]))
+    )
+    if not isinstance(core_rows, list) or not all(isinstance(row, dict) for row in core_rows):
+        raise ValueError("staging_core_metrics_json must contain a list of objects")
+    if not isinstance(relationship_rows, list) or not all(
+        isinstance(row, dict) for row in relationship_rows
+    ):
+        raise ValueError("staging_manager_fund_vehicle_relationships_json must contain a list")
     coverage = _read_json(Path(str(artifact_files["coverage_summary_json"])))
     component_report = _read_json(Path(str(artifact_files["component_coverage_report_json"])))
     warning_path = Path(str(artifact_files["extraction_warnings_json"]))
-    evidence_refs = [
-        f"evidence:{hashlib.sha256(str(ref).encode('utf-8')).hexdigest()[:16]}"
-        for ref in parser_result.get("provenance_refs", [])
-    ]
-    identity_refs = [
-        _safe_ref("plan", pilot_manifest["input"].get("plan_id")),
-        _safe_ref("document", pilot_manifest["input"].get("source_document_id")),
-    ]
     recorded = recorded_at or datetime.now(UTC).replace(microsecond=0).isoformat()
     git_sha = _git_sha(repo_root)
+
+    identity_maps = build_identity_maps(
+        pilot_input=pilot_manifest["input"],
+        core_rows=core_rows,
+        relationship_rows=relationship_rows,
+        published_at=recorded,
+    )
+    identity_refs = identity_refs_from_maps(identity_maps)
+    pension_refs = [ref for ref in identity_refs if ref.startswith("pension:")]
+    if len(pension_refs) != 1:
+        raise ValueError("one-PDF run must publish exactly one pension identity")
+    source_evidence = parser_result.get("source_evidence")
+    if not isinstance(source_evidence, dict):
+        raise ValueError("parser result missing source_evidence object")
+    evidence_objects = build_evidence_objects(
+        run_id=run_id,
+        core_rows=core_rows,
+        source_evidence=source_evidence,
+        pension_entity_ref=pension_refs[0],
+    )
+    evidence_refs = [str(item["evidence_id"]) for item in evidence_objects]
+
+    evidence_dir = output_dir / "evidence"
+    for evidence_object in evidence_objects:
+        evidence_id = str(evidence_object["evidence_id"])
+        evidence_path = evidence_dir / f"{evidence_id.removeprefix('evidence:')}.json"
+        _write_json(evidence_path, evidence_object)
+        artifact_ids.append(evidence_id)
+        artifact_entries.append(
+            _artifact_entry(
+                artifact_id=evidence_id,
+                name=f"evidence-{evidence_object['fact_ref']}",
+                kind="evidence",
+                path=evidence_path,
+                root=output_dir,
+            )
+        )
+
+    identity_dir = output_dir / "identity"
+    for identity_map in identity_maps:
+        entity_type = str(identity_map["entity_type"])
+        artifact_id = f"identity-map:{entity_type}"
+        identity_path = identity_dir / f"identity-map-{entity_type}.json"
+        _write_json(identity_path, identity_map)
+        artifact_ids.append(artifact_id)
+        artifact_entries.append(
+            _artifact_entry(
+                artifact_id=artifact_id,
+                name=f"identity-map-{entity_type}",
+                kind="data",
+                path=identity_path,
+                root=output_dir,
+            )
+        )
 
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,

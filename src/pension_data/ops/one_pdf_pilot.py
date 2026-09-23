@@ -346,6 +346,20 @@ def run_one_pdf_pilot(
         "escalation_required": parser_result.escalation_required,
         "actionable_flags": list(parser_result.actionable_flags),
         "provenance_refs": list(parser_result.provenance_refs),
+        "source_evidence": {
+            "text_blocks": [
+                {
+                    "evidence_ref": (
+                        parser_result.raw.text_block_evidence_refs[index]
+                        if index < len(parser_result.raw.text_block_evidence_refs)
+                        else f"text:{index + 1}"
+                    ),
+                    "excerpt": block,
+                }
+                for index, block in enumerate(parser_result.raw.text_blocks)
+            ],
+            "table_rows": [dict(row) for row in parser_result.raw.table_rows],
+        },
     }
 
     run_root = output_root / "one_pdf_pilot" / effective_run_id
