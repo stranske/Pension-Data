@@ -3,7 +3,7 @@
   --bg-bottom: var(--panel, #d3e8e5);
   --ink: var(--text, #122321);
   --card-bg: color-mix(in srgb, var(--surface, #ffffff) 88%, transparent);
-  --card-border: var(--border, rgba(18, 35, 33, 0.12));
+  --shell-border: var(--border, rgba(18, 35, 33, 0.12));
   --accent-soft: var(--accent-weak, #d8f5f1);
   --highlight: var(--warn, #f06f42);
 }
@@ -41,7 +41,7 @@ body {
 .hero,
 .panel {
   background: var(--card-bg);
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--shell-border);
   border-radius: 16px;
   backdrop-filter: blur(2px);
 }
@@ -170,7 +170,7 @@ h2 {
 }
 
 .inventory-item {
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--shell-border);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.66);
   overflow: hidden;
@@ -226,7 +226,7 @@ label {
 input,
 select,
 button {
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--shell-border);
   border-radius: 8px;
   padding: 8px 10px;
   font-family: inherit;
@@ -271,7 +271,7 @@ button:hover {
 .table-wrap {
   overflow: auto;
   max-height: 520px;
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--shell-border);
   border-radius: 10px;
 }
 
@@ -306,7 +306,7 @@ tr.active-row {
 
 .detail-content {
   min-height: 240px;
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--shell-border);
   border-radius: 10px;
   padding: 12px;
   background: rgba(255, 255, 255, 0.55);
@@ -317,7 +317,7 @@ tr.active-row {
   width: 100%;
   min-height: 180px;
   padding: 10px 12px;
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--shell-border);
   border-radius: 10px;
   font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
   font-size: 0.8rem;
@@ -327,7 +327,7 @@ tr.active-row {
 
 .chart-preview {
   min-height: 360px;
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--shell-border);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.9);
   overflow: auto;

@@ -249,7 +249,10 @@ function applyWorkspaceBundle(payload, sourceLabel) {
 async function loadPackagedWorkspaceBundle() {
   const payload = normalizeWorkspaceBundle(await loadJson(WORKSPACE_DATA_PATH));
   state.packagedWorkspace = payload;
-  persistOfflineWorkspace(payload, "packaged bundle (fixture demo)");
+  persistOfflineWorkspace(
+    payload,
+    payload.data_origin === "fixture" ? "packaged bundle (fixture demo)" : "packaged bundle"
+  );
   return payload;
 }
 
