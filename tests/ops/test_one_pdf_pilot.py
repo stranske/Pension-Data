@@ -62,6 +62,7 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
     assert Path(result["staging_manager_fund_vehicle_relationships_json"]).exists()
     assert Path(result["extraction_warnings_json"]).exists()
     assert Path(result["schema_component_datasets_manifest_json"]).exists()
+    assert Path(result["workspace_bundle_json"]).exists()
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     artifact_files = manifest["artifact_files"]
@@ -78,6 +79,7 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
         "orchestration_published_rows_json",
         "orchestration_review_queue_rows_json",
         "orchestration_state_json",
+        "workspace_bundle_json",
     }
     assert set(artifact_files) == expected_keys
     expected_result_keys = expected_keys | {"run_id", "run_manifest_json"}
@@ -128,6 +130,7 @@ def test_one_pdf_pilot_artifacts_follow_deterministic_layout(tmp_path: Path) -> 
     expected_run_root = output_root / "one_pdf_pilot" / run_id
     assert Path(result["run_manifest_json"]) == expected_run_root / "run_manifest.json"
     assert Path(result["parser_result_json"]) == expected_run_root / "parser_result.json"
+    assert Path(result["workspace_bundle_json"]) == expected_run_root / "workspace-bundle.json"
     assert Path(result["coverage_summary_json"]) == (
         expected_run_root / "coverage" / "component_coverage_summary.json"
     )

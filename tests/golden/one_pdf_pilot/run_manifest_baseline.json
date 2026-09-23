@@ -11,7 +11,8 @@
     "persistence_contract_json",
     "schema_component_datasets_manifest_json",
     "staging_core_metrics_json",
-    "staging_manager_fund_vehicle_relationships_json"
+    "staging_manager_fund_vehicle_relationships_json",
+    "workspace_bundle_json"
   ],
   "ledger_status": "success"
 }

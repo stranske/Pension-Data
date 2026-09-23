@@ -16,6 +16,7 @@ from pension_data.coverage.component_completeness import (
     build_component_coverage_report_from_manifest,
 )
 from pension_data.db.models.artifacts import RawArtifactRecord
+from pension_data.export.workspace_bundle import build_workspace_bundle, write_workspace_bundle
 from pension_data.extract.actuarial.metrics import RawFundedActuarialInput
 from pension_data.extract.persistence import (
     build_schema_component_datasets,
@@ -447,6 +448,14 @@ def run_one_pdf_pilot(
     _write_json(coverage_json, coverage_summary)
     _write_json(component_coverage_report_json, component_coverage_report)
 
+    workspace_bundle_json = run_root / "workspace-bundle.json"
+    workspace_bundle = build_workspace_bundle(
+        core_rows,
+        run_id=effective_run_id,
+        last_updated=pilot_input.effective_date,
+    )
+    write_workspace_bundle(workspace_bundle_json, workspace_bundle)
+
     manifest_json = run_root / "run_manifest.json"
     manifest = {
         "run_id": effective_run_id,
@@ -469,6 +478,7 @@ def run_one_pdf_pilot(
             "parser_result_json": str(parser_json),
             "coverage_summary_json": str(coverage_json),
             "component_coverage_report_json": str(component_coverage_report_json),
+            "workspace_bundle_json": str(workspace_bundle_json),
             "persistence_contract_json": persistence_paths["persistence_contract_json"],
             "staging_core_metrics_json": persistence_paths["staging_core_metrics_json"],
             "staging_manager_fund_vehicle_relationships_json": persistence_paths[
@@ -500,6 +510,7 @@ def run_one_pdf_pilot(
         "parser_result_json": str(parser_json),
         "coverage_summary_json": str(coverage_json),
         "component_coverage_report_json": str(component_coverage_report_json),
+        "workspace_bundle_json": str(workspace_bundle_json),
         "persistence_contract_json": persistence_paths["persistence_contract_json"],
         "staging_core_metrics_json": persistence_paths["staging_core_metrics_json"],
         "staging_manager_fund_vehicle_relationships_json": persistence_paths[
