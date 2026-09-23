@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pension_data.db.models.provenance import EvidenceMethod, EvidenceReference
 from pension_data.extract.common.evidence import build_evidence_reference
+from pension_data.normalize.numeric_parsing import (
+    parse_numeric_token,
+    truncate_at_sentence_boundary,
+)
 
 _METRIC_ALIASES: dict[str, tuple[str, ...]] = {
     "funded_ratio": ("funded ratio", "funding ratio"),
@@ -44,12 +49,60 @@ def _matches_metric(label_or_text: str, metric_name: str) -> bool:
     return any(alias in normalized for alias in aliases)
 
 
+def _matching_metric_position(
+    text: str, metric_name: str, as_reported_value: float | None
+) -> int | None:
+    """Locate the metric mention that supports the persisted selected value."""
+    lowered = text.lower()
+    aliases = _METRIC_ALIASES.get(metric_name, (metric_name.replace("_", " "),))
+    fallback_position: int | None = None
+    for alias in aliases:
+        start_index = 0
+        while True:
+            match_index = lowered.find(alias, start_index)
+            if match_index == -1:
+                break
+            fallback_position = match_index if fallback_position is None else fallback_position
+            if as_reported_value is None:
+                return match_index
+            value_window = truncate_at_sentence_boundary(
+                text[match_index + len(alias) : match_index + len(alias) + 96]
+            )
+            parsed = parse_numeric_token(value_window)
+            if parsed is not None and math.isclose(
+                parsed, as_reported_value, rel_tol=1e-9, abs_tol=1e-9
+            ):
+                return match_index
+            start_index = match_index + len(alias)
+    return fallback_position if as_reported_value is None else None
+
+
+def _reported_value(row: Mapping[str, object]) -> float | None:
+    value = row.get("as_reported_value")
+    if isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value):
+        return float(value)
+    return None
+
+
+def _bounded_text_excerpt(text: str, *, metric_position: int) -> str:
+    """Keep a long source block bounded around the supporting metric mention."""
+    cleaned = text.strip()
+    if len(cleaned) <= 2000:
+        return cleaned
+    start = max(0, metric_position - 500)
+    end = min(len(cleaned), start + 2000)
+    if end - start < 2000:
+        start = max(0, end - 2000)
+    return cleaned[start:end].strip()
+
+
 def _grounded_excerpt(
     *,
     metric_name: str,
     evidence_ref: str,
     method: EvidenceMethod,
     source_evidence: Mapping[str, object],
+    as_reported_value: float | None,
 ) -> str:
     if method == "table":
         rows = source_evidence.get("table_rows", [])
@@ -65,6 +118,12 @@ def _grounded_excerpt(
                     and value.strip()
                     and _matches_metric(label, metric_name)
                 ):
+                    parsed = parse_numeric_token(value)
+                    if as_reported_value is not None and (
+                        parsed is None
+                        or not math.isclose(parsed, as_reported_value, rel_tol=1e-9, abs_tol=1e-9)
+                    ):
+                        continue
                     return value.strip()[:2000]
     else:
         blocks = source_evidence.get("text_blocks", [])
@@ -78,7 +137,10 @@ def _grounded_excerpt(
                     and excerpt.strip()
                     and _matches_metric(excerpt, metric_name)
                 ):
-                    return excerpt.strip()[:2000]
+                    position = _matching_metric_position(excerpt, metric_name, as_reported_value)
+                    if position is None:
+                        continue
+                    return _bounded_text_excerpt(excerpt, metric_position=position)
     raise ValueError(
         f"no grounded excerpt for metric '{metric_name}' at evidence ref '{evidence_ref}'"
     )
@@ -127,6 +189,7 @@ def build_evidence_objects(
                 evidence_ref=evidence_ref,
                 method=method,
                 source_evidence=source_evidence,
+                as_reported_value=_reported_value(row),
             )
             parsed = build_evidence_reference(
                 report_id=run_id,

@@ -100,6 +100,91 @@ def test_shared_locator_keeps_distinct_fact_evidence() -> None:
     assert len({item["evidence_id"] for item in emitted}) == 2
 
 
+def test_shared_table_locator_uses_the_fragment_with_the_selected_value() -> None:
+    row = {
+        "fact_id": "fact:funded",
+        "metric_name": "funded_ratio",
+        "as_reported_value": 76.8,
+        "source_document_id": "document:one",
+        "extraction_method": "table_lookup",
+        "evidence_refs": ["p.1#table"],
+    }
+    emitted = build_evidence_objects(
+        run_id="run",
+        core_rows=[row],
+        source_evidence={
+            "table_rows": [
+                {
+                    "label": "Funded Ratio",
+                    "value": "not disclosed",
+                    "evidence_ref": "p.1#table",
+                },
+                {
+                    "label": "Funded Ratio",
+                    "value": "76.8%",
+                    "evidence_ref": "p.1#table",
+                },
+            ],
+            "text_blocks": [],
+        },
+        pension_entity_ref="pension:ca_pers",
+    )
+    assert emitted[0]["excerpt"] == "76.8%"
+
+
+def test_shared_text_locator_uses_the_fragment_with_the_selected_value() -> None:
+    row = {
+        "fact_id": "fact:funded",
+        "metric_name": "funded_ratio",
+        "as_reported_value": 76.8,
+        "source_document_id": "document:one",
+        "extraction_method": "text_pattern",
+        "evidence_refs": ["p.1#text"],
+    }
+    emitted = build_evidence_objects(
+        run_id="run",
+        core_rows=[row],
+        source_evidence={
+            "table_rows": [],
+            "text_blocks": [
+                {
+                    "excerpt": "Funded ratio not disclosed.",
+                    "evidence_ref": "p.1#text",
+                },
+                {
+                    "excerpt": "The selected funded ratio was 76.8%.",
+                    "evidence_ref": "p.1#text",
+                },
+            ],
+        },
+        pension_entity_ref="pension:ca_pers",
+    )
+    assert emitted[0]["excerpt"] == "The selected funded ratio was 76.8%."
+
+
+def test_long_text_excerpt_is_bounded_around_selected_metric() -> None:
+    row = {
+        "fact_id": "fact:funded",
+        "metric_name": "funded_ratio",
+        "as_reported_value": 76.8,
+        "source_document_id": "document:one",
+        "extraction_method": "text_pattern",
+        "evidence_refs": ["p.1#text"],
+    }
+    long_excerpt = f"{'preface ' * 400}Funded ratio 76.8%."
+    emitted = build_evidence_objects(
+        run_id="run",
+        core_rows=[row],
+        source_evidence={
+            "table_rows": [],
+            "text_blocks": [{"excerpt": long_excerpt, "evidence_ref": "p.1#text"}],
+        },
+        pension_entity_ref="pension:ca_pers",
+    )
+    assert len(emitted[0]["excerpt"]) <= 2000
+    assert "Funded ratio 76.8%" in emitted[0]["excerpt"]
+
+
 def test_missing_grounded_excerpt_is_rejected() -> None:
     row = {
         "fact_id": "fact:funded",
