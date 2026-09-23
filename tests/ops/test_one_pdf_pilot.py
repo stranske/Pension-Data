@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from pension_data.db.models.artifacts import RawArtifactRecord
+from pension_data.ops.document_orchestration import DocumentOrchestrationState
 from pension_data.ops.one_pdf_pilot import (
     OnePdfPilotInput,
     one_pdf_pilot_input_contract,
@@ -284,6 +286,64 @@ def test_one_pdf_pilot_default_run_id_is_input_stable(tmp_path: Path) -> None:
 
     assert first["run_id"] == second["run_id"]
     assert first["run_manifest_json"] == second["run_manifest_json"]
+
+
+def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "pilot.pdf"
+    _write_pdf_like_text(
+        pdf_path,
+        "\n".join(
+            (
+                "Funded Ratio: 78.4%",
+                "AAL: $640 million",
+                "AVA: $501.8 million",
+                "Discount Rate: 6.8%",
+                "Employer Contribution Rate: 12.4%",
+                "Employee Contribution Rate: 7.5%",
+                "Participant Count: 325000",
+            )
+        ),
+    )
+    pilot_input = OnePdfPilotInput(
+        pdf_path=pdf_path,
+        plan_id="CA-PERS",
+        plan_period="FY2024",
+        effective_date="2024-06-30",
+        ingestion_date="2026-03-03",
+    )
+    output_root = tmp_path / "outputs"
+
+    first = run_one_pdf_pilot(
+        pilot_input=pilot_input,
+        output_root=output_root,
+        run_id="pilot-skipped-rerun",
+    )
+    prior_state_payload = json.loads(
+        Path(first["orchestration_state_json"]).read_text(encoding="utf-8")
+    )
+    prior_state = DocumentOrchestrationState(
+        artifact_records=tuple(
+            RawArtifactRecord(**row) for row in prior_state_payload["artifact_records"]
+        ),
+        processed_artifact_ids=tuple(prior_state_payload["processed_artifact_ids"]),
+        published_fact_ids=tuple(prior_state_payload["published_fact_ids"]),
+    )
+
+    second = run_one_pdf_pilot(
+        pilot_input=pilot_input,
+        output_root=output_root,
+        run_id="pilot-skipped-rerun",
+        state=prior_state,
+    )
+
+    first_bundle = json.loads(
+        Path(first["workspace_bundle_json"]).read_text(encoding="utf-8")
+    )
+    second_bundle = json.loads(
+        Path(second["workspace_bundle_json"]).read_text(encoding="utf-8")
+    )
+    assert first_bundle["datasets"]
+    assert second_bundle == first_bundle
 
 
 def test_one_pdf_input_contract_includes_required_path_env_and_metadata_fields() -> None:

@@ -218,6 +218,20 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _read_json_row_list(path: Path) -> list[dict[str, object]]:
+    if not path.is_file():
+        return []
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        return []
+    return [dict(row) for row in payload if isinstance(row, dict)]
+
+
+def _ledger_has_skipped_outcomes(ledger: object) -> bool:
+    document_outcomes = getattr(ledger, "document_outcomes", ())
+    return any(getattr(outcome, "status", None) == "skipped" for outcome in document_outcomes)
+
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -412,6 +426,17 @@ def run_one_pdf_pilot(
         list[dict[str, object]],
         orchestration_artifacts["extraction_warning_rows"],
     )
+
+    if _ledger_has_skipped_outcomes(ledger):
+        persistence_dir = run_root / "extraction_persistence"
+        if not core_rows:
+            core_rows = _read_json_row_list(persistence_dir / "staging_core_metrics.json")
+        if not relationship_rows:
+            relationship_rows = _read_json_row_list(
+                persistence_dir / "staging_manager_fund_vehicle_relationships.json"
+            )
+        if not warning_rows:
+            warning_rows = _read_json_row_list(persistence_dir / "extraction_warnings.json")
 
     schema_component_datasets = build_schema_component_datasets(
         persisted_core_metrics=core_rows,
