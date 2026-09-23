@@ -12,6 +12,11 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from pension_data.api.artifact_data import (
+    QueryArtifactError,
+    QueryDataSnapshot,
+    load_query_data_snapshot,
+)
 from pension_data.api.auth import (
     SCOPE_EXPORT,
     SCOPE_NL,
@@ -21,6 +26,7 @@ from pension_data.api.auth import (
     InvalidAPIKeyError,
     MissingAPIKeyError,
     ScopeDeniedError,
+    authenticate_request,
 )
 from pension_data.api.routes.metric_history import run_metric_history_endpoint
 from pension_data.api.routes.saved_views import run_saved_view_endpoint
@@ -42,6 +48,7 @@ def create_app(*, key_store: APIKeyStore | None = None, web_root: Path | None = 
     app = FastAPI(title="Pension-Data Internal API")
     store = key_store or _key_store_from_env()
     static_root = web_root or WEB_ROOT
+    artifact_snapshot: QueryDataSnapshot | None = None
 
     @app.exception_handler(AuthError)
     async def _handle_auth_error(_: Any, exc: AuthError) -> JSONResponse:
@@ -49,6 +56,29 @@ def create_app(*, key_store: APIKeyStore | None = None, web_root: Path | None = 
             status_code=_auth_status(exc),
             content={"detail": str(exc) or exc.__class__.__name__},
         )
+
+    @app.exception_handler(QueryArtifactError)
+    async def _handle_query_artifact_error(_: Any, exc: QueryArtifactError) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+    def _query_data(authorization: str | None) -> QueryDataSnapshot:
+        # Route adapters authenticate too, but this first check ensures untrusted requests
+        # cannot trigger filesystem access before receiving their 401/403 response.
+        authenticate_request(
+            api_key_header=authorization,
+            required_scope=SCOPE_QUERY,
+            key_store=store,
+        )
+        if _data_zone() == "fixture":
+            return QueryDataSnapshot(
+                metric_history_rows=_fixture_metric_history_rows(),
+                funding_trend_inputs=tuple(_fixture_funding_trend_inputs()),
+            )
+
+        nonlocal artifact_snapshot
+        if artifact_snapshot is None:
+            artifact_snapshot = load_query_data_snapshot(_query_artifact_root())
+        return artifact_snapshot
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -64,11 +94,12 @@ def create_app(*, key_store: APIKeyStore | None = None, web_root: Path | None = 
 
     @app.get("/api/saved-views/funding-trend")
     def funding_trend(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        snapshot = _query_data(authorization)
         result = run_saved_view_endpoint(
             api_key_header=authorization,
             key_store=store,
             view_name="funding_trend",
-            view_inputs=_fixture_funding_trend_inputs(),
+            view_inputs=list(snapshot.funding_trend_inputs),
             event={"route": "GET /api/saved-views/funding-trend"},
         )
         return {
@@ -84,6 +115,7 @@ def create_app(*, key_store: APIKeyStore | None = None, web_root: Path | None = 
         metric_family: str | None = None,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
+        snapshot = _query_data(authorization)
         result = run_metric_history_endpoint(
             api_key_header=authorization,
             key_store=store,
@@ -92,7 +124,7 @@ def create_app(*, key_store: APIKeyStore | None = None, web_root: Path | None = 
                 metric_name=metric_name,
                 metric_family=metric_family,
             ),
-            rows=_fixture_metric_history_rows(),
+            rows=snapshot.metric_history_rows,
             event={"route": "GET /api/metric-history/{entity_id}"},
         )
         return {
@@ -145,6 +177,15 @@ def _environment() -> str:
 
 def _data_zone() -> str:
     return os.getenv("PENSION_DATA_DATA_ZONE", "proprietary").strip().casefold() or "proprietary"
+
+
+def _query_artifact_root() -> Path:
+    raw_root = os.getenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", "").strip()
+    if not raw_root:
+        raise QueryArtifactError(
+            "PENSION_DATA_QUERY_ARTIFACT_ROOT is required outside explicit fixture mode"
+        )
+    return Path(raw_root)
 
 
 def _authorized_llm_base_url_configured() -> bool:
