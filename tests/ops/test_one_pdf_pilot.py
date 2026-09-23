@@ -336,12 +336,8 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(tmp_path: P
         state=prior_state,
     )
 
-    first_bundle = json.loads(
-        Path(first["workspace_bundle_json"]).read_text(encoding="utf-8")
-    )
-    second_bundle = json.loads(
-        Path(second["workspace_bundle_json"]).read_text(encoding="utf-8")
-    )
+    first_bundle = json.loads(Path(first["workspace_bundle_json"]).read_text(encoding="utf-8"))
+    second_bundle = json.loads(Path(second["workspace_bundle_json"]).read_text(encoding="utf-8"))
     assert first_bundle["datasets"]
     assert second_bundle == first_bundle
 
