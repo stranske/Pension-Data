@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
+
+_ACCESSION_RE = re.compile(r"^[0-9]{10}-[0-9]{2}-[0-9]{6}$")
 
 FORM_NCSR = "N-CSR"
 
@@ -56,19 +59,27 @@ def ingest_ncsr_sample(filing_path: str | Path, *, run_id: str) -> NCSRSampleIng
     if form != FORM_NCSR:
         raise ValueError(f"expected form {FORM_NCSR}, got {form}")
 
+    accession_number = _required_accession_number(payload, "accession_number")
+    cik = _required_text(payload, "cik")
+    primary_document = _required_text(payload, "primary_document")
+    source_url = _required_sec_url(
+        payload,
+        "source_url",
+        cik=cik,
+        accession_number=accession_number,
+        primary_document=primary_document,
+    )
     filing = NCSRFiling(
-        accession_number=_required_text(payload, "accession_number"),
-        cik=_required_text(payload, "cik"),
+        accession_number=accession_number,
+        cik=cik,
         registrant_name=_required_text(payload, "registrant_name"),
         filing_date=_required_iso_date(payload, "filing_date"),
         report_date=_required_iso_date(payload, "report_date"),
-        primary_document=_required_text(payload, "primary_document"),
-        source_url=_required_sec_url(payload, "source_url"),
+        primary_document=primary_document,
+        source_url=source_url,
     )
 
     accession_slug = filing.accession_number.replace("-", "")
-    if not accession_slug.isdigit():
-        raise ValueError("accession_number must contain only digits and dashes")
     artifact_path = str(PurePosixPath("ncsr", filing.filing_date, f"{accession_slug}.json"))
     artifact = {
         "artifact_id": f"public-doc:sec-ncsr:{accession_slug}",
@@ -112,7 +123,31 @@ def _required_iso_date(payload: Mapping[str, object], key: str) -> str:
     return parsed.isoformat()
 
 
-def _required_sec_url(payload: Mapping[str, object], key: str) -> str:
+def _required_accession_number(payload: Mapping[str, object], key: str) -> str:
+    value = _required_text(payload, key)
+    if not _ACCESSION_RE.fullmatch(value):
+        raise ValueError(
+            "accession_number must match SEC format ##########-##-###### (ASCII digits only)"
+        )
+    return value
+
+
+def _cik_archive_segment(cik: str) -> str:
+    digits = cik.strip()
+    if not digits.isascii() or not digits.isdigit():
+        raise ValueError("cik must be an ASCII digit string")
+    normalized = digits.lstrip("0") or "0"
+    return normalized
+
+
+def _required_sec_url(
+    payload: Mapping[str, object],
+    key: str,
+    *,
+    cik: str,
+    accession_number: str,
+    primary_document: str,
+) -> str:
     value = _required_text(payload, key)
     parsed = urlparse(value)
     hostname = (parsed.hostname or "").rstrip(".").casefold()
@@ -120,4 +155,13 @@ def _required_sec_url(payload: Mapping[str, object], key: str) -> str:
         hostname == "sec.gov" or hostname.endswith(".sec.gov")
     ):
         raise ValueError("N-CSR sample source_url must use an official sec.gov HTTPS host")
+
+    accession_slug = accession_number.replace("-", "")
+    cik_segment = _cik_archive_segment(cik)
+    path = parsed.path or ""
+    expected_suffix = f"/edgar/data/{cik_segment}/{accession_slug}/{primary_document}"
+    if not path.casefold().endswith(expected_suffix.casefold()):
+        raise ValueError(
+            "source_url must reference the same CIK, accession number, and primary document"
+        )
     return value

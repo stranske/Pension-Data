@@ -49,3 +49,59 @@ def test_ncsr_fixture_requires_filing_date(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="requires non-empty filing_date"):
         ingest_ncsr_sample(missing_date, run_id="ncsr-missing-date")
+
+
+def _write_payload(tmp_path: Path, name: str, payload: dict) -> Path:
+    path = tmp_path / name
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_ncsr_rejects_unicode_digit_accession(tmp_path: Path) -> None:
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload["accession_number"] = "٠٠٠1104659-25-117601"
+    path = _write_payload(tmp_path, "unicode-accession.json", payload)
+    with pytest.raises(ValueError, match="SEC format"):
+        ingest_ncsr_sample(path, run_id="unicode-accession")
+
+
+def test_ncsr_rejects_malformed_accession_separator(tmp_path: Path) -> None:
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload["accession_number"] = "0001104659-25-117601-extra"
+    path = _write_payload(tmp_path, "bad-accession.json", payload)
+    with pytest.raises(ValueError, match="SEC format"):
+        ingest_ncsr_sample(path, run_id="bad-accession")
+
+
+def test_ncsr_rejects_wrong_form(tmp_path: Path) -> None:
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload["form"] = "10-K"
+    path = _write_payload(tmp_path, "wrong-form.json", payload)
+    with pytest.raises(ValueError, match="expected form N-CSR"):
+        ingest_ncsr_sample(path, run_id="wrong-form")
+
+
+def test_ncsr_rejects_malformed_filing_date(tmp_path: Path) -> None:
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload["filing_date"] = "12/02/2025"
+    path = _write_payload(tmp_path, "bad-date.json", payload)
+    with pytest.raises(ValueError, match="ISO date"):
+        ingest_ncsr_sample(path, run_id="bad-date")
+
+
+def test_ncsr_rejects_sec_url_for_different_filing(tmp_path: Path) -> None:
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload["source_url"] = (
+        "https://www.sec.gov/Archives/edgar/data/872323/000110465925117602/tm2528754d1_ncsr.htm"
+    )
+    path = _write_payload(tmp_path, "wrong-url-accession.json", payload)
+    with pytest.raises(ValueError, match="same CIK, accession"):
+        ingest_ncsr_sample(path, run_id="wrong-url")
+
+
+def test_ncsr_rejects_non_sec_url(tmp_path: Path) -> None:
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload["source_url"] = "https://example.com/filing.json"
+    path = _write_payload(tmp_path, "bad-host.json", payload)
+    with pytest.raises(ValueError, match="official sec.gov"):
+        ingest_ncsr_sample(path, run_id="bad-host")
