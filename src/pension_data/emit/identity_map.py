@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from pension_data.extract.common.entity_ids import canonical_fund_id
 from pension_data.normalize.entity_tokens import normalize_entity_token
 
 _PLACEHOLDERS = {
@@ -26,6 +27,14 @@ def _normalized(value: object) -> str | None:
 
 def _canonical_id(entity_type: str, value: str) -> str:
     return f"{entity_type}:{value.replace(' ', '_')}"
+
+
+def _backplane_fund_id(*, manager_name: str | None, fund_name: str) -> str:
+    """Serialize the component fund ID into the backplane canonical-ID format."""
+    component_id = canonical_fund_id(manager_name=manager_name, fund_name=fund_name)
+    if component_id is None:
+        raise ValueError("fund_name must produce a canonical fund ID")
+    return component_id.replace(" ", "_")
 
 
 def _observed_values(rows: Sequence[Mapping[str, object]], field: str) -> set[str]:
@@ -77,6 +86,74 @@ def _build_map(
     }
 
 
+def _build_fund_map(
+    *,
+    rows: Sequence[Mapping[str, object]],
+    published_at: str,
+    confidence: float,
+) -> dict[str, Any] | None:
+    grouped: dict[str, set[tuple[str | None, str]]] = {}
+    for row in rows:
+        fund_value = row.get("fund_name")
+        if not isinstance(fund_value, str) or _normalized(fund_value) is None:
+            continue
+        fund_name = fund_value.strip()
+        manager_value = row.get("manager_name")
+        manager_name = (
+            manager_value.strip()
+            if isinstance(manager_value, str) and _normalized(manager_value) is not None
+            else None
+        )
+        canonical_id = _backplane_fund_id(
+            manager_name=manager_name,
+            fund_name=fund_name,
+        )
+        grouped.setdefault(canonical_id, set()).add((manager_name, fund_name))
+
+    if not grouped:
+        return None
+
+    entries: list[dict[str, Any]] = []
+    for canonical_id, observed_pairs in sorted(grouped.items()):
+        ordered_pairs = sorted(
+            observed_pairs,
+            key=lambda item: (
+                (item[0] or "").lower(),
+                item[0] or "",
+                item[1].lower(),
+                item[1],
+            ),
+        )
+        manager_name, fund_name = ordered_pairs[0]
+        native_keys = {"fund_name": fund_name}
+        if manager_name is not None:
+            native_keys["manager_name"] = manager_name
+        aliases = sorted(
+            {
+                normalized
+                for _, value in ordered_pairs
+                if (normalized := _normalized(value)) is not None
+            }
+        )
+        entries.append(
+            {
+                "canonical_id": canonical_id,
+                "aliases": aliases,
+                "native_keys": native_keys,
+                "supersedes_ids": [],
+                "confidence": confidence,
+            }
+        )
+
+    return {
+        "schema_version": "identity-map/v1",
+        "publisher": "stranske/Pension-Data",
+        "published_at": published_at,
+        "entity_type": "fund",
+        "entries": entries,
+    }
+
+
 def build_identity_maps(
     *,
     pilot_input: Mapping[str, object],
@@ -93,7 +170,6 @@ def build_identity_maps(
     candidates = (
         ("pension", sorted(plan_values), "plan_id", 1.0),
         ("manager", sorted(_observed_values(rows, "manager_name")), "manager_name", 0.5),
-        ("fund", sorted(_observed_values(rows, "fund_name")), "fund_name", 0.5),
     )
     maps = [
         identity_map
@@ -109,6 +185,8 @@ def build_identity_maps(
         )
         is not None
     ]
+    if fund_map := _build_fund_map(rows=rows, published_at=published_at, confidence=0.5):
+        maps.append(fund_map)
     return sorted(maps, key=lambda item: str(item["entity_type"]))
 
 

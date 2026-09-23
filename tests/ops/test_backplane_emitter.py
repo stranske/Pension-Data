@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -110,6 +112,39 @@ def test_reference_run_validates_strictly(tmp_path: Path) -> None:
     assert set(run_payload["outputs"]["artifact_ids"]) == manifest_ids
     for artifact in manifest["artifacts"]:
         assert len(artifact["sha256"]) == 64
+
+    identity_artifacts = [
+        artifact
+        for artifact in manifest["artifacts"]
+        if artifact["artifact_id"].startswith("identity-map:")
+    ]
+    assert identity_artifacts
+    published_refs: set[str] = set()
+    artifact_root = paths["manifest"].parent
+    for artifact in identity_artifacts:
+        assert artifact["kind"] == "data"
+        assert artifact["media_type"] == "application/json"
+        identity_path = artifact_root / artifact["path"]
+        raw_payload = identity_path.read_bytes()
+        identity_map = json.loads(raw_payload)
+        assert identity_map["schema_version"] == "identity-map/v1"
+        assert identity_map["publisher"] == "stranske/Pension-Data"
+        assert identity_map["published_at"] == "2026-01-01T00:00:00+00:00"
+        assert identity_map["entity_type"] == artifact["artifact_id"].removeprefix("identity-map:")
+        assert identity_map["entries"]
+        for identity in identity_map["entries"]:
+            canonical_id = identity["canonical_id"]
+            assert re.fullmatch(r"[a-z0-9_]+:[a-z0-9][a-z0-9_.:-]*", canonical_id)
+            published_refs.add(canonical_id)
+        assert artifact["sha256"] == hashlib.sha256(raw_payload).hexdigest()
+        assert artifact["bytes"] == len(raw_payload)
+
+    assert run_payload["identity_refs"] == sorted(published_refs)
+    artifacts_by_id = {artifact["artifact_id"]: artifact for artifact in manifest["artifacts"]}
+    for evidence_id in run_payload["evidence_refs"]:
+        evidence_path = artifact_root / artifacts_by_id[evidence_id]["path"]
+        evidence_payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+        assert evidence_payload["entity_ref"] in published_refs
 
 
 def test_documented_one_pdf_pilot_command_emits_backplane_artifacts(tmp_path: Path) -> None:
