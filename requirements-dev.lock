@@ -14,7 +14,7 @@ click==8.3.1
     # via
     #   black
     #   uvicorn
-coverage==7.16.0
+coverage==7.16.1
     # via pytest-cov
 defusedxml==0.7.1
     # via pension-data (pyproject.toml)
@@ -85,7 +85,7 @@ pyyaml==6.0.3
     # via
     #   app-baseline-kit
     #   pytest-regressions
-ruff==0.16.8
+ruff==0.16.9
     # via pension-data (pyproject.toml)
 six==1.17.0
     # via python-dateutil
