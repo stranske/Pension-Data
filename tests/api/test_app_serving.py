@@ -151,13 +151,13 @@ def test_metric_history_serves_two_plans_under_one_artifact_root(
     tmp_path: Path, monkeypatch
 ) -> None:
     output_root = tmp_path / "pilot-output"
-    pilot_input_base = dict(
-        pdf_path=_PILOT_FIXTURE,
-        plan_period="FY2024",
-        effective_date="2024-06-30",
-        ingestion_date="2026-01-01",
-        fetched_at="2026-01-01T00:00:00Z",
-    )
+    pilot_input_base = {
+        "pdf_path": _PILOT_FIXTURE,
+        "plan_period": "FY2024",
+        "effective_date": "2024-06-30",
+        "ingestion_date": "2026-01-01",
+        "fetched_at": "2026-01-01T00:00:00Z",
+    }
     result_alpha = run_one_pdf_pilot(
         pilot_input=OnePdfPilotInput(plan_id="PLAN-ALPHA", **pilot_input_base),
         output_root=output_root,
@@ -190,9 +190,7 @@ def test_metric_history_serves_two_plans_under_one_artifact_root(
     assert beta_response.status_code == 200
 
     alpha_rows = [
-        row
-        for row in alpha_response.json()["rows"]
-        if row["metric_name"] == "funded_ratio"
+        row for row in alpha_response.json()["rows"] if row["metric_name"] == "funded_ratio"
     ]
     beta_rows = [
         row for row in beta_response.json()["rows"] if row["metric_name"] == "funded_ratio"
