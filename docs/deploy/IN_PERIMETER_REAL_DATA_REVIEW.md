@@ -17,6 +17,27 @@ The SPA already uses client-side bundle loading (`loadJson(WORKSPACE_DATA_PATH)`
 - `artifactBaseUrl` must be relative, localhost, or loopback. External hosts are rejected before serving.
 - LLM-backed routes are absent from this static path. For `pension-data-serve`, `PENSION_DATA_DATA_ZONE=proprietary` keeps LLM routes disabled unless `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL` points to an approved no-train endpoint.
 
+## API-Backed Analytics Alternative
+
+The bundle-only review path above does not expose saved-view or metric-history
+API routes. When an approved workstation can run the local API host, point it
+at the one-PDF pilot output root:
+
+```bash
+PENSION_DATA_API_KEY="$(openssl rand -hex 24)" \
+PENSION_DATA_API_KEY_SCOPES=query:read \
+PENSION_DATA_DATA_ZONE=proprietary \
+PENSION_DATA_QUERY_ARTIFACT_ROOT="$PWD/outputs" \
+pension-data-serve
+```
+
+Use the same directory for `PENSION_DATA_QUERY_ARTIFACT_ROOT` that was passed
+to `one-pdf-pilot --output-root`. The server loads completed runs from
+`<output-root>/one_pdf_pilot/<run-id>/`; it returns HTTP 503 for query routes
+when that variable is missing instead of substituting fixture data. This local
+service requires an approved Python runtime and is separate from the
+zero-install static review path.
+
 ## Build The Bundle
 
 Create a generated workspace bundle from a one-PDF pilot run:

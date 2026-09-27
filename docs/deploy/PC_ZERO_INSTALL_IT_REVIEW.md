@@ -25,9 +25,18 @@ Use the internal host for `data_origin: live` bundles and any shared real-data b
 Start the internal host from an approved workstation or server:
 
 ```bash
-PENSION_DATA_API_KEY="$(openssl rand -hex 24)" PENSION_DATA_DATA_ZONE=proprietary pension-data-serve
+PENSION_DATA_API_KEY="$(openssl rand -hex 24)" \
+PENSION_DATA_DATA_ZONE=proprietary \
+PENSION_DATA_QUERY_ARTIFACT_ROOT="$PWD/outputs" \
+pension-data-serve
 curl http://127.0.0.1:8765/health
 ```
+
+`PENSION_DATA_QUERY_ARTIFACT_ROOT` must name the same directory used as the
+one-PDF pilot `--output-root`, not an individual run directory. The query
+loader reads completed runs from
+`<output-root>/one_pdf_pilot/<run-id>/`. If the variable is absent in
+`proprietary` mode, saved-view and metric-history routes return HTTP 503.
 
 `GET /health` returns service readiness, `GET /config` returns the browser config
 keys (`environment`, `apiBaseUrl`, `artifactBaseUrl`), and deterministic routes
