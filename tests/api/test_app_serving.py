@@ -147,6 +147,71 @@ def test_metric_history_serves_pilot_staging_not_hardcoded_fixture(
     ]
 
 
+def test_metric_history_serves_two_plans_under_one_artifact_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output_root = tmp_path / "pilot-output"
+    pilot_input_base = dict(
+        pdf_path=_PILOT_FIXTURE,
+        plan_period="FY2024",
+        effective_date="2024-06-30",
+        ingestion_date="2026-01-01",
+        fetched_at="2026-01-01T00:00:00Z",
+    )
+    result_alpha = run_one_pdf_pilot(
+        pilot_input=OnePdfPilotInput(plan_id="PLAN-ALPHA", **pilot_input_base),
+        output_root=output_root,
+        run_id="run-alpha",
+    )
+    result_beta = run_one_pdf_pilot(
+        pilot_input=OnePdfPilotInput(plan_id="PLAN-BETA", **pilot_input_base),
+        output_root=output_root,
+        run_id="run-beta",
+    )
+
+    def _expected_funded_ratio(result: dict[str, str]) -> float:
+        persisted_rows = json.loads(
+            Path(result["staging_core_metrics_json"]).read_text(encoding="utf-8")
+        )
+        row = next(r for r in persisted_rows if r["metric_name"] == "funded_ratio")
+        return float(row["normalized_value"])
+
+    expected_alpha = _expected_funded_ratio(result_alpha)
+    expected_beta = _expected_funded_ratio(result_beta)
+
+    monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
+    monkeypatch.setenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", str(output_root))
+    client, secret = _client_with_query_key()
+    headers = {"Authorization": f"Bearer {secret}"}
+
+    alpha_response = client.get("/api/metric-history/PLAN-ALPHA", headers=headers)
+    beta_response = client.get("/api/metric-history/PLAN-BETA", headers=headers)
+    assert alpha_response.status_code == 200
+    assert beta_response.status_code == 200
+
+    alpha_rows = [
+        row
+        for row in alpha_response.json()["rows"]
+        if row["metric_name"] == "funded_ratio"
+    ]
+    beta_rows = [
+        row for row in beta_response.json()["rows"] if row["metric_name"] == "funded_ratio"
+    ]
+    assert len(alpha_rows) == 1
+    assert len(beta_rows) == 1
+    assert alpha_rows[0]["normalized_value"] == pytest.approx(expected_alpha)
+    assert beta_rows[0]["normalized_value"] == pytest.approx(expected_beta)
+    assert alpha_rows[0]["entity_id"] == "PLAN-ALPHA"
+    assert beta_rows[0]["entity_id"] == "PLAN-BETA"
+
+    trend_response = client.get("/api/saved-views/funding-trend", headers=headers)
+    assert trend_response.status_code == 200
+    trend_by_plan = {row["plan_id"]: row for row in trend_response.json()["rows"]}
+    assert set(trend_by_plan) == {"PLAN-ALPHA", "PLAN-BETA"}
+    assert trend_by_plan["PLAN-ALPHA"]["funded_ratio"] == pytest.approx(expected_alpha)
+    assert trend_by_plan["PLAN-BETA"]["funded_ratio"] == pytest.approx(expected_beta)
+
+
 def test_authenticated_query_reports_missing_artifact_root(monkeypatch) -> None:
     monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
     monkeypatch.delenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", raising=False)
