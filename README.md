@@ -29,9 +29,18 @@ See [shared PDF extraction](docs/parser/doc-lineage.md) for backend selection an
 Run the internal/on-prem workspace server:
 
 ```bash
-PENSION_DATA_API_KEY="$(openssl rand -hex 24)" PENSION_DATA_DATA_ZONE=proprietary pension-data-serve
+PENSION_DATA_API_KEY="$(openssl rand -hex 24)" \
+PENSION_DATA_DATA_ZONE=proprietary \
+PENSION_DATA_QUERY_ARTIFACT_ROOT="$PWD/outputs" \
+pension-data-serve
 curl http://127.0.0.1:8765/health
 ```
+
+Set `PENSION_DATA_QUERY_ARTIFACT_ROOT` to the same directory passed as
+`one-pdf-pilot --output-root` (the default is `outputs`). The server discovers
+completed runs beneath `<output-root>/one_pdf_pilot/<run-id>/`; without this
+setting, proprietary saved-view and metric-history requests fail closed with
+HTTP 503 rather than serving fixture data.
 
 The server binds to `127.0.0.1` by default and serves the checked-in browser
 workspace plus deterministic API routes under `/api`. In `proprietary` mode,
