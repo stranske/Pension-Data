@@ -8,7 +8,8 @@ does not reconstruct or infer historical command output.
 
 - `gh pr view 909 -R stranske/Pension-Data --json body,comments`
 - `gh pr checks 909 -R stranske/Pension-Data`
-- merged head `28aa75f1bb1adf93f8539e6594f5bc0c477fe360`
+- PR source head (`headRefOid`, checks assessed) `28aa75f1bb1adf93f8539e6594f5bc0c477fe360`
+- merge commit (`mergeCommit`) `ad42f6794f930675d9c78b8922586891a1e3c591`
 - fallback-review disposition in
   [PR comment 5789013892](https://github.com/stranske/Pension-Data/pull/909#issuecomment-5789013892)
 - final focused validation in
