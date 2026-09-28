@@ -54,8 +54,7 @@ tests/docs/test_contract_doc_drift.py:15: AssertionError
 
 ## Restoration: expected pass
 
-The temporary sentence was removed exactly. `git diff --
-docs/contracts/run-contract-v1.md` then produced no output, proving the
+The temporary sentence was removed exactly. Both `git diff --exit-code 062bd840e69e08fb1eae39a217d0013d179887bf -- docs/contracts/run-contract-v1.md` and `git diff --cached --exit-code 062bd840e69e08fb1eae39a217d0013d179887bf -- docs/contracts/run-contract-v1.md` produced no output, proving the
 production contract was restored. The same command exited `0`:
 
 ```text
