@@ -71,6 +71,7 @@ dev = [
     "pytest-regressions==2.11.0",
     "numpy>=2.2.0",
     "pandas>=2.2.0",
+    "PyYAML",
 ]
 
 [project.urls]
