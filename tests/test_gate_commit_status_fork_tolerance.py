@@ -246,7 +246,11 @@ def test_deleted_fork_read_only_403_reports_the_verdict(
 
 
 def test_same_repo_403_still_fails_the_gate(outcomes: dict[str, Any]) -> None:
-    assert outcomes["same_repo_read_only"]["threw"]["status"] == 403
+    case = outcomes["same_repo_read_only"]
+    assert case["threw"]["status"] == 403
+    assert case["summaryWrites"] == 0
+    assert case["failures"] == []
+    assert not any("read-only" in warning for warning in case["warnings"])
 
 
 def test_rate_limit_403_keeps_its_own_path(outcomes: dict[str, Any]) -> None:
