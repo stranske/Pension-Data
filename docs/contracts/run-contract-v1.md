@@ -13,11 +13,8 @@ rollup.
 > Sibling observability contract: [`langsmith-fleet-v1.md`](https://github.com/stranske/Workflows/blob/main/docs/contracts/langsmith-fleet-v1.md)
 > (Workflows-only; not synced to participants).
 > The contract is **opt-in**: a repo participates only via an entry in
-> `config/backplane_participants.json`. `stranske/Pension-Data` participates as
-> a producer via `one-pdf-pilot` and `build_backplane_reference_run` (registry
-> entry under `config/backplane_participants.json`). Active participants use the
-> reusable conformance workflow; planned and candidate entries retain opt-in
-> semantics.
+> `config/backplane_participants.json`. Active participants use the reusable
+> conformance workflow; planned and candidate entries retain opt-in semantics.
 
 ## Design Decision
 
