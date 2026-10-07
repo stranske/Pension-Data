@@ -146,3 +146,4 @@ node_modules/
 # Template-Version bump, and this must not depend on a propagator that no workflow invokes.
 /langsmith-fleet*.json
 /langsmith-fleet*.ndjson
+.ruff_cache/
