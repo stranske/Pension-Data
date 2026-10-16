@@ -41,7 +41,7 @@ Artifact rows may include additional provenance metadata fields (for example `so
   - `evidence_refs`
   - parser/extraction method metadata where available (`parser_version`, `extraction_method`)
 
-These fields are carried from extractor output into persisted rows, with canonicalization of evidence references (trim/dedupe) to keep IDs deterministic.
+These fields are carried from extractor output into persisted rows, with canonicalization of evidence references (trim/dedupe) to keep IDs deterministic. Staging DB persistence evaluates assertion equality and same-source conflict checks on canonical values (parsed JSON for `evidence_refs` and timezone-aware UTC instants for temporal columns) so retries and conflict detection behave identically across SQLite and PostgreSQL.
 
 ## Manager Holdings And Non-Disclosure Handling
 

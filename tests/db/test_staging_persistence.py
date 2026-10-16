@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
 from pension_data.db.migrations_runner import apply_migrations
-from pension_data.db.staging_persistence import persist_staging_core_metrics
+from pension_data.db.staging_persistence import (
+    _canonical_evidence,
+    _canonical_instant,
+    _row_values,
+    _same_assertion,
+    _same_assertion_source,
+    persist_staging_core_metrics,
+)
 from pension_data.db.strategy import connect_database, resolve_database_config
 
 
@@ -243,3 +251,82 @@ def test_persist_staging_core_metrics_preserves_corrected_assertions_in_sqlite()
     assert rows[2][3] is None
     assert rows[2][4] == 1
     assert json.loads(rows[2][5]) == ["p.42"]
+
+
+def test_canonical_helpers_normalize_evidence_and_utc_instants() -> None:
+    assert _canonical_evidence(None) is None
+    assert _canonical_evidence(["p.40", "p.41"]) == ["p.40", "p.41"]
+    assert _canonical_evidence('["p.40", "p.41"]') == _canonical_evidence(["p.40", "p.41"])
+
+    expected_utc = datetime(2026, 3, 3, 0, 0, tzinfo=UTC)
+    assert _canonical_instant(None) is None
+    assert _canonical_instant("2026-03-03T00:00:00Z") == expected_utc
+    assert _canonical_instant("2026-03-03T00:00:00+00:00") == expected_utc
+    assert _canonical_instant("2026-03-03T02:00:00+02:00") == expected_utc
+    assert _canonical_instant(datetime(2026, 3, 3, 0, 0)) == expected_utc
+    assert (
+        _canonical_instant(datetime(2026, 3, 3, 2, 0, tzinfo=timezone(timedelta(hours=2))))
+        == expected_utc
+    )
+
+    candidate_row = {
+        "fact_id": "fact:canon:1",
+        "plan_id": "CA-PERS",
+        "plan_period": "FY2024",
+        "metric_family": "funded",
+        "metric_name": "funded_ratio",
+        "as_reported_value": 78.4,
+        "normalized_value": 0.784,
+        "as_reported_unit": "percent",
+        "normalized_unit": "ratio",
+        "manager_name": None,
+        "fund_name": None,
+        "vehicle_name": None,
+        "relationship_completeness": "complete",
+        "confidence": 0.95,
+        "evidence_refs": ["p.40"],
+        "effective_date": "2024-06-30T00:00:00+00:00",
+        "ingestion_date": "2026-03-03T00:00:00+00:00",
+        "valid_from": "2024-06-30T00:00:00Z",
+        "valid_to": "2025-06-30T00:00:00Z",
+        "asserted_at": "2026-03-03T00:00:00+00:00",
+        "superseded_at": "2026-04-01T00:00:00Z",
+        "restated": True,
+        "benchmark_version": "v1",
+        "source_document_id": "doc:ca:2024",
+    }
+    candidate_values = _row_values(candidate_row)
+
+    pg_fetched_existing = (
+        "fact:canon:1",
+        "CA-PERS",
+        "FY2024",
+        "funded",
+        "funded_ratio",
+        78.4,
+        0.784,
+        "percent",
+        "ratio",
+        None,
+        None,
+        None,
+        "complete",
+        0.95,
+        ["p.40"],
+        datetime(2024, 6, 30, 0, 0, tzinfo=UTC),
+        datetime(2026, 3, 3, 0, 0, tzinfo=UTC),
+        datetime(2024, 6, 30, 0, 0, tzinfo=UTC),
+        datetime(2025, 6, 30, 0, 0, tzinfo=UTC),
+        datetime(2026, 3, 3, 0, 0, tzinfo=UTC),
+        datetime(2026, 4, 1, 0, 0, tzinfo=UTC),
+        True,
+        "v1",
+        "doc:ca:2024",
+    )
+
+    assert _same_assertion(pg_fetched_existing, candidate_values) is True
+    assert _same_assertion_source(pg_fetched_existing, candidate_values) is True
+
+    different_value_candidate = _row_values({**candidate_row, "normalized_value": 0.79})
+    assert _same_assertion(pg_fetched_existing, different_value_candidate) is False
+    assert _same_assertion_source(pg_fetched_existing, different_value_candidate) is True

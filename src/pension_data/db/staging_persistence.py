@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from datetime import UTC, date, datetime
 from hashlib import sha1
 from typing import Any
 
@@ -34,6 +35,17 @@ _STAGING_CORE_METRIC_COLUMNS: tuple[str, ...] = (
     "restated",
     "benchmark_version",
     "source_document_id",
+)
+
+_TEMPORAL_COLUMNS: frozenset[str] = frozenset(
+    {
+        "effective_date",
+        "ingestion_date",
+        "valid_from",
+        "valid_to",
+        "asserted_at",
+        "superseded_at",
+    }
 )
 
 
@@ -80,15 +92,63 @@ def _replacement_fact_id(row: Mapping[str, object]) -> str:
     return f"{row['fact_id']}@{asserted_at}:{digest}"
 
 
+def _canonical_evidence(value: object) -> object:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return value
+        return _canonical_evidence(parsed)
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        return [str(item) for item in value]
+    return value
+
+
+def _canonical_instant(value: object) -> object:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            parsed = datetime.fromisoformat(stripped)
+        except ValueError:
+            return stripped
+        return _canonical_instant(parsed)
+    return value
+
+
+def _canonical_column_value(column: str, value: object) -> object:
+    if column == "evidence_refs":
+        return _canonical_evidence(value)
+    if column in _TEMPORAL_COLUMNS:
+        return _canonical_instant(value)
+    return value
+
+
 def _same_assertion(existing: Any, candidate_values: tuple[object, ...]) -> bool:
-    return all(existing[index] == candidate for index, candidate in enumerate(candidate_values))
+    return all(
+        _canonical_column_value(_STAGING_CORE_METRIC_COLUMNS[index], existing[index])
+        == _canonical_column_value(_STAGING_CORE_METRIC_COLUMNS[index], candidate)
+        for index, candidate in enumerate(candidate_values)
+    )
 
 
 def _same_assertion_source(existing: Any, candidate_values: tuple[object, ...]) -> bool:
     asserted_at_index = _STAGING_CORE_METRIC_COLUMNS.index("asserted_at")
     source_document_id_index = _STAGING_CORE_METRIC_COLUMNS.index("source_document_id")
     return bool(
-        existing[asserted_at_index] == candidate_values[asserted_at_index]
+        _canonical_instant(existing[asserted_at_index])
+        == _canonical_instant(candidate_values[asserted_at_index])
         and existing[source_document_id_index] == candidate_values[source_document_id_index]
     )
 
