@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 
@@ -260,9 +260,14 @@ def test_canonical_helpers_normalize_evidence_and_utc_instants() -> None:
 
     expected_utc = datetime(2026, 3, 3, 0, 0, tzinfo=UTC)
     assert _canonical_instant(None) is None
+    assert _canonical_instant("") is None
+    assert _canonical_instant("   ") is None
     assert _canonical_instant("2026-03-03T00:00:00Z") == expected_utc
     assert _canonical_instant("2026-03-03T00:00:00+00:00") == expected_utc
     assert _canonical_instant("2026-03-03T02:00:00+02:00") == expected_utc
+    # SQLite staging rows often store date-only text for effective/ingestion dates.
+    assert _canonical_instant("2026-03-03") == expected_utc
+    assert _canonical_instant(date(2026, 3, 3)) == expected_utc
     assert _canonical_instant(datetime(2026, 3, 3, 0, 0)) == expected_utc
     assert (
         _canonical_instant(datetime(2026, 3, 3, 2, 0, tzinfo=timezone(timedelta(hours=2))))
