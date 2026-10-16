@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from typing import Any
 
 import pytest
 
 from pension_data.db.migrations_runner import apply_migrations
-from pension_data.db.staging_persistence import persist_staging_core_metrics
+from pension_data.db.staging_persistence import (
+    _STAGING_CORE_METRIC_COLUMNS,
+    _row_values,
+    _same_assertion,
+    persist_staging_core_metrics,
+)
 from pension_data.db.strategy import connect_database, resolve_database_config
 
 POSTGRES_TEST_URL_ENV = "PENSION_DATA_TEST_POSTGRES_URL"
@@ -79,6 +85,42 @@ def test_staging_core_metric_rows_roundtrip_on_postgres() -> None:
         assert json.loads(evidence_refs) == ["p.40"]
     else:
         assert evidence_refs == ["p.40"]
+
+
+def test_postgres_fetched_row_shape_requires_canonical_equality() -> None:
+    """Live JSONB/TIMESTAMPTZ fetches differ from _row_values under raw ==."""
+    connection = _postgres_connection()
+    row = _base_pg_row(fact_id="fact:pg:shape:1", plan_id="CA-PERS-SHAPE")
+    columns = ", ".join(_STAGING_CORE_METRIC_COLUMNS)
+    try:
+        _reset_plan_rows(connection, "CA-PERS-SHAPE")
+        inserted = persist_staging_core_metrics(connection, dialect="postgresql", rows=[row])
+        fetched = connection.execute(
+            f"SELECT {columns} FROM staging_core_metrics WHERE fact_id = %s",
+            ("fact:pg:shape:1",),
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert inserted == 1
+    assert fetched is not None
+    candidate_values = _row_values(row)
+    evidence_index = _STAGING_CORE_METRIC_COLUMNS.index("evidence_refs")
+    asserted_at_index = _STAGING_CORE_METRIC_COLUMNS.index("asserted_at")
+
+    assert isinstance(fetched[evidence_index], list)
+    assert isinstance(candidate_values[evidence_index], str)
+    assert fetched[evidence_index] != candidate_values[evidence_index]
+
+    assert isinstance(fetched[asserted_at_index], datetime)
+    assert isinstance(candidate_values[asserted_at_index], str)
+    assert fetched[asserted_at_index] != candidate_values[asserted_at_index]
+
+    assert (
+        all(fetched[index] == candidate for index, candidate in enumerate(candidate_values))
+        is False
+    )
+    assert _same_assertion(fetched, candidate_values) is True
 
 
 def test_postgres_retry_is_idempotent() -> None:

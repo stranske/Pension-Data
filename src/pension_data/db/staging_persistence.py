@@ -119,10 +119,13 @@ def _canonical_instant(value: object) -> object:
         stripped = value.strip()
         if not stripped:
             return None
+        # Accept both Z and +00:00 so candidate ISO text matches TIMESTAMPTZ fetches.
+        if stripped.endswith(("Z", "z")):
+            stripped = f"{stripped[:-1]}+00:00"
         try:
             parsed = datetime.fromisoformat(stripped)
         except ValueError:
-            return stripped
+            return value.strip()
         return _canonical_instant(parsed)
     return value
 
