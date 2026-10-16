@@ -1,5 +1,10 @@
 -- PostgreSQL core fact staging schema with bitemporal + dual-reporting columns.
 -- Issue: #128
+--
+-- evidence_refs JSONB and temporal TIMESTAMPTZ columns are intentional (ADR-0001).
+-- psycopg returns list / timezone-aware datetime objects for those columns;
+-- staging_persistence canonicalizes them against candidate JSON text and ISO
+-- instants before idempotency and same-source conflict checks (issue #961).
 
 CREATE TABLE IF NOT EXISTS staging_core_metrics (
   fact_id TEXT PRIMARY KEY,

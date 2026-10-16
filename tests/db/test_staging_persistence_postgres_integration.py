@@ -88,7 +88,15 @@ def test_staging_core_metric_rows_roundtrip_on_postgres() -> None:
 
 
 def test_postgres_fetched_row_shape_requires_canonical_equality() -> None:
-    """Live JSONB/TIMESTAMPTZ fetches differ from _row_values under raw ==."""
+    """Live JSONB/TIMESTAMPTZ fetches differ from _row_values under raw ==.
+
+    Deliberate-break target: temporarily use raw ``==`` in
+    ``staging_persistence._same_assertion`` / ``_same_assertion_source``.
+    Issue #961's AC text mis-anchors the unchanged migration SQL; rewriting
+    ``JSONB``/``TIMESTAMPTZ`` there without recreating the table does not trip
+    this regression because ``CREATE TABLE IF NOT EXISTS`` leaves the live
+    schema intact.
+    """
     connection = _postgres_connection()
     row = _base_pg_row(fact_id="fact:pg:shape:1", plan_id="CA-PERS-SHAPE")
     columns = ", ".join(_STAGING_CORE_METRIC_COLUMNS)
@@ -120,7 +128,10 @@ def test_postgres_fetched_row_shape_requires_canonical_equality() -> None:
         all(fetched[index] == candidate for index, candidate in enumerate(candidate_values))
         is False
     )
-    assert _same_assertion(fetched, candidate_values) is True
+    assert _same_assertion(fetched, candidate_values) is True, (
+        "PostgreSQL JSONB/TIMESTAMPTZ fetches must compare equal after "
+        "canonicalization; raw == is False for an identical assertion"
+    )
 
 
 def test_postgres_retry_is_idempotent() -> None:
