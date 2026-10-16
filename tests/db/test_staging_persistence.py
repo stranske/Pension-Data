@@ -157,6 +157,63 @@ def test_persist_staging_core_metrics_rolls_back_batch_on_conflict_in_sqlite() -
     assert existing_count == 1
 
 
+def test_sqlite_retry_is_idempotent_with_timezone_equivalent_instants() -> None:
+    """SQLite parity for AC retry counts 1,0,0 and Z/+00:00 creating no revision."""
+    config = resolve_database_config(database_url="sqlite:///:memory:")
+    connection = connect_database(config)
+    row = {
+        "fact_id": "fact:sqlite:retry:1",
+        "plan_id": "CA-PERS-SQLITE-RETRY",
+        "plan_period": "FY2024",
+        "metric_family": "funded",
+        "metric_name": "funded_ratio",
+        "as_reported_value": 78.4,
+        "normalized_value": 0.784,
+        "as_reported_unit": "percent",
+        "normalized_unit": "ratio",
+        "manager_name": None,
+        "fund_name": None,
+        "vehicle_name": None,
+        "relationship_completeness": "complete",
+        "confidence": 0.95,
+        "evidence_refs": ["p.40"],
+        "effective_date": "2024-06-30T00:00:00Z",
+        "ingestion_date": "2026-03-03T00:00:00Z",
+        "benchmark_version": "v1",
+        "source_document_id": "doc:ca:2024",
+    }
+    try:
+        apply_migrations(connection, dialect="sqlite")
+        first = persist_staging_core_metrics(connection, dialect="sqlite", rows=[row])
+        second = persist_staging_core_metrics(connection, dialect="sqlite", rows=[row])
+        third = persist_staging_core_metrics(connection, dialect="sqlite", rows=[row])
+        tz_equivalent = persist_staging_core_metrics(
+            connection,
+            dialect="sqlite",
+            rows=[
+                {
+                    **row,
+                    "effective_date": "2024-06-30T00:00:00+00:00",
+                    "ingestion_date": "2026-03-03T00:00:00+00:00",
+                }
+            ],
+        )
+        persisted_rows = connection.execute(
+            """
+            SELECT fact_id, superseded_at, restated
+            FROM staging_core_metrics
+            WHERE plan_id = ?
+            """,
+            ("CA-PERS-SQLITE-RETRY",),
+        ).fetchall()
+    finally:
+        connection.close()
+
+    assert (first, second, third) == (1, 0, 0)
+    assert tz_equivalent == 0
+    assert persisted_rows == [("fact:sqlite:retry:1", None, 0)]
+
+
 def test_persist_staging_core_metrics_preserves_corrected_assertions_in_sqlite() -> None:
     config = resolve_database_config(database_url="sqlite:///:memory:")
     connection = connect_database(config)
