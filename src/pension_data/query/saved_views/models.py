@@ -66,6 +66,7 @@ class HoldingsOverlapInput:
     fund_name: str
     exposure_usd: float | None
     disclosure_state: DisclosureState
+    display_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +82,7 @@ class HoldingsOverlapRow:
     overlap_usd: float | None
     subject_disclosure_state: DisclosureState
     counterparty_disclosure_state: DisclosureState
+    display_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

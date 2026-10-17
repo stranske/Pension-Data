@@ -255,3 +255,300 @@ def test_holdings_overlap_view_runs_over_ingested_security_positions() -> None:
     nvidia_rows = [row for row in rows if row.fund_name == "cusip:67066G104"]
     assert len(nvidia_rows) == 1
     assert nvidia_rows[0].overlap_status == "unknown_due_to_non_disclosure"
+
+
+def _overlap_rows(
+    subject_name: str | None,
+    subject_cusip: str | None,
+    counterparty_name: str | None,
+    counterparty_cusip: str | None,
+    *,
+    subject_ticker: str | None = None,
+    counterparty_ticker: str | None = None,
+) -> list:
+    subject = build_security_positions(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        rows=[
+            SecurityPositionInput(
+                security_name=subject_name,
+                cusip=subject_cusip,
+                ticker=subject_ticker,
+                shares=2500.0,
+                market_value_usd=1_250_000.0,
+                asset_class="public_equity",
+                source="13f",
+                as_of="2025-03-31",
+                provenance_ref="edgar:ca",
+            )
+        ],
+    )
+    counterparty = build_security_positions(
+        plan_id="NY-CRF",
+        plan_period="FY2025",
+        rows=[
+            SecurityPositionInput(
+                security_name=counterparty_name,
+                cusip=counterparty_cusip,
+                ticker=counterparty_ticker,
+                shares=1000.0,
+                market_value_usd=900_000.0,
+                asset_class="public_equity",
+                source="13f",
+                as_of="2025-03-31",
+                provenance_ref="edgar:ny",
+            )
+        ],
+    )
+    return execute_holdings_overlap_view(
+        to_holdings_overlap_inputs([*subject, *counterparty]),
+        subject_plan_id="CA-PERS",
+        plan_period="FY2025",
+    )
+
+
+def test_holdings_ingest_keys_identity_on_security_id_only() -> None:
+    positions = build_security_positions(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        rows=[
+            SecurityPositionInput(
+                security_name="APPLE INC",
+                cusip="037833100",
+                ticker="AAPL",
+                shares=2500.0,
+                market_value_usd=1_250_000.0,
+                asset_class="public_equity",
+                source="13f",
+                as_of="2025-03-31",
+                provenance_ref="edgar:ca",
+            ),
+            SecurityPositionInput(
+                security_name="Apple Inc.",
+                cusip="037833100",
+                ticker="AAPL",
+                shares=1000.0,
+                market_value_usd=900_000.0,
+                asset_class="public_equity",
+                source="13f",
+                as_of="2025-03-31",
+                provenance_ref="edgar:ca",
+            ),
+        ],
+    )
+
+    inputs = to_holdings_overlap_inputs(positions)
+
+    assert [(row.manager_name, row.fund_name) for row in inputs] == [
+        ("cusip:037833100", "cusip:037833100"),
+        ("cusip:037833100", "cusip:037833100"),
+    ]
+    assert [row.display_name for row in inputs] == ["APPLE INC", "Apple Inc."]
+
+
+def test_overlap_joins_same_cusip_with_different_issuer_spelling() -> None:
+    rows = _overlap_rows("APPLE INC", "037833100", "Apple Inc.", "037833100")
+
+    apple_rows = [row for row in rows if row.fund_name == "cusip:037833100"]
+    assert len(apple_rows) == 1
+    assert apple_rows[0].overlap_status == "overlap"
+    assert apple_rows[0].overlap_usd == 900_000.0
+    assert apple_rows[0].display_name == "APPLE INC"
+
+
+def test_overlap_joins_same_cusip_when_issuer_name_missing() -> None:
+    rows = _overlap_rows(None, "037833100", "Apple Inc.", "037833100")
+
+    apple_rows = [row for row in rows if row.fund_name == "cusip:037833100"]
+    assert len(apple_rows) == 1
+    assert apple_rows[0].overlap_status == "overlap"
+    assert apple_rows[0].overlap_usd == 900_000.0
+    assert apple_rows[0].display_name == "Apple Inc."
+
+
+def test_overlap_joins_same_cusip_when_issuer_name_missing_on_both_sides() -> None:
+    rows = _overlap_rows(None, "037833100", None, "037833100")
+
+    apple_rows = [row for row in rows if row.fund_name == "cusip:037833100"]
+    assert len(apple_rows) == 1
+    assert apple_rows[0].overlap_status == "overlap"
+    assert apple_rows[0].overlap_usd == 900_000.0
+    assert apple_rows[0].display_name is None
+
+
+def test_overlap_joins_same_cusip_when_issuer_name_blank() -> None:
+    rows = _overlap_rows("   ", "037833100", "Apple Inc.", "037833100")
+
+    apple_rows = [row for row in rows if row.fund_name == "cusip:037833100"]
+    assert len(apple_rows) == 1
+    assert apple_rows[0].overlap_status == "overlap"
+    assert apple_rows[0].overlap_usd == 900_000.0
+    assert apple_rows[0].display_name == "Apple Inc."
+
+
+def test_overlap_keeps_distinct_cusips_with_identical_names_separate() -> None:
+    rows = _overlap_rows("APPLE INC", "037833100", "APPLE INC", "037833101")
+
+    assert [row for row in rows if row.overlap_status == "overlap"] == []
+    assert len(rows) == 2
+    assert {row.fund_name for row in rows} == {"cusip:037833100", "cusip:037833101"}
+
+
+def test_overlap_joins_same_ticker_with_different_issuer_spelling() -> None:
+    rows = _overlap_rows(
+        "APPLE INC",
+        None,
+        "Apple Inc.",
+        None,
+        subject_ticker="aapl",
+        counterparty_ticker="AAPL",
+    )
+
+    ticker_rows = [row for row in rows if row.fund_name == "ticker:AAPL"]
+    assert len(ticker_rows) == 1
+    assert ticker_rows[0].overlap_status == "overlap"
+    assert ticker_rows[0].overlap_usd == 900_000.0
+    assert ticker_rows[0].display_name == "APPLE INC"
+
+
+def test_overlap_joins_same_normalised_name_without_cusip_or_ticker() -> None:
+    rows = _overlap_rows("APPLE  INC", None, "Apple Inc", None)
+
+    name_rows = [row for row in rows if row.fund_name == "name:apple inc"]
+    assert len(name_rows) == 1
+    assert name_rows[0].overlap_status == "overlap"
+    assert name_rows[0].overlap_usd == 900_000.0
+    assert name_rows[0].display_name == "APPLE  INC"
+
+
+def test_overlap_aggregates_same_cusip_spelling_variants_within_one_plan() -> None:
+    subject = build_security_positions(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        rows=[
+            SecurityPositionInput(
+                security_name="APPLE INC",
+                cusip="037833100",
+                ticker=None,
+                shares=1400.0,
+                market_value_usd=700_000.0,
+                asset_class="public_equity",
+                source="13f",
+                as_of="2025-03-31",
+                provenance_ref="edgar:ca:a",
+            ),
+            SecurityPositionInput(
+                security_name="Apple Inc.",
+                cusip="037833100",
+                ticker=None,
+                shares=1100.0,
+                market_value_usd=550_000.0,
+                asset_class="public_equity",
+                source="13f",
+                as_of="2025-03-31",
+                provenance_ref="edgar:ca:b",
+            ),
+        ],
+    )
+    counterparty = build_security_positions(
+        plan_id="NY-CRF",
+        plan_period="FY2025",
+        rows=[
+            SecurityPositionInput(
+                security_name="Apple Inc.",
+                cusip="037833100",
+                ticker=None,
+                shares=1000.0,
+                market_value_usd=900_000.0,
+                asset_class="public_equity",
+                source="13f",
+                as_of="2025-03-31",
+                provenance_ref="edgar:ny",
+            )
+        ],
+    )
+
+    rows = execute_holdings_overlap_view(
+        to_holdings_overlap_inputs([*subject, *counterparty]),
+        subject_plan_id="CA-PERS",
+        plan_period="FY2025",
+    )
+
+    apple_rows = [row for row in rows if row.fund_name == "cusip:037833100"]
+    assert len(apple_rows) == 1
+    assert apple_rows[0].overlap_status == "overlap"
+    # Subject aggregates 700,000 + 550,000 before min() against 900,000.
+    assert apple_rows[0].overlap_usd == 900_000.0
+    assert apple_rows[0].display_name == "APPLE INC"
+
+
+def test_overlap_aggregates_same_cusip_spelling_variants_within_counterparty_plan() -> None:
+    subject = build_security_positions(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        rows=[
+            SecurityPositionInput(
+                security_name="APPLE INC",
+                cusip="037833100",
+                ticker=None,
+                shares=2500.0,
+                market_value_usd=1_250_000.0,
+                asset_class="public_equity",
+                source="13f",
+                as_of="2025-03-31",
+                provenance_ref="edgar:ca",
+            )
+        ],
+    )
+    counterparty = build_security_positions(
+        plan_id="NY-CRF",
+        plan_period="FY2025",
+        rows=[
+            SecurityPositionInput(
+                security_name="Apple Inc.",
+                cusip="037833100",
+                ticker=None,
+                shares=700.0,
+                market_value_usd=600_000.0,
+                asset_class="public_equity",
+                source="13f",
+                as_of="2025-03-31",
+                provenance_ref="edgar:ny:a",
+            ),
+            SecurityPositionInput(
+                security_name="APPLE INC",
+                cusip="037833100",
+                ticker=None,
+                shares=500.0,
+                market_value_usd=400_000.0,
+                asset_class="public_equity",
+                source="13f",
+                as_of="2025-03-31",
+                provenance_ref="edgar:ny:b",
+            ),
+        ],
+    )
+
+    rows = execute_holdings_overlap_view(
+        to_holdings_overlap_inputs([*subject, *counterparty]),
+        subject_plan_id="CA-PERS",
+        plan_period="FY2025",
+    )
+
+    apple_rows = [row for row in rows if row.fund_name == "cusip:037833100"]
+    assert len(apple_rows) == 1
+    assert apple_rows[0].overlap_status == "overlap"
+    # Counterparty aggregates 600,000 + 400,000 before min() against 1,250,000.
+    assert apple_rows[0].overlap_usd == 1_000_000.0
+    assert apple_rows[0].display_name == "APPLE INC"
+
+
+def test_overlap_display_name_uses_counterparty_when_subject_not_holding() -> None:
+    rows = _overlap_rows("APPLE INC", "037833100", "MICROSOFT CORP", "594918104")
+
+    assert len(rows) == 2
+    counterparty_only = next(row for row in rows if row.fund_name == "cusip:594918104")
+    assert counterparty_only.overlap_status == "unknown_due_to_non_disclosure"
+    assert counterparty_only.display_name == "MICROSOFT CORP"
+    subject_only = next(row for row in rows if row.fund_name == "cusip:037833100")
+    assert subject_only.display_name == "APPLE INC"

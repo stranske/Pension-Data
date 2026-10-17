@@ -14,12 +14,62 @@ from pension_data.query.saved_views.models import (
     AllocationPeerRow,
     BenchmarkPanelInput,
     BenchmarkPanelRow,
+    DisclosureState,
     FundingTrendInput,
     FundingTrendRow,
     HoldingsOverlapInput,
     HoldingsOverlapRow,
     OverlapStatus,
 )
+
+
+def _aggregate_holdings_positions(
+    rows: list[HoldingsOverlapInput],
+) -> dict[tuple[str, str], HoldingsOverlapInput]:
+    """Aggregate positions that share an overlap identity within one plan."""
+    grouped: dict[tuple[str, str], list[HoldingsOverlapInput]] = defaultdict(list)
+    for row in rows:
+        grouped[(row.manager_name, row.fund_name)].append(row)
+
+    aggregated: dict[tuple[str, str], HoldingsOverlapInput] = {}
+    for position_key, positions in grouped.items():
+        disclosure_states = {position.disclosure_state for position in positions}
+        disclosure_state: DisclosureState
+        exposure_usd: float | None
+        if disclosure_states == {"disclosed"}:
+            exposures = [position.exposure_usd for position in positions]
+            if all(exposure is not None and math.isfinite(exposure) for exposure in exposures):
+                total_exposure = sum(exposure for exposure in exposures if exposure is not None)
+                exposure_usd = round(total_exposure, 6) if math.isfinite(total_exposure) else None
+            else:
+                exposure_usd = None
+            disclosure_state = "disclosed"
+        elif disclosure_states == {"known_not_invested"}:
+            exposure_usd = None
+            disclosure_state = "known_not_invested"
+        else:
+            exposure_usd = None
+            disclosure_state = "not_disclosed"
+
+        first = positions[0]
+        display_name = next(
+            (
+                position.display_name
+                for position in positions
+                if position.display_name is not None and position.display_name.strip()
+            ),
+            None,
+        )
+        aggregated[position_key] = HoldingsOverlapInput(
+            plan_id=first.plan_id,
+            plan_period=first.plan_period,
+            manager_name=position_key[0],
+            fund_name=position_key[1],
+            exposure_usd=exposure_usd,
+            disclosure_state=disclosure_state,
+            display_name=display_name,
+        )
+    return aggregated
 
 
 def _period_key(period: str) -> tuple[int, str]:
@@ -117,10 +167,7 @@ def execute_holdings_overlap_view(
     period_rows = [row for row in rows if row.plan_period == plan_period]
     subject_rows = [row for row in period_rows if row.plan_id == subject_plan_id]
 
-    subject_index = {
-        (row.manager_name, row.fund_name): row
-        for row in sorted(subject_rows, key=lambda item: (item.manager_name, item.fund_name))
-    }
+    subject_index = _aggregate_holdings_positions(subject_rows)
     counterparty_plans = sorted(
         {row.plan_id for row in period_rows if row.plan_id != subject_plan_id}
     )
@@ -128,12 +175,7 @@ def execute_holdings_overlap_view(
     output: list[HoldingsOverlapRow] = []
     for counterparty_plan in counterparty_plans:
         counterparty_rows = [row for row in period_rows if row.plan_id == counterparty_plan]
-        counterparty_index = {
-            (row.manager_name, row.fund_name): row
-            for row in sorted(
-                counterparty_rows, key=lambda item: (item.manager_name, item.fund_name)
-            )
-        }
+        counterparty_index = _aggregate_holdings_positions(counterparty_rows)
 
         all_positions = sorted(set(subject_index) | set(counterparty_index))
         for position_key in all_positions:
@@ -159,6 +201,9 @@ def execute_holdings_overlap_view(
 
             manager_name = position_key[0]
             fund_name = position_key[1]
+            display_name = subject.display_name if subject is not None else None
+            if (display_name is None or not display_name.strip()) and counterparty is not None:
+                display_name = counterparty.display_name
             output.append(
                 HoldingsOverlapRow(
                     subject_plan_id=subject_plan_id,
@@ -170,6 +215,7 @@ def execute_holdings_overlap_view(
                     overlap_usd=overlap_usd,
                     subject_disclosure_state=subject_state,
                     counterparty_disclosure_state=counterparty_state,
+                    display_name=display_name,
                 )
             )
 
