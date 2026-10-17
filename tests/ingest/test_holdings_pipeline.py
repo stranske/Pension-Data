@@ -356,6 +356,7 @@ def test_overlap_joins_same_cusip_with_different_issuer_spelling() -> None:
     assert len(apple_rows) == 1
     assert apple_rows[0].overlap_status == "overlap"
     assert apple_rows[0].overlap_usd == 900_000.0
+    assert apple_rows[0].manager_name == "cusip:037833100"
     assert apple_rows[0].display_name == "APPLE INC"
 
 
@@ -373,6 +374,7 @@ def test_overlap_joins_same_cusip_when_issuer_name_missing() -> None:
 def test_overlap_joins_same_cusip_when_issuer_name_missing_on_both_sides() -> None:
     rows = _overlap_rows(None, "037833100", None, "037833100")
 
+    assert len(rows) == 1
     apple_rows = [row for row in rows if row.fund_name == "cusip:037833100"]
     assert len(apple_rows) == 1
     assert apple_rows[0].overlap_status == "overlap"
@@ -383,6 +385,7 @@ def test_overlap_joins_same_cusip_when_issuer_name_missing_on_both_sides() -> No
 def test_overlap_joins_same_cusip_when_issuer_name_blank() -> None:
     rows = _overlap_rows("   ", "037833100", "Apple Inc.", "037833100")
 
+    assert len(rows) == 1
     apple_rows = [row for row in rows if row.fund_name == "cusip:037833100"]
     assert len(apple_rows) == 1
     assert apple_rows[0].overlap_status == "overlap"
@@ -395,6 +398,7 @@ def test_overlap_keeps_distinct_cusips_with_identical_names_separate() -> None:
 
     assert [row for row in rows if row.overlap_status == "overlap"] == []
     assert len(rows) == 2
+    assert {row.overlap_status for row in rows} == {"unknown_due_to_non_disclosure"}
     assert {row.fund_name for row in rows} == {"cusip:037833100", "cusip:037833101"}
 
 
@@ -408,6 +412,7 @@ def test_overlap_joins_same_ticker_with_different_issuer_spelling() -> None:
         counterparty_ticker="AAPL",
     )
 
+    assert len(rows) == 1
     ticker_rows = [row for row in rows if row.fund_name == "ticker:AAPL"]
     assert len(ticker_rows) == 1
     assert ticker_rows[0].overlap_status == "overlap"
@@ -418,6 +423,7 @@ def test_overlap_joins_same_ticker_with_different_issuer_spelling() -> None:
 def test_overlap_joins_same_normalised_name_without_cusip_or_ticker() -> None:
     rows = _overlap_rows("APPLE  INC", None, "Apple Inc", None)
 
+    assert len(rows) == 1
     name_rows = [row for row in rows if row.fund_name == "name:apple inc"]
     assert len(name_rows) == 1
     assert name_rows[0].overlap_status == "overlap"
