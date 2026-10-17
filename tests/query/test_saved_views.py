@@ -331,6 +331,58 @@ def test_holdings_overlap_view_is_coverage_aware() -> None:
     assert wa_aon.counterparty_disclosure_state == "not_disclosed"
 
 
+def test_holdings_overlap_view_aggregates_duplicate_security_positions() -> None:
+    rows = [
+        HoldingsOverlapInput(
+            "CA-PERS", "FY2025", "cusip:037833100", "cusip:037833100", 1_250_000.0, "disclosed"
+        ),
+        HoldingsOverlapInput(
+            "CA-PERS", "FY2025", "cusip:037833100", "cusip:037833100", 100_000.0, "disclosed"
+        ),
+        HoldingsOverlapInput(
+            "TX-ERS", "FY2025", "cusip:037833100", "cusip:037833100", 900_000.0, "disclosed"
+        ),
+    ]
+
+    output = execute_holdings_overlap_view(
+        rows, subject_plan_id="CA-PERS", plan_period="FY2025"
+    )
+
+    assert len(output) == 1
+    assert output[0].overlap_status == "overlap"
+    assert output[0].overlap_usd == 900_000.0
+
+
+def test_holdings_overlap_view_uses_counterparty_name_for_blank_subject_name() -> None:
+    rows = [
+        HoldingsOverlapInput(
+            "CA-PERS",
+            "FY2025",
+            "cusip:037833100",
+            "cusip:037833100",
+            1_250_000.0,
+            "disclosed",
+            "   ",
+        ),
+        HoldingsOverlapInput(
+            "TX-ERS",
+            "FY2025",
+            "cusip:037833100",
+            "cusip:037833100",
+            900_000.0,
+            "disclosed",
+            "Apple Inc.",
+        ),
+    ]
+
+    output = execute_holdings_overlap_view(
+        rows, subject_plan_id="CA-PERS", plan_period="FY2025"
+    )
+
+    assert len(output) == 1
+    assert output[0].display_name == "Apple Inc."
+
+
 def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
     rows = [
         BenchmarkPanelInput(
