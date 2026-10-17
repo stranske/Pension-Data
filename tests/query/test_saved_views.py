@@ -435,6 +435,36 @@ def test_holdings_overlap_view_uses_counterparty_name_for_blank_subject_name() -
     assert output[0].display_name == "Apple Inc."
 
 
+def test_holdings_overlap_view_ignores_display_name_in_join_key() -> None:
+    rows = [
+        HoldingsOverlapInput(
+            "CA-PERS",
+            "FY2025",
+            "cusip:037833100",
+            "cusip:037833100",
+            1_250_000.0,
+            "disclosed",
+            "APPLE INC",
+        ),
+        HoldingsOverlapInput(
+            "TX-ERS",
+            "FY2025",
+            "cusip:037833100",
+            "cusip:037833100",
+            900_000.0,
+            "disclosed",
+            "Apple Inc.",
+        ),
+    ]
+
+    output = execute_holdings_overlap_view(rows, subject_plan_id="CA-PERS", plan_period="FY2025")
+
+    assert len(output) == 1
+    assert output[0].overlap_status == "overlap"
+    assert output[0].overlap_usd == 900_000.0
+    assert output[0].display_name == "APPLE INC"
+
+
 def test_benchmark_panel_view_returns_peer_stats_and_health_context() -> None:
     rows = [
         BenchmarkPanelInput(
