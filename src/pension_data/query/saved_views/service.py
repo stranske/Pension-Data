@@ -38,11 +38,11 @@ def _aggregate_holdings_positions(
         exposure_usd: float | None
         if disclosure_states == {"disclosed"}:
             exposures = [position.exposure_usd for position in positions]
-            exposure_usd = (
-                round(sum(exposure for exposure in exposures if exposure is not None), 6)
-                if all(exposure is not None for exposure in exposures)
-                else None
-            )
+            if all(exposure is not None and math.isfinite(exposure) for exposure in exposures):
+                total_exposure = sum(exposure for exposure in exposures if exposure is not None)
+                exposure_usd = round(total_exposure, 6) if math.isfinite(total_exposure) else None
+            else:
+                exposure_usd = None
             disclosure_state = "disclosed"
         elif disclosure_states == {"known_not_invested"}:
             exposure_usd = None

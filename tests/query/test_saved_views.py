@@ -375,6 +375,38 @@ def test_holdings_overlap_view_preserves_conservative_mixed_disclosure_groups(
     assert output[0].overlap_usd is None
 
 
+@pytest.mark.parametrize("bad_exposure", [float("nan"), float("inf"), float("-inf"), None])
+@pytest.mark.parametrize("bad_plan", ["CA-PERS", "TX-ERS"])
+def test_holdings_overlap_nonfinite_exposure_is_unavailable(
+    bad_exposure: float | None, bad_plan: str
+) -> None:
+    rows = [
+        HoldingsOverlapInput(
+            plan, "FY2025", "cusip:037833100", "cusip:037833100", amount, "disclosed"
+        )
+        for plan, amount in [("CA-PERS", 1000.0), ("TX-ERS", 900.0), (bad_plan, bad_exposure)]
+    ]
+    output = execute_holdings_overlap_view(rows, subject_plan_id="CA-PERS", plan_period="FY2025")
+    assert len(output) == 1
+    assert output[0].overlap_status == "unknown_due_to_non_disclosure"
+    assert output[0].overlap_usd is None
+
+
+@pytest.mark.parametrize("bad_plan", ["CA-PERS", "TX-ERS"])
+def test_holdings_overlap_aggregate_overflow_is_unavailable(bad_plan: str) -> None:
+    other = "TX-ERS" if bad_plan == "CA-PERS" else "CA-PERS"
+    rows = [
+        HoldingsOverlapInput(
+            plan, "FY2025", "cusip:037833100", "cusip:037833100", amount, "disclosed"
+        )
+        for plan, amount in [(bad_plan, 1e308), (bad_plan, 1e308), (other, 900.0)]
+    ]
+    output = execute_holdings_overlap_view(rows, subject_plan_id="CA-PERS", plan_period="FY2025")
+    assert len(output) == 1
+    assert output[0].overlap_status == "unknown_due_to_non_disclosure"
+    assert output[0].overlap_usd is None
+
+
 def test_holdings_overlap_view_uses_counterparty_name_for_blank_subject_name() -> None:
     rows = [
         HoldingsOverlapInput(
