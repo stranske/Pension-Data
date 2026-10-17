@@ -330,3 +330,14 @@ def test_overlap_keeps_distinct_cusips_with_identical_names_separate() -> None:
     assert [row for row in rows if row.overlap_status == "overlap"] == []
     assert len(rows) == 2
     assert {row.fund_name for row in rows} == {"cusip:037833100", "cusip:037833101"}
+
+
+def test_overlap_display_name_uses_counterparty_when_subject_not_holding() -> None:
+    rows = _overlap_rows("APPLE INC", "037833100", "MICROSOFT CORP", "594918104")
+
+    assert len(rows) == 2
+    counterparty_only = next(row for row in rows if row.fund_name == "cusip:594918104")
+    assert counterparty_only.overlap_status == "unknown_due_to_non_disclosure"
+    assert counterparty_only.display_name == "MICROSOFT CORP"
+    subject_only = next(row for row in rows if row.fund_name == "cusip:037833100")
+    assert subject_only.display_name == "APPLE INC"
