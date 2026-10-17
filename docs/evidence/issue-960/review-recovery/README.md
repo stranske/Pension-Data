@@ -1,0 +1,9 @@
+# Review regression coverage
+
+Addresses discussion_r4302071144 and discussion_r4302071146. A validator exception must produce a validation failure, no funded rows/IDs, retain an unprocessed artifact, and still publish independent financial/risk domains. The negative AAL/AVA/participant paths now rerun the identical document with the returned state and corrected parser; each asserts actual positive funded rows and persisted processed state.
+
+The selected repository `.venv/bin/python` ran `-m pytest tests/ops/test_document_orchestration.py tests/ops/test_document_orchestration_failure_isolation.py tests/quality/test_parser_output_validation.py`:62 passed/0 skipped. Black26.10.1 (isolated tool target), Ruff and production-source Mypy pass. Direct Mypy invocation on this test file produced existing/test-only import, object-index and annotation diagnostics; that is not called a passing gate. Production behavior is unchanged.
+
+Two serialized production mutations prove the tests: allowing funded rows after validator failure causes an actual assertion failure; treating prior published IDs as processed makes the corrected reprocessing assertion fail. Each restored run passes with byte-identical production bytes. Verbatim console/JUnit, mutation descriptions, exact commands and SHA256 bindings are retained. The first retry proof used `next` and failed via StopIteration; it was strengthened to an explicit cardinality assertion and rerun, and the retained retry proof is the assertion-based run.
+
+All-head reservations39017813133/39018593487 and implementation children were directly terminal before claim/takeover. Earlier worker65c1aabe additions remain. Future starts were temporarily paused for this bounded local writer. Current-head hosted CI/review/floor/guarded merge and original source960 acceptance remain pending.

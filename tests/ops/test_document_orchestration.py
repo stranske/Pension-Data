@@ -546,6 +546,29 @@ def _assert_negative_metric_blocks_publication(label, value, metric_name, tmp_pa
     assert set(persisted_state["published_fact_ids"]) == {row["fact_id"] for row in rows}
     assert persisted_state["processed_artifact_ids"] == []
 
+    corrected_ledger, corrected_state, corrected_artifacts = run_document_orchestration(
+        documents=[document],
+        parser=_parser,
+        state=state,
+        run_id="corrected-numeric",
+        output_root=tmp_path,
+    )
+    corrected_rows = _artifact_rows(corrected_artifacts, "published_rows")
+    assert corrected_ledger.status == "success"
+    assert not corrected_ledger.failures
+    corrected_values = [
+        row["normalized_value"] for row in corrected_rows if row["metric_name"] == metric_name
+    ]
+    assert len(corrected_values) == 1
+    assert corrected_values[0] > 0
+    assert len(corrected_state.processed_artifact_ids) == 1
+    corrected_persisted = json.loads(
+        (tmp_path / "document_orchestration" / "corrected-numeric" / "state.json").read_text()
+    )
+    assert corrected_persisted["processed_artifact_ids"] == sorted(
+        corrected_state.processed_artifact_ids
+    )
+
 
 def test_negative_aal_blocks_publication(tmp_path):
     _assert_negative_metric_blocks_publication("AAL", "$-640 million", "aal_usd", tmp_path)
@@ -559,6 +582,41 @@ def test_negative_participant_count_blocks_publication(tmp_path):
 
 def test_negative_ava_blocks_publication(tmp_path):
     _assert_negative_metric_blocks_publication("AVA", "$-501.8 million", "ava_usd", tmp_path)
+
+
+def test_validator_exception_blocks_only_funded_publication(monkeypatch):
+    from pension_data.db.models.funded_actuarial import FUNDED_ACTUARIAL_REQUIRED_METRICS
+
+    def broken_validator(**kwargs):
+        raise RuntimeError("synthetic validator exception")
+
+    monkeypatch.setattr(document_orchestration_module, "validate_parser_outputs", broken_validator)
+    document = _job(
+        source_url="https://example.org/ca-2024.pdf",
+        fetched_at="2026-03-03T00:00:00Z",
+        source_document_id="doc:ca:2024:v1",
+        content=b"doc-v1",
+    )
+    ledger, state, artifacts = run_document_orchestration(
+        documents=[document],
+        parser=_parser,
+        state=DocumentOrchestrationState(),
+        run_id="validator-exception",
+    )
+    assert ledger.status == "failed"
+    assert any(
+        failure.stage == "validation"
+        and "validator_exception: RuntimeError: synthetic validator exception" in failure.message
+        for failure in ledger.failures
+    )
+    rows = _artifact_rows(artifacts, "published_rows")
+    assert rows and not [
+        row for row in rows if row["metric_name"] in FUNDED_ACTUARIAL_REQUIRED_METRICS
+    ]
+    assert set(state.published_fact_ids) == {row["fact_id"] for row in rows}
+    assert not state.processed_artifact_ids
+    assert _artifact_rows(artifacts, "financial_flow_rows")
+    assert _artifact_rows(artifacts, "risk_exposure_rows")
 
 
 def test_valid_low_confidence_funded_rows_publish_and_route_to_review(monkeypatch):
