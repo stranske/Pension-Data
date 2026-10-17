@@ -159,6 +159,9 @@ def execute_holdings_overlap_view(
 
             manager_name = position_key[0]
             fund_name = position_key[1]
+            display_name = subject.display_name if subject is not None else None
+            if display_name is None and counterparty is not None:
+                display_name = counterparty.display_name
             output.append(
                 HoldingsOverlapRow(
                     subject_plan_id=subject_plan_id,
@@ -170,6 +173,7 @@ def execute_holdings_overlap_view(
                     overlap_usd=overlap_usd,
                     subject_disclosure_state=subject_state,
                     counterparty_disclosure_state=counterparty_state,
+                    display_name=display_name,
                 )
             )
 

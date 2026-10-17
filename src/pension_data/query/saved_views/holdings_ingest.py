@@ -24,9 +24,11 @@ def to_holdings_overlap_inputs(
     """Map security-level positions onto holdings-overlap view inputs.
 
     The instrument is projected onto the view's ``(manager_name, fund_name)`` key
-    as ``(issuer name, security_id)``: ``security_id`` is the deterministic
+    from ``security_id`` only: ``security_id`` is the deterministic
     cusip/ticker/name identity produced by ``build_security_positions``, so the
-    same instrument held by two plans lands on the same overlap key.
+    same instrument held by two plans lands on the same overlap key regardless
+    of issuer-name spelling. The raw ``security_name`` is carried separately as
+    ``display_name`` for presentation and never participates in the join key.
     """
     rows: list[HoldingsOverlapInput] = []
     for position in positions:
@@ -39,10 +41,11 @@ def to_holdings_overlap_inputs(
             HoldingsOverlapInput(
                 plan_id=position.plan_id,
                 plan_period=position.plan_period,
-                manager_name=position.security_name or position.security_id,
+                manager_name=position.security_id,
                 fund_name=position.security_id,
                 exposure_usd=position.market_value_usd,
                 disclosure_state=disclosure_state,
+                display_name=position.security_name,
             )
         )
     return rows
