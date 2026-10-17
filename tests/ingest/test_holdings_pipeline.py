@@ -349,6 +349,9 @@ def test_holdings_ingest_keys_identity_on_security_id_only() -> None:
 def test_overlap_joins_same_cusip_with_different_issuer_spelling() -> None:
     rows = _overlap_rows("APPLE INC", "037833100", "Apple Inc.", "037833100")
 
+    # Exactly one row overall: the two spellings must not split into two
+    # unknown_due_to_non_disclosure rows (the production probe in #962).
+    assert len(rows) == 1
     apple_rows = [row for row in rows if row.fund_name == "cusip:037833100"]
     assert len(apple_rows) == 1
     assert apple_rows[0].overlap_status == "overlap"
@@ -359,6 +362,7 @@ def test_overlap_joins_same_cusip_with_different_issuer_spelling() -> None:
 def test_overlap_joins_same_cusip_when_issuer_name_missing() -> None:
     rows = _overlap_rows(None, "037833100", "Apple Inc.", "037833100")
 
+    assert len(rows) == 1
     apple_rows = [row for row in rows if row.fund_name == "cusip:037833100"]
     assert len(apple_rows) == 1
     assert apple_rows[0].overlap_status == "overlap"
