@@ -454,3 +454,104 @@ def test_small_batch_run_records_actionable_stage_failure_diagnostics() -> None:
     assert len(state.processed_artifact_ids) == 1
     assert len(_artifact_rows(artifacts, "published_rows")) > 0
     assert len(_artifact_rows(artifacts, "component_coverage_reports")) == 1
+
+
+def _parser_with_value(label, value):
+    from dataclasses import replace
+
+    def parser(item, artifact):
+        raw = _parser(item, artifact)
+        return replace(
+            raw,
+            table_rows=tuple(
+                {**row, "value": value} if row["label"] == label else row for row in raw.table_rows
+            ),
+        )
+
+    return parser
+
+
+@pytest.mark.parametrize("label,value", [("AAL", "$-640 million"), ("Participant Count", "-5")])
+def test_negative_aal_or_negative_participant_blocks_publication(label, value, tmp_path):
+    from pension_data.db.models.funded_actuarial import FUNDED_ACTUARIAL_REQUIRED_METRICS
+
+    document = _job(
+        source_url="https://example.org/ca-2024.pdf",
+        fetched_at="2026-03-03T00:00:00Z",
+        source_document_id="doc:ca:2024:v1",
+        content=b"doc-v1",
+    )
+    ledger, state, artifacts = run_document_orchestration(
+        documents=[document],
+        parser=_parser_with_value(label, value),
+        state=DocumentOrchestrationState(),
+        run_id="invalid-numeric",
+        output_root=tmp_path,
+    )
+    rows = _artifact_rows(artifacts, "published_rows")
+    assert not [row for row in rows if row["metric_name"] in FUNDED_ACTUARIAL_REQUIRED_METRICS]
+    assert rows and set(state.published_fact_ids) == {row["fact_id"] for row in rows}
+    assert ledger.status == "failed"
+    assert any(
+        f.stage == "validation" and "numeric_out_of_range" in f.message for f in ledger.failures
+    )
+    review = _artifact_rows(artifacts, "review_queue_rows")
+    matching = [
+        row
+        for row in review
+        if any(
+            finding["code"] == "numeric_out_of_range"
+            for finding in row.get("validation_findings", [])
+        )
+    ]
+    assert matching and all(row["priority"] == "high" for row in matching)
+    assert all(
+        f["runbook_path"].startswith("docs/runbooks/parser-output-validation-failure.md")
+        for row in matching
+        for f in row["validation_findings"]
+    )
+    assert _artifact_rows(artifacts, "financial_flow_rows")
+    assert _artifact_rows(artifacts, "risk_exposure_rows")
+    import json
+
+    persisted = json.loads(
+        (
+            tmp_path / "document_orchestration" / "invalid-numeric" / "review_queue_rows.json"
+        ).read_text()
+    )
+    assert persisted == review
+
+
+def test_valid_low_confidence_funded_rows_publish_and_route_to_review(monkeypatch):
+    from dataclasses import replace
+
+    original = document_orchestration_module.extract_funded_and_actuarial_metrics
+
+    def low_confidence(**kwargs):
+        rows, diagnostics = original(**kwargs)
+        return [
+            replace(row, confidence=0.60) if row.metric_name == "discount_rate" else row
+            for row in rows
+        ], diagnostics
+
+    monkeypatch.setattr(
+        document_orchestration_module, "extract_funded_and_actuarial_metrics", low_confidence
+    )
+    document = _job(
+        source_url="https://example.org/ca-2024.pdf",
+        fetched_at="2026-03-03T00:00:00Z",
+        source_document_id="doc:ca:2024:v1",
+        content=b"doc-v1",
+    )
+    ledger, _, artifacts = run_document_orchestration(
+        documents=[document], parser=_parser, state=DocumentOrchestrationState(), run_id="valid-low"
+    )
+    assert ledger.status == "success"
+    assert any(
+        row["metric_name"] == "discount_rate" for row in _artifact_rows(artifacts, "published_rows")
+    )
+    assert any(
+        row["metric_name"] == "discount_rate" and row["priority"] == "high"
+        for row in _artifact_rows(artifacts, "review_queue_rows")
+    )
+    assert not ledger.failures

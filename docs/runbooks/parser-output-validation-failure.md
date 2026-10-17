@@ -6,8 +6,9 @@ Incident class: `parser_output_validation_failure`
 ## Symptoms
 
 - Parser output rows fail schema, numeric sanity, or provenance validation checks.
-- Promotion to curated facts is blocked for affected plan-period outputs.
-- Review queue receives parser-validation failure rows with high priority.
+- Document orchestration calls `validate_parser_outputs` before funded/actuarial promotion; schema, numeric-sanity or provenance errors block that domain while other domains continue.
+- The ledger records `stage="validation"` failures containing `domain=funded_actuarial`, the finding code, incident class and runbook path. Failed validation does not mark the artifact fully processed.
+- Review queue receives parser-validation failure rows with high priority and persisted `validation_findings` (code, message, incident class and runbook path). Valid low-confidence facts still publish and route to review.
 
 ## Diagnostic Commands
 

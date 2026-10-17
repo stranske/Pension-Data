@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="3" time="0.279" timestamp="2026-10-17T03:29:52.544819-05:00" hostname="server.trs.private"><testcase classname="tests.ops.test_document_orchestration" name="test_negative_aal_or_negative_participant_blocks_publication[AAL-$-640 million]" time="0.046"><failure message="AssertionError: assert not [{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial',..._id': 'fact:e74b03613821c05eb703', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, ...]">label = 'AAL', value = '$-640 million'
+tmp_path = PosixPath('/private/var/folders/qm/w0dtc0j132gd6ymf1hxtd2p00000gp/T/pytest-of-teacher/pytest-4645/test_negative_aal_or_negative_0')
+
+    @pytest.mark.parametrize("label,value", [("AAL", "$-640 million"), ("Participant Count", "-5")])
+    def test_negative_aal_or_negative_participant_blocks_publication(label, value, tmp_path):
+        from pension_data.db.models.funded_actuarial import FUNDED_ACTUARIAL_REQUIRED_METRICS
+    
+        document = _job(
+            source_url="https://example.org/ca-2024.pdf",
+            fetched_at="2026-03-03T00:00:00Z",
+            source_document_id="doc:ca:2024:v1",
+            content=b"doc-v1",
+        )
+        ledger, state, artifacts = run_document_orchestration(
+            documents=[document],
+            parser=_parser_with_value(label, value),
+            state=DocumentOrchestrationState(),
+            run_id="invalid-numeric",
+            output_root=tmp_path,
+        )
+        rows = _artifact_rows(artifacts, "published_rows")
+&gt;       assert not [row for row in rows if row["metric_name"] in FUNDED_ACTUARIAL_REQUIRED_METRICS]
+E       AssertionError: assert not [{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial',..._id': 'fact:e74b03613821c05eb703', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, ...]
+
+tests/ops/test_document_orchestration.py:492: AssertionError</failure></testcase><testcase classname="tests.ops.test_document_orchestration" name="test_negative_aal_or_negative_participant_blocks_publication[Participant Count--5]" time="0.005"><failure message="AssertionError: assert not [{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial',..._id': 'fact:e74b03613821c05eb703', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, ...]">label = 'Participant Count', value = '-5'
+tmp_path = PosixPath('/private/var/folders/qm/w0dtc0j132gd6ymf1hxtd2p00000gp/T/pytest-of-teacher/pytest-4645/test_negative_aal_or_negative_1')
+
+    @pytest.mark.parametrize("label,value", [("AAL", "$-640 million"), ("Participant Count", "-5")])
+    def test_negative_aal_or_negative_participant_blocks_publication(label, value, tmp_path):
+        from pension_data.db.models.funded_actuarial import FUNDED_ACTUARIAL_REQUIRED_METRICS
+    
+        document = _job(
+            source_url="https://example.org/ca-2024.pdf",
+            fetched_at="2026-03-03T00:00:00Z",
+            source_document_id="doc:ca:2024:v1",
+            content=b"doc-v1",
+        )
+        ledger, state, artifacts = run_document_orchestration(
+            documents=[document],
+            parser=_parser_with_value(label, value),
+            state=DocumentOrchestrationState(),
+            run_id="invalid-numeric",
+            output_root=tmp_path,
+        )
+        rows = _artifact_rows(artifacts, "published_rows")
+&gt;       assert not [row for row in rows if row["metric_name"] in FUNDED_ACTUARIAL_REQUIRED_METRICS]
+E       AssertionError: assert not [{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial',..._id': 'fact:e74b03613821c05eb703', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, ...]
+
+tests/ops/test_document_orchestration.py:492: AssertionError</failure></testcase><testcase classname="tests.ops.test_document_orchestration_failure_isolation" name="test_invalid_provenance_blocks_publication_via_orchestration" time="0.004"><failure message="AssertionError: assert not [{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial',..._id': 'fact:e74b03613821c05eb703', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, ...]">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10a32b560&gt;
+baseline = {'published_rows': 14, 'financial_flow_rows': 1, 'risk_exposure_rows': 4, 'consultant_entity_rows': 1, ...}
+
+    def test_invalid_provenance_blocks_publication_via_orchestration(monkeypatch, baseline):
+        from pension_data.db.models.funded_actuarial import FUNDED_ACTUARIAL_REQUIRED_METRICS
+    
+        original = orchestration.extract_funded_and_actuarial_metrics
+    
+        def invalid_provenance(**kwargs):
+            rows, diagnostics = original(**kwargs)
+            return [
+                (
+                    dataclasses.replace(row, evidence_refs=("untraceable",))
+                    if row.metric_name == "aal_usd"
+                    else row
+                )
+                for row in rows
+            ], diagnostics
+    
+        monkeypatch.setattr(orchestration, "extract_funded_and_actuarial_metrics", invalid_provenance)
+        ledger, state, artifacts = _run()
+&gt;       assert not [
+            row
+            for row in artifacts["published_rows"]
+            if row["metric_name"] in FUNDED_ACTUARIAL_REQUIRED_METRICS
+        ]
+E       AssertionError: assert not [{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial',..._id': 'fact:e74b03613821c05eb703', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, ...]
+
+tests/ops/test_document_orchestration_failure_isolation.py:311: AssertionError</failure></testcase></testsuite></testsuites>

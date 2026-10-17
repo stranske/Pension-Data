@@ -288,3 +288,48 @@ def test_an_empty_document_list_is_not_a_failure():
     assert discovery[0].status == "ok"
     assert discovery[0].record_count == 0
     assert artifacts != {}
+
+
+def test_invalid_provenance_blocks_publication_via_orchestration(monkeypatch, baseline):
+    from pension_data.db.models.funded_actuarial import FUNDED_ACTUARIAL_REQUIRED_METRICS
+
+    original = orchestration.extract_funded_and_actuarial_metrics
+
+    def invalid_provenance(**kwargs):
+        rows, diagnostics = original(**kwargs)
+        return [
+            (
+                dataclasses.replace(row, evidence_refs=("untraceable",))
+                if row.metric_name == "aal_usd"
+                else row
+            )
+            for row in rows
+        ], diagnostics
+
+    monkeypatch.setattr(orchestration, "extract_funded_and_actuarial_metrics", invalid_provenance)
+    ledger, state, artifacts = _run()
+    assert not [
+        row
+        for row in artifacts["published_rows"]
+        if row["metric_name"] in FUNDED_ACTUARIAL_REQUIRED_METRICS
+    ]
+    assert state.published_fact_ids == tuple(
+        sorted(row["fact_id"] for row in artifacts["published_rows"])
+    )
+    assert ledger.status == "failed"
+    assert any(
+        f.stage == "validation" and "provenance_invalid" in f.message for f in ledger.failures
+    )
+    assert any(
+        row["priority"] == "high"
+        and any(
+            finding["code"] == "provenance_invalid"
+            and finding["incident_class_id"] == "parser_output_validation_failure"
+            and "parser-output-validation-failure" in finding["runbook_path"]
+            for finding in row.get("validation_findings", [])
+        )
+        for row in artifacts["review_queue_rows"]
+    )
+    for key in _ARTIFACT_KEYS:
+        if key not in {"published_rows", "review_queue_rows"}:
+            assert len(artifacts[key]) == baseline[key], key
