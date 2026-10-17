@@ -346,6 +346,33 @@ def test_holdings_ingest_keys_identity_on_security_id_only() -> None:
     assert [row.display_name for row in inputs] == ["APPLE INC", "Apple Inc."]
 
 
+def test_holdings_ingest_keys_identity_on_security_id_when_name_missing() -> None:
+    positions = build_security_positions(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        rows=[
+            SecurityPositionInput(
+                security_name=None,
+                cusip="037833100",
+                ticker="AAPL",
+                shares=2500.0,
+                market_value_usd=1_250_000.0,
+                asset_class="public_equity",
+                source="13f",
+                as_of="2025-03-31",
+                provenance_ref="edgar:ca",
+            )
+        ],
+    )
+
+    inputs = to_holdings_overlap_inputs(positions)
+
+    assert [(row.manager_name, row.fund_name) for row in inputs] == [
+        ("cusip:037833100", "cusip:037833100")
+    ]
+    assert [row.display_name for row in inputs] == [None]
+
+
 def test_overlap_joins_same_cusip_with_different_issuer_spelling() -> None:
     rows = _overlap_rows("APPLE INC", "037833100", "Apple Inc.", "037833100")
 
