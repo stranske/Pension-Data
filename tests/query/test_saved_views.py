@@ -351,6 +351,30 @@ def test_holdings_overlap_view_aggregates_duplicate_security_positions() -> None
     assert output[0].overlap_usd == 900_000.0
 
 
+@pytest.mark.parametrize("secondary_state", ["known_not_invested", "not_disclosed"])
+def test_holdings_overlap_view_preserves_conservative_mixed_disclosure_groups(
+    secondary_state: str,
+) -> None:
+    rows = [
+        HoldingsOverlapInput(
+            "CA-PERS", "FY2025", "cusip:037833100", "cusip:037833100", 1_250_000.0, "disclosed"
+        ),
+        HoldingsOverlapInput(
+            "CA-PERS", "FY2025", "cusip:037833100", "cusip:037833100", None, secondary_state  # type: ignore[arg-type]
+        ),
+        HoldingsOverlapInput(
+            "TX-ERS", "FY2025", "cusip:037833100", "cusip:037833100", 900_000.0, "disclosed"
+        ),
+    ]
+
+    output = execute_holdings_overlap_view(rows, subject_plan_id="CA-PERS", plan_period="FY2025")
+
+    assert len(output) == 1
+    assert output[0].subject_disclosure_state == "not_disclosed"
+    assert output[0].overlap_status == "unknown_due_to_non_disclosure"
+    assert output[0].overlap_usd is None
+
+
 def test_holdings_overlap_view_uses_counterparty_name_for_blank_subject_name() -> None:
     rows = [
         HoldingsOverlapInput(
