@@ -327,6 +327,16 @@ def test_overlap_joins_same_cusip_when_issuer_name_missing() -> None:
     assert apple_rows[0].display_name == "Apple Inc."
 
 
+def test_overlap_joins_same_cusip_when_issuer_name_blank() -> None:
+    rows = _overlap_rows("   ", "037833100", "Apple Inc.", "037833100")
+
+    apple_rows = [row for row in rows if row.fund_name == "cusip:037833100"]
+    assert len(apple_rows) == 1
+    assert apple_rows[0].overlap_status == "overlap"
+    assert apple_rows[0].overlap_usd == 900_000.0
+    assert apple_rows[0].display_name == "Apple Inc."
+
+
 def test_overlap_keeps_distinct_cusips_with_identical_names_separate() -> None:
     rows = _overlap_rows("APPLE INC", "037833100", "APPLE INC", "037833101")
 
