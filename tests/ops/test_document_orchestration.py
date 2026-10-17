@@ -471,8 +471,9 @@ def _parser_with_value(label, value):
     return parser
 
 
-@pytest.mark.parametrize("label,value", [("AAL", "$-640 million"), ("Participant Count", "-5")])
-def test_negative_aal_or_negative_participant_blocks_publication(label, value, tmp_path):
+def _assert_negative_metric_blocks_publication(label, value, metric_name, tmp_path):
+    import json
+
     from pension_data.db.models.funded_actuarial import FUNDED_ACTUARIAL_REQUIRED_METRICS
 
     document = _job(
@@ -481,9 +482,17 @@ def test_negative_aal_or_negative_participant_blocks_publication(label, value, t
         source_document_id="doc:ca:2024:v1",
         content=b"doc-v1",
     )
+    parser = _parser_with_value(label, value)
+    extracted, diagnostics = document_orchestration_module.extract_funded_and_actuarial_metrics(
+        plan_id=document.plan_id, plan_period=document.plan_period, raw=parser(document, None)
+    )
+    assert {row.metric_name for row in extracted} == set(FUNDED_ACTUARIAL_REQUIRED_METRICS)
+    assert not diagnostics
+    assert next(row.normalized_value for row in extracted if row.metric_name == metric_name) < 0
+
     ledger, state, artifacts = run_document_orchestration(
         documents=[document],
-        parser=_parser_with_value(label, value),
+        parser=parser,
         state=DocumentOrchestrationState(),
         run_id="invalid-numeric",
         output_root=tmp_path,
@@ -491,10 +500,25 @@ def test_negative_aal_or_negative_participant_blocks_publication(label, value, t
     rows = _artifact_rows(artifacts, "published_rows")
     assert not [row for row in rows if row["metric_name"] in FUNDED_ACTUARIAL_REQUIRED_METRICS]
     assert rows and set(state.published_fact_ids) == {row["fact_id"] for row in rows}
+    assert not state.processed_artifact_ids
     assert ledger.status == "failed"
-    assert any(
-        f.stage == "validation" and "numeric_out_of_range" in f.message for f in ledger.failures
-    )
+    assert len(ledger.failures) == 1
+    failure = ledger.failures[0]
+    assert failure.stage == "validation"
+    assert "domain=funded_actuarial numeric_out_of_range:" in failure.message
+    assert metric_name in failure.message
+    assert "publish blocked" in failure.message
+    funded_metrics = {
+        metric.stage: metric
+        for metric in ledger.stage_metrics
+        if metric.domain == "funded_actuarial"
+    }
+    assert funded_metrics["parse_extract"].record_count == len(FUNDED_ACTUARIAL_REQUIRED_METRICS)
+    assert funded_metrics["parse_extract"].error_count == 0
+    for stage in ("validation", "publish"):
+        assert funded_metrics[stage].status == "error"
+        assert funded_metrics[stage].error_count == 1
+    assert funded_metrics["publish"].record_count == 0
     review = _artifact_rows(artifacts, "review_queue_rows")
     matching = [
         row
@@ -504,7 +528,10 @@ def test_negative_aal_or_negative_participant_blocks_publication(label, value, t
             for finding in row.get("validation_findings", [])
         )
     ]
-    assert matching and all(row["priority"] == "high" for row in matching)
+    assert len(matching) == 1
+    assert matching[0]["priority"] == "high"
+    assert matching[0]["metric_name"] == metric_name
+    assert len({row["queue_id"] for row in review}) == len(review)
     assert all(
         f["runbook_path"].startswith("docs/runbooks/parser-output-validation-failure.md")
         for row in matching
@@ -512,14 +539,26 @@ def test_negative_aal_or_negative_participant_blocks_publication(label, value, t
     )
     assert _artifact_rows(artifacts, "financial_flow_rows")
     assert _artifact_rows(artifacts, "risk_exposure_rows")
-    import json
+    run_dir = tmp_path / "document_orchestration" / "invalid-numeric"
+    assert json.loads((run_dir / "review_queue_rows.json").read_text()) == review
+    assert json.loads((run_dir / "published_rows.json").read_text()) == rows
+    persisted_state = json.loads((run_dir / "state.json").read_text())
+    assert set(persisted_state["published_fact_ids"]) == {row["fact_id"] for row in rows}
+    assert persisted_state["processed_artifact_ids"] == []
 
-    persisted = json.loads(
-        (
-            tmp_path / "document_orchestration" / "invalid-numeric" / "review_queue_rows.json"
-        ).read_text()
+
+def test_negative_aal_blocks_publication(tmp_path):
+    _assert_negative_metric_blocks_publication("AAL", "$-640 million", "aal_usd", tmp_path)
+
+
+def test_negative_participant_count_blocks_publication(tmp_path):
+    _assert_negative_metric_blocks_publication(
+        "Participant Count", "-5", "participant_count", tmp_path
     )
-    assert persisted == review
+
+
+def test_negative_ava_blocks_publication(tmp_path):
+    _assert_negative_metric_blocks_publication("AVA", "$-501.8 million", "ava_usd", tmp_path)
 
 
 def test_valid_low_confidence_funded_rows_publish_and_route_to_review(monkeypatch):
