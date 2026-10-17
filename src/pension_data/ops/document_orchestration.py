@@ -79,6 +79,10 @@ from pension_data.ingest.artifacts import RawArtifactIngestionInput, ingest_raw_
 from pension_data.normalize.financial_units import UnitScale
 from pension_data.normalize.numeric_parsing import detect_money_scale, parse_numeric_token
 from pension_data.quality.confidence import ExtractionConfidenceInput, route_confidence_rows
+from pension_data.quality.parser_output_validation import (
+    ParserOutputValidationResult,
+    validate_parser_outputs,
+)
 from pension_data.review_queue.extraction import build_extraction_review_queue
 
 OrchestrationStage = Literal["discovery", "ingestion", "parse_extract", "validation", "publish"]
@@ -935,6 +939,8 @@ def run_document_orchestration(
 
         funded_acc = domain_accumulators["funded_actuarial"]
         funded_acc.parse_attempts += 1
+        funded_parse_ok = False
+        funded_validation: ParserOutputValidationResult | None = None
         try:
             funded_rows, funded_diagnostics = extract_funded_and_actuarial_metrics(
                 plan_id=item.plan_id,
@@ -943,6 +949,7 @@ def run_document_orchestration(
             )
             funded_rows_for_publish = list(funded_rows)
             funded_acc.parse_records += len(funded_rows)
+            funded_parse_ok = True
         except Exception as exc:  # noqa: BLE001
             parse_failures += 1
             funded_acc.parse_errors += 1
@@ -972,21 +979,48 @@ def run_document_orchestration(
                 )
             )
 
-        funded_publish_blocked = any(diag.code == "missing_metric" for diag in funded_diagnostics)
+        funded_publish_blocked = False
+        if funded_parse_ok:
+            try:
+                funded_validation = validate_parser_outputs(
+                    rows=funded_rows, diagnostics=funded_diagnostics
+                )
+                funded_rows_for_publish = list(funded_validation.promotable_rows)
+                funded_publish_blocked = funded_validation.publish_blocked
+                funded_acc.validation_records += len(funded_validation.findings)
+                for finding in funded_validation.findings:
+                    if finding.severity != "error":
+                        continue
+                    funded_acc.validation_errors += 1
+                    failures.append(
+                        OrchestrationFailure(
+                            stage="validation",
+                            document_key=_document_key(item),
+                            attempts=1,
+                            message=(
+                                f"domain=funded_actuarial {finding.code}: {finding.message}; "
+                                f"incident_class={finding.incident_class_id}; "
+                                f"runbook={finding.runbook_path}; publish blocked"
+                            ),
+                        )
+                    )
+            except Exception as exc:  # noqa: BLE001
+                funded_publish_blocked = True
+                funded_rows_for_publish = []
+                funded_acc.validation_errors += 1
+                failures.append(
+                    OrchestrationFailure(
+                        stage="validation",
+                        document_key=_document_key(item),
+                        attempts=1,
+                        message=f"domain=funded_actuarial validator_exception: {type(exc).__name__}: {exc}; publish blocked",
+                    )
+                )
         funded_acc.publish_attempts += 1
         if funded_publish_blocked:
-            funded_acc.validation_errors += 1
             funded_acc.publish_errors += 1
             publish_failures += 1
-            funded_rows_for_publish = []
-            failures.append(
-                OrchestrationFailure(
-                    stage="validation",
-                    document_key=_document_key(item),
-                    attempts=1,
-                    message="domain=funded_actuarial missing required metrics; publish blocked",
-                )
-            )
+            domain_failures.append("funded_actuarial")
 
         flow_acc = domain_accumulators["financial_flow"]
         flow_acc.parse_attempts += 1
@@ -1251,7 +1285,31 @@ def run_document_orchestration(
 
         confidence_inputs = [*_confidence_inputs(funded_rows), *warning_inputs]
         confidence_decisions = route_confidence_rows(confidence_inputs)
-        queue_rows = build_extraction_review_queue(confidence_decisions)
+        blocked_decisions = (
+            [
+                decision
+                for decision in funded_validation.confidence_decisions
+                if decision.publish_blocked
+            ]
+            if funded_validation is not None
+            else []
+        )
+        confidence_decisions.extend(blocked_decisions)
+        blocked_row_ids = {decision.row_id for decision in blocked_decisions}
+        queue_by_row = {
+            row.row_id: row for row in build_extraction_review_queue(confidence_decisions)
+        }
+        # Keep ordinary queue identities unchanged and reuse validator failure
+        # records with their deterministic timestamps rather than duplicating them.
+        if funded_validation is not None:
+            queue_by_row.update(
+                {
+                    row.row_id: row
+                    for row in funded_validation.review_queue_rows
+                    if row.row_id in blocked_row_ids
+                }
+            )
+        queue_rows = list(queue_by_row.values())
         validation_warnings += len(queue_rows)
 
         artifacts = build_extraction_persistence_artifacts(
@@ -1378,6 +1436,23 @@ def run_document_orchestration(
                 "confidence": row.confidence,
                 "priority": row.priority,
                 "state": row.state,
+                **(
+                    {
+                        "validation_findings": [
+                            {
+                                "code": finding.code,
+                                "message": finding.message,
+                                "incident_class_id": finding.incident_class_id,
+                                "runbook_path": finding.runbook_path,
+                            }
+                            for finding in funded_validation.findings
+                            if finding.severity == "error"
+                            and (finding.metric_name or "parser_validation") == row.metric_name
+                        ]
+                    }
+                    if funded_validation is not None and row.row_id in blocked_row_ids
+                    else {}
+                ),
             }
             for row in queue_rows
         )

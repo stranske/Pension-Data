@@ -1,0 +1,78 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/teacher/.codex/automations/pd-workloop-resume/worktrees/pension-960-validation-0810
+configfile: pyproject.toml
+plugins: langsmith-0.10.9, cov-7.1.0, xdist-3.8.0, rerunfailures-16.3, datadir-1.8.0, typeguard-4.5.1, asyncio-1.3.0, pytest_httpserver-1.1.3, hypothesis-6.155.7, regressions-2.11.0, Faker-40.39.0, anyio-4.13.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 51 items / 48 deselected / 3 selected
+
+tests/ops/test_document_orchestration.py FF                              [ 66%]
+tests/ops/test_document_orchestration_failure_isolation.py F             [100%]
+
+=================================== FAILURES ===================================
+_ test_negative_aal_or_negative_participant_blocks_publication[AAL-$-640 million] _
+
+label = 'AAL', value = '$-640 million'
+tmp_path = PosixPath('/private/var/folders/qm/w0dtc0j132gd6ymf1hxtd2p00000gp/T/pytest-of-teacher/pytest-4642/test_negative_aal_or_negative_0')
+
+    @pytest.mark.parametrize("label,value", [("AAL", "$-640 million"), ("Participant Count", "-5")])
+    def test_negative_aal_or_negative_participant_blocks_publication(label, value, tmp_path):
+        from pension_data.db.models.funded_actuarial import FUNDED_ACTUARIAL_REQUIRED_METRICS
+    
+        document = _job(source_url="https://example.org/ca-2024.pdf", fetched_at="2026-03-03T00:00:00Z",
+                        source_document_id="doc:ca:2024:v1", content=b"doc-v1")
+        ledger, state, artifacts = run_document_orchestration(
+            documents=[document], parser=_parser_with_value(label, value),
+            state=DocumentOrchestrationState(), run_id="invalid-numeric", output_root=tmp_path,
+        )
+        rows = _artifact_rows(artifacts, "published_rows")
+>       assert not [row for row in rows if row["metric_name"] in FUNDED_ACTUARIAL_REQUIRED_METRICS]
+E       AssertionError: assert not [{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial',..._id': 'fact:e74b03613821c05eb703', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, ...]
+
+tests/ops/test_document_orchestration.py:482: AssertionError
+_ test_negative_aal_or_negative_participant_blocks_publication[Participant Count--5] _
+
+label = 'Participant Count', value = '-5'
+tmp_path = PosixPath('/private/var/folders/qm/w0dtc0j132gd6ymf1hxtd2p00000gp/T/pytest-of-teacher/pytest-4642/test_negative_aal_or_negative_1')
+
+    @pytest.mark.parametrize("label,value", [("AAL", "$-640 million"), ("Participant Count", "-5")])
+    def test_negative_aal_or_negative_participant_blocks_publication(label, value, tmp_path):
+        from pension_data.db.models.funded_actuarial import FUNDED_ACTUARIAL_REQUIRED_METRICS
+    
+        document = _job(source_url="https://example.org/ca-2024.pdf", fetched_at="2026-03-03T00:00:00Z",
+                        source_document_id="doc:ca:2024:v1", content=b"doc-v1")
+        ledger, state, artifacts = run_document_orchestration(
+            documents=[document], parser=_parser_with_value(label, value),
+            state=DocumentOrchestrationState(), run_id="invalid-numeric", output_root=tmp_path,
+        )
+        rows = _artifact_rows(artifacts, "published_rows")
+>       assert not [row for row in rows if row["metric_name"] in FUNDED_ACTUARIAL_REQUIRED_METRICS]
+E       AssertionError: assert not [{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial',..._id': 'fact:e74b03613821c05eb703', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, ...]
+
+tests/ops/test_document_orchestration.py:482: AssertionError
+_________ test_invalid_provenance_blocks_publication_via_orchestration _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x114539040>
+baseline = {'published_rows': 14, 'financial_flow_rows': 1, 'risk_exposure_rows': 4, 'consultant_entity_rows': 1, ...}
+
+    def test_invalid_provenance_blocks_publication_via_orchestration(monkeypatch, baseline):
+        from pension_data.db.models.funded_actuarial import FUNDED_ACTUARIAL_REQUIRED_METRICS
+    
+        original = orchestration.extract_funded_and_actuarial_metrics
+        def invalid_provenance(**kwargs):
+            rows, diagnostics = original(**kwargs)
+            return [dataclasses.replace(row, evidence_refs=("untraceable",))
+                    if row.metric_name == "aal_usd" else row for row in rows], diagnostics
+        monkeypatch.setattr(orchestration, "extract_funded_and_actuarial_metrics", invalid_provenance)
+        ledger, state, artifacts = _run()
+>       assert not [row for row in artifacts["published_rows"]
+                    if row["metric_name"] in FUNDED_ACTUARIAL_REQUIRED_METRICS]
+E       AssertionError: assert not [{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial',..._id': 'fact:e74b03613821c05eb703', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, ...]
+
+tests/ops/test_document_orchestration_failure_isolation.py:303: AssertionError
+- generated xml file: /Users/teacher/.codex/automations/pd-workloop-resume/run-20261017T0810/960-red.xml -
+=========================== short test summary info ============================
+FAILED tests/ops/test_document_orchestration.py::test_negative_aal_or_negative_participant_blocks_publication[AAL-$-640 million]
+FAILED tests/ops/test_document_orchestration.py::test_negative_aal_or_negative_participant_blocks_publication[Participant Count--5]
+FAILED tests/ops/test_document_orchestration_failure_isolation.py::test_invalid_provenance_blocks_publication_via_orchestration
+======================= 3 failed, 48 deselected in 0.41s =======================

@@ -1,0 +1,40 @@
+[
+  {
+    "name": "exception",
+    "mutation": {
+      "old": "funded_publish_blocked = True\n                funded_rows_for_publish = []\n                funded_acc.validation_errors += 1",
+      "new": "funded_publish_blocked = False\n                funded_rows_for_publish = funded_rows\n                funded_acc.validation_errors += 1"
+    },
+    "command": [
+      "/Users/teacher/Library/CloudStorage/Dropbox/Learning/Code/Pension-Data/.venv/bin/python",
+      "-m",
+      "pytest",
+      "tests/ops/test_document_orchestration.py",
+      "-k",
+      "validator_exception"
+    ],
+    "red_rc": 1,
+    "restored_rc": 0,
+    "fixed_sha256": "1df80032e6a75ec5544a5350ae018d2bfd78b35bf02c7c83e35fd65b408d6704",
+    "restored_sha256": "1df80032e6a75ec5544a5350ae018d2bfd78b35bf02c7c83e35fd65b408d6704"
+  },
+  {
+    "name": "retry",
+    "mutation": {
+      "old": "if artifact.artifact_id in processed_ids:",
+      "new": "if artifact.artifact_id in processed_ids or current_state.published_fact_ids:"
+    },
+    "command": [
+      "/Users/teacher/Library/CloudStorage/Dropbox/Learning/Code/Pension-Data/.venv/bin/python",
+      "-m",
+      "pytest",
+      "tests/ops/test_document_orchestration.py",
+      "-k",
+      "negative_aal"
+    ],
+    "red_rc": 1,
+    "restored_rc": 0,
+    "fixed_sha256": "1df80032e6a75ec5544a5350ae018d2bfd78b35bf02c7c83e35fd65b408d6704",
+    "restored_sha256": "1df80032e6a75ec5544a5350ae018d2bfd78b35bf02c7c83e35fd65b408d6704"
+  }
+]

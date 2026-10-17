@@ -1,0 +1,22 @@
+{
+  "source": "src/pension_data/ops/document_orchestration.py",
+  "baseline": "56a3e156",
+  "old_sha256": "88b0ca38449071d2419cbb744534f9cd6e575a36c692bd2a553c393834f8866c",
+  "fixed_sha256": "1df80032e6a75ec5544a5350ae018d2bfd78b35bf02c7c83e35fd65b408d6704",
+  "restored_sha256": "1df80032e6a75ec5544a5350ae018d2bfd78b35bf02c7c83e35fd65b408d6704",
+  "command": [
+    "/Users/teacher/Library/CloudStorage/Dropbox/Learning/Code/Pension-Data/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "--no-cov",
+    "tests/ops/test_document_orchestration.py",
+    "tests/ops/test_document_orchestration_failure_isolation.py",
+    "-k",
+    "negative_aal or negative_participant or invalid_provenance"
+  ],
+  "red_exit": 1,
+  "red_assertions": 3,
+  "red_errors": 0,
+  "restored_exit": 0
+}

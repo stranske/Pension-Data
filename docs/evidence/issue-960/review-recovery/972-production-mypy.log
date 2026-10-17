@@ -1,0 +1,2 @@
+pyproject.toml: note: unused section(s): module = ['baseline_kit', 'baseline_kit.*', 'doc_lineage', 'stranske_pdf_extract', 'tests.*']
+Success: no issues found in 1 source file

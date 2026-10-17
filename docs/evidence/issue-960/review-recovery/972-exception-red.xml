@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.281" timestamp="2026-10-17T04:03:48.051614-05:00" hostname="server.trs.private"><testcase classname="tests.ops.test_document_orchestration" name="test_validator_exception_blocks_only_funded_publication" time="0.032"><failure message="AssertionError: assert ([{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:41e6b140665e9cbad135', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:9fb0105b9131be433c4c', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:2f1918b6cae2cb5f5be1', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:39826868a37c9e6bd694', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'allocation', ...}, {'fact_id': 'fact:f7d128a26cdb551a1063', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'allocation', ...}, ...] and not [{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:41e6b140665e9cbad135', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:9fb0105b9131be433c4c', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:2f1918b6cae2cb5f5be1', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:bb7355d287b539184a2a', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, {'fact_id': 'fact:e74b03613821c05eb703', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, ...])">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107efeff0&gt;
+
+    def test_validator_exception_blocks_only_funded_publication(monkeypatch):
+        from pension_data.db.models.funded_actuarial import FUNDED_ACTUARIAL_REQUIRED_METRICS
+    
+        def broken_validator(**kwargs):
+            raise RuntimeError("synthetic validator exception")
+    
+        monkeypatch.setattr(document_orchestration_module, "validate_parser_outputs", broken_validator)
+        document = _job(
+            source_url="https://example.org/ca-2024.pdf",
+            fetched_at="2026-03-03T00:00:00Z",
+            source_document_id="doc:ca:2024:v1",
+            content=b"doc-v1",
+        )
+        ledger, state, artifacts = run_document_orchestration(
+            documents=[document],
+            parser=_parser,
+            state=DocumentOrchestrationState(),
+            run_id="validator-exception",
+        )
+        assert ledger.status == "failed"
+        assert any(
+            failure.stage == "validation"
+            and "validator_exception: RuntimeError: synthetic validator exception" in failure.message
+            for failure in ledger.failures
+        )
+        rows = _artifact_rows(artifacts, "published_rows")
+&gt;       assert rows and not [
+            row for row in rows if row["metric_name"] in FUNDED_ACTUARIAL_REQUIRED_METRICS
+        ]
+E       AssertionError: assert ([{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:41e6b140665e9cbad135', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:9fb0105b9131be433c4c', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:2f1918b6cae2cb5f5be1', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:39826868a37c9e6bd694', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'allocation', ...}, {'fact_id': 'fact:f7d128a26cdb551a1063', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'allocation', ...}, ...] and not [{'fact_id': 'fact:c42f490b640decab0107', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:41e6b140665e9cbad135', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:9fb0105b9131be433c4c', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:2f1918b6cae2cb5f5be1', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'actuarial', ...}, {'fact_id': 'fact:bb7355d287b539184a2a', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, {'fact_id': 'fact:e74b03613821c05eb703', 'plan_id': 'CA-PERS', 'plan_period': 'FY2024', 'metric_family': 'funded', ...}, ...])
+
+tests/ops/test_document_orchestration.py:612: AssertionError</failure></testcase></testsuite></testsuites>
