@@ -270,6 +270,63 @@ def test_load_query_data_snapshot_cash_flow_conflict_is_scoped_to_period(
     }
 
 
+def test_load_query_data_snapshot_collects_all_conflicts_in_one_period(tmp_path: Path) -> None:
+    metric_values = {
+        "funded_ratio": (0.784, 0.8),
+        "employer_contributions": (100.0, 120.0),
+        "benefit_payments": (80.0, 90.0),
+    }
+    for index, version in enumerate(("original", "revised")):
+        source_document_id = f"doc:syn-plan:{version}"
+        rows = []
+        for metric_name, values in metric_values.items():
+            row = _metric_row(
+                fact_id=f"fact:{metric_name}:{version}",
+                normalized_value=values[index],
+                source_document_id=source_document_id,
+                ingestion_date=f"2026-0{index + 1}-01",
+            )
+            if metric_name != "funded_ratio":
+                row.update(
+                    metric_name=metric_name,
+                    metric_family="cash_flow",
+                    as_reported_value=values[index],
+                    as_reported_unit="USD",
+                    normalized_unit="USD",
+                )
+            rows.append(row)
+        _write_run(tmp_path, f"run-{version}", rows, source_document_id=source_document_id)
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 6
+    assert snapshot.funding_trend_inputs == ()
+    assert len(snapshot.funding_trend_unresolved_periods) == 1
+    unresolved = snapshot.funding_trend_unresolved_periods[0]
+    assert (unresolved.entity_id, unresolved.plan_period) == ("SYN-PLAN", "FY2024")
+    assert snapshot.funding_trend_conflicts == unresolved.conflicts
+    assert [conflict.metric_target for conflict in unresolved.conflicts] == [
+        "benefit_payments_usd",
+        "employer_contributions_usd",
+        "funded_ratio",
+    ]
+    for conflict in unresolved.conflicts:
+        assert (conflict.entity_id, conflict.plan_period) == ("SYN-PLAN", "FY2024")
+        metric_name = conflict.metric_target.removesuffix("_usd")
+        assert {
+            (
+                version.normalized_value,
+                version.source_document_id,
+                version.effective_date,
+                version.ingestion_date,
+            )
+            for version in conflict.versions
+        } == {
+            (metric_values[metric_name][0], "doc:syn-plan:original", "2024-06-30", "2026-01-01"),
+            (metric_values[metric_name][1], "doc:syn-plan:revised", "2024-06-30", "2026-02-01"),
+        }
+
+
 @pytest.mark.parametrize(
     ("first_ingestion", "second_ingestion"),
     [
