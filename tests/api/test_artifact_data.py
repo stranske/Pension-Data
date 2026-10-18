@@ -253,6 +253,47 @@ def test_funding_trend_flow_path_cannot_escape_run(tmp_path: Path) -> None:
         load_query_data_snapshot(tmp_path / "root")
 
 
+@pytest.mark.parametrize("path_kind", ["relative", "absolute", "symlink"])
+def test_funding_trend_flow_path_cannot_reference_another_run(
+    tmp_path: Path, path_kind: str
+) -> None:
+    """Root containment alone must not allow one run to borrow another's flows."""
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run)
+    other_run = _write_run(tmp_path, "run-b", [_metric_row()])
+    other_flow = _write_flow_artifact(other_run)
+    # Both runs intentionally have matching document identities so identity
+    # validation cannot mask a missing run-directory containment check.
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    if path_kind == "relative":
+        declared = "../run-b/flows.json"
+    elif path_kind == "absolute":
+        declared = str(other_flow.resolve())
+    else:
+        link = run / "borrowed-flows.json"
+        link.symlink_to(other_flow)
+        declared = link.name
+    manifest["artifact_files"]["financial_flow_rows_json"] = declared
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(QueryArtifactError, match="financial_flow_rows.json escapes its run"):
+        load_query_data_snapshot(tmp_path)
+
+
+def test_funding_trend_declared_missing_flow_artifact_is_rejected(tmp_path: Path) -> None:
+    """A broken declaration must not silently use another available flow file."""
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run)
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"]["financial_flow_rows_json"] = "missing-flows.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(QueryArtifactError, match="missing query artifact financial_flow_rows.json"):
+        load_query_data_snapshot(tmp_path)
+
+
 def test_funding_trend_repeated_flows_are_not_summed(tmp_path: Path) -> None:
     from pension_data.query.saved_views.service import execute_funding_trend_view
 
