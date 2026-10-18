@@ -500,6 +500,14 @@ def run_one_pdf_pilot(
         "document_outcome_count": len(ledger.document_outcomes),
         "state": asdict(next_state),
         "artifact_files": {
+            "financial_flow_rows_json": str(
+                (
+                    run_root
+                    / "document_orchestration"
+                    / effective_run_id
+                    / "financial_flow_rows.json"
+                ).resolve()
+            ),
             "parser_result_json": str(parser_json),
             "coverage_summary_json": str(coverage_json),
             "component_coverage_report_json": str(component_coverage_report_json),

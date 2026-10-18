@@ -81,7 +81,8 @@ def _net_external_flow(row: FundingTrendInput) -> float | None:
     components = [
         row.employer_contributions_usd,
         row.employee_contributions_usd,
-        None if row.benefit_payments_usd is None else -row.benefit_payments_usd,
+        None if row.benefit_payments_usd is None else -abs(row.benefit_payments_usd),
+        None if row.refunds_usd is None else -abs(row.refunds_usd),
     ]
     known = [value for value in components if value is not None]
     if not known:

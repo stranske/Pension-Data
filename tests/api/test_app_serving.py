@@ -61,6 +61,41 @@ def test_saved_view_route_maps_auth_errors() -> None:
     assert "missing API key" in response.json()["detail"]
 
 
+@pytest.mark.parametrize("disclosure", ["disclosed", "missing", "mismatched"])
+def test_funding_trend_http_uses_identity_bound_flow_artifacts(
+    tmp_path: Path, monkeypatch, disclosure: str
+) -> None:
+    from tests.api.test_artifact_data import _run_flow_pilot
+
+    root, result = _run_flow_pilot(tmp_path)
+    manifest_path = Path(result["run_manifest_json"])
+    manifest = json.loads(manifest_path.read_text())
+    path = Path(manifest["artifact_files"]["financial_flow_rows_json"])
+    if disclosure == "missing":
+        del manifest["artifact_files"]["financial_flow_rows_json"]
+        manifest_path.write_text(json.dumps(manifest))
+    elif disclosure == "mismatched":
+        rows = json.loads(path.read_text())
+        rows[0]["source_document_id"] = "OTHER"
+        path.write_text(json.dumps(rows))
+    monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
+    monkeypatch.setenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", str(root))
+    client, secret = _client_with_query_key()
+    response = client.get(
+        "/api/saved-views/funding-trend", headers={"Authorization": f"Bearer {secret}"}
+    )
+    if disclosure == "mismatched":
+        assert response.status_code == 503
+        assert "source_document_id" in response.json()["detail"]
+    else:
+        assert response.status_code == 200
+        rows = response.json()["rows"]
+        assert len(rows) == 1
+        assert rows[0]["net_external_cash_flow_usd"] == (
+            85_000_000 if disclosure == "disclosed" else None
+        )
+
+
 def test_default_app_uses_environment_api_key(monkeypatch) -> None:
     monkeypatch.setenv("PENSION_DATA_API_KEY", "test-env-secret")
     monkeypatch.setenv("PENSION_DATA_API_KEY_SCOPES", SCOPE_QUERY)

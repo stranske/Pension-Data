@@ -82,6 +82,165 @@ def test_load_query_data_snapshot_maps_metric_and_funding_rows(tmp_path: Path) -
     assert snapshot.funding_trend_inputs[0].employer_contributions_usd is None
 
 
+def _write_flow_artifact(run_root: Path, **overrides: object) -> Path:
+    row = {
+        "plan_id": "SYN-PLAN",
+        "plan_period": "FY2024",
+        "source_document_id": "doc:syn-plan",
+        "effective_period": "2024-06-30",
+        "reported_at": "2026-01-01",
+        "employer_contributions_usd": 100.0,
+        "employee_contributions_usd": 20.0,
+        "benefit_payments_usd": -30.0,
+        "refunds_usd": -5.0,
+        **overrides,
+    }
+    path = run_root / "flows.json"
+    path.write_text(json.dumps([row]), encoding="utf-8")
+    manifest_path = run_root / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"] = {"financial_flow_rows_json": "flows.json"}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return path
+
+
+def _run_flow_pilot(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """Exercise real orchestration from disclosed parser rows, then its saved artifacts.
+
+    The default PDF parser only recognizes funded metrics; monetary parser coverage
+    is outside issue 959. Supply its public parser boundary explicitly here.
+    """
+    from pension_data.extract.actuarial.metrics import RawFundedActuarialInput
+    from pension_data.ops.document_orchestration import (
+        DocumentOrchestrationState,
+        SourceDocumentJobItem,
+        run_document_orchestration,
+    )
+
+    root = tmp_path / "artifacts"
+    run = root / "one_pdf_pilot" / "flow-pilot"
+    raw = RawFundedActuarialInput(
+        source_document_id="doc:syn-plan",
+        source_url="https://example.test/flow.pdf",
+        effective_date="2024-06-30",
+        ingestion_date="2026-01-01",
+        default_money_unit_scale="million_usd",
+        text_blocks=(),
+        table_rows=tuple(
+            {"label": label, "value": value, "evidence_ref": "p.1#table"}
+            for label, value in [
+                ("Funded Ratio", "78.4%"),
+                ("AAL", "$640 million"),
+                ("AVA", "$501.8 million"),
+                ("Discount Rate", "6.8%"),
+                ("Employer Contribution Rate", "12.4%"),
+                ("Employee Contribution Rate", "7.5%"),
+                ("Participant Count", "325000"),
+                ("Employer Contributions", "$100 million"),
+                ("Employee Contributions", "$20 million"),
+                ("Benefit Payments", "$-30 million"),
+                ("Refunds", "$-5 million"),
+            ]
+        ),
+    )
+    job = SourceDocumentJobItem(
+        plan_id="SYN-PLAN",
+        plan_period="FY2024",
+        source_url=raw.source_url,
+        fetched_at="2026-01-01T00:00:00Z",
+        mime_type="application/pdf",
+        content_bytes=b"synthetic disclosed flow report",
+        source_document_id=raw.source_document_id,
+        effective_date=raw.effective_date,
+        ingestion_date=raw.ingestion_date,
+        default_money_unit_scale="million_usd",
+    )
+    ledger, _, artifacts = run_document_orchestration(
+        documents=[job],
+        parser=lambda _item, _artifact: raw,
+        state=DocumentOrchestrationState(),
+        run_id="flow-pilot",
+        output_root=run,
+    )
+    assert ledger.status == "success"
+    _write_run(root, "flow-pilot", artifacts["published_rows"])
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"] = {
+        "financial_flow_rows_json": str(
+            run / "document_orchestration" / "flow-pilot" / "financial_flow_rows.json"
+        )
+    }
+    manifest_path.write_text(json.dumps(manifest))
+    return root, {"run_manifest_json": str(manifest_path)}
+
+
+def test_funding_trend_joins_actual_pilot_financial_flow_output(tmp_path: Path) -> None:
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    root, result = _run_flow_pilot(tmp_path)
+    manifest = json.loads(Path(result["run_manifest_json"]).read_text())
+    flow = json.loads(Path(manifest["artifact_files"]["financial_flow_rows_json"]).read_text())[0]
+    assert flow["benefit_payments_usd"] == -30_000_000
+    assert flow["refunds_usd"] == -5_000_000
+    assert flow["net_external_cash_flow_usd"] == 85_000_000
+
+    snapshot = load_query_data_snapshot(root)
+    assert len(snapshot.funding_trend_inputs) == 1
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert len(rows) == 1
+    assert rows[0].net_external_cash_flow_usd == 85_000_000
+
+
+@pytest.mark.parametrize("field", ["plan_id", "plan_period", "source_document_id"])
+def test_funding_trend_rejects_mismatched_flow_identity(tmp_path: Path, field: str) -> None:
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run, **{field: "OTHER"})
+    with pytest.raises(QueryArtifactError, match=f"{field} conflicts with run manifest"):
+        load_query_data_snapshot(tmp_path)
+
+
+@pytest.mark.parametrize("value", [True, "100", float("inf"), float("nan")])
+def test_funding_trend_rejects_invalid_flow_amount(tmp_path: Path, value: object) -> None:
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run, employer_contributions_usd=value)
+    with pytest.raises(QueryArtifactError, match="employer_contributions_usd must be"):
+        load_query_data_snapshot(tmp_path)
+
+
+def test_funding_trend_flow_path_cannot_escape_run(tmp_path: Path) -> None:
+    run = _write_run(tmp_path / "root", "run-a", [_metric_row()])
+    flow = _write_flow_artifact(run)
+    outside = tmp_path / "outside.json"
+    flow.rename(outside)
+    flow.symlink_to(outside)
+    with pytest.raises(QueryArtifactError, match="escapes configured root"):
+        load_query_data_snapshot(tmp_path / "root")
+
+
+def test_funding_trend_repeated_flows_are_not_summed(tmp_path: Path) -> None:
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    for name in ("a", "b"):
+        _write_flow_artifact(_write_run(tmp_path, name, [_metric_row()]))
+    snapshot = load_query_data_snapshot(tmp_path)
+    assert len(snapshot.metric_history_rows) == 1
+    assert (
+        execute_funding_trend_view(list(snapshot.funding_trend_inputs))[
+            0
+        ].net_external_cash_flow_usd
+        == 85
+    )
+
+
+def test_funding_trend_conflicting_flows_remain_unresolved(tmp_path: Path) -> None:
+    _write_flow_artifact(_write_run(tmp_path, "a", [_metric_row()]))
+    _write_flow_artifact(_write_run(tmp_path, "b", [_metric_row()]), employer_contributions_usd=200)
+    snapshot = load_query_data_snapshot(tmp_path)
+    assert snapshot.funding_trend_inputs == ()
+    assert snapshot.funding_trend_conflicts[0].metric_target == "employer_contributions_usd"
+
+
 def test_load_query_data_snapshot_rejects_conflicting_duplicate_fact_id(
     tmp_path: Path,
 ) -> None:

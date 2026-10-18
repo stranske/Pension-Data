@@ -240,7 +240,23 @@ def _validate_manifest_row(
             raise QueryArtifactError(f"query artifact row {field} conflicts with run manifest")
 
 
-def _load_run_rows(root: Path, run_dir: Path) -> list[Mapping[str, object]]:
+def _validate_flow_row(row: Mapping[str, object], *, manifest_input: Mapping[str, object]) -> None:
+    """Financial disclosures belong only to their manifest's document/plan/period."""
+    _validate_manifest_row(row, manifest_input=manifest_input)
+    for field in (
+        "employer_contributions_usd",
+        "employee_contributions_usd",
+        "benefit_payments_usd",
+        "refunds_usd",
+    ):
+        _optional_finite_number(row, field)
+    for field in ("effective_period", "reported_at"):
+        _validate_temporal(_required_text(row, field), field=field)
+
+
+def _load_run_rows(
+    root: Path, run_dir: Path
+) -> tuple[list[Mapping[str, object]], list[Mapping[str, object]]]:
     resolved_run = _contained_existing_path(root, run_dir, kind="run directory")
     manifest_path = _contained_existing_path(
         root, resolved_run / "run_manifest.json", kind="run manifest"
@@ -264,7 +280,27 @@ def _load_run_rows(root: Path, run_dir: Path) -> list[Mapping[str, object]]:
         row = _required_mapping(item, field="staging_core_metrics row")
         _validate_manifest_row(row, manifest_input=manifest_input)
         rows.append(row)
-    return rows
+    # Old runs without a declared flow artifact remain usable: missing disclosure
+    # is unknown, never an invented zero. A declared but invalid artifact fails closed.
+    artifacts = _required_mapping(manifest.get("artifact_files", {}), field="artifact_files")
+    flow_file = artifacts.get("financial_flow_rows_json")
+    flows: list[Mapping[str, object]] = []
+    if flow_file is not None:
+        if not isinstance(flow_file, str) or not flow_file.strip():
+            raise QueryArtifactError("financial_flow_rows_json must be a non-empty path")
+        flow_path = _contained_existing_path(
+            root, resolved_run / flow_file, kind="financial_flow_rows.json"
+        )
+        if not flow_path.is_relative_to(resolved_run):
+            raise QueryArtifactError("financial flow artifact escapes its run directory")
+        flow_payload = _read_json(flow_path)
+        if not isinstance(flow_payload, list):
+            raise QueryArtifactError("financial_flow_rows.json must contain a list")
+        for item in flow_payload:
+            flow = _required_mapping(item, field="financial_flow row")
+            _validate_flow_row(flow, manifest_input=manifest_input)
+            flows.append(flow)
+    return rows, flows
 
 
 def _metric_target_name(metric_name: str) -> str | None:
@@ -322,6 +358,7 @@ def _resolve_metric_versions(
 
 def _build_funding_trend_projection(
     rows: Sequence[MetricHistoryRow],
+    flow_rows: Sequence[Mapping[str, object]] = (),
 ) -> tuple[
     tuple[FundingTrendInput, ...],
     tuple[FundingTrendPeriodConflict, ...],
@@ -344,6 +381,33 @@ def _build_funding_trend_projection(
                 normalized_value=row.normalized_value,
             )
         )
+
+    # Use the same document/version conflict policy as funded metrics. Replayed
+    # artifacts agree rather than being summed, and conflicting disclosures stay
+    # unresolved instead of silently choosing one document.
+    for flow in flow_rows:
+        key = (_required_text(flow, "plan_id"), _required_text(flow, "plan_period"))
+        for target in (
+            "employer_contributions_usd",
+            "employee_contributions_usd",
+            "benefit_payments_usd",
+            "refunds_usd",
+        ):
+            value = _optional_finite_number(flow, target)
+            if value is None:
+                continue
+            # Extractor outflows are signed negative; saved-view inputs use
+            # outflow magnitudes. Refunds are a separate outflow, counted once.
+            if target in {"benefit_payments_usd", "refunds_usd"}:
+                value = abs(value)
+            by_period.setdefault(key, {}).setdefault(target, []).append(
+                FundingTrendMetricVersion(
+                    source_document_id=_required_text(flow, "source_document_id"),
+                    effective_date=_required_text(flow, "effective_period"),
+                    ingestion_date=_required_text(flow, "reported_at"),
+                    normalized_value=value,
+                )
+            )
 
     conflicts: list[FundingTrendPeriodConflict] = []
     unresolved: list[FundingTrendUnresolvedPeriod] = []
@@ -389,6 +453,7 @@ def _build_funding_trend_projection(
                 employer_contributions_usd=resolved_values.get("employer_contributions_usd"),
                 employee_contributions_usd=resolved_values.get("employee_contributions_usd"),
                 benefit_payments_usd=resolved_values.get("benefit_payments_usd"),
+                refunds_usd=resolved_values.get("refunds_usd"),
             )
         )
 
@@ -422,8 +487,11 @@ def load_query_data_snapshot(artifact_root: Path) -> QueryDataSnapshot:
         raise QueryArtifactError("no completed one-PDF pilot runs found")
 
     rows_by_fact_id: dict[str, Mapping[str, object]] = {}
+    flow_rows: list[Mapping[str, object]] = []
     for run_dir in run_dirs:
-        for row in _load_run_rows(root, run_dir):
+        run_rows, run_flows = _load_run_rows(root, run_dir)
+        flow_rows.extend(run_flows)
+        for row in run_rows:
             fact_id = _required_text(row, "fact_id")
             existing = rows_by_fact_id.get(fact_id)
             if existing is not None and dict(existing) != dict(row):
@@ -446,7 +514,9 @@ def load_query_data_snapshot(artifact_root: Path) -> QueryDataSnapshot:
     )
     if not metric_rows:
         raise QueryArtifactError("completed pilot runs contain no query metric rows")
-    trend_inputs, trend_conflicts, unresolved_periods = _build_funding_trend_projection(metric_rows)
+    trend_inputs, trend_conflicts, unresolved_periods = _build_funding_trend_projection(
+        metric_rows, flow_rows
+    )
     return QueryDataSnapshot(
         metric_history_rows=metric_rows,
         funding_trend_inputs=trend_inputs,

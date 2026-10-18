@@ -19,6 +19,7 @@ class FundingTrendInput:
     employer_contributions_usd: float | None
     employee_contributions_usd: float | None
     benefit_payments_usd: float | None
+    refunds_usd: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -702,3 +702,14 @@ def test_load_saved_view_definitions_raises_for_duplicate_output_schema_names(
 
     with pytest.raises(ValueError, match="`output_schema` contains duplicate field names"):
         load_saved_view_definitions(config_dir=tmp_path)
+
+
+@pytest.mark.parametrize("benefits,refunds", [(30.0, 5.0), (-30.0, -5.0)])
+def test_funding_trend_counts_benefits_and_refunds_as_outflows(benefits, refunds) -> None:
+    from pension_data.query.saved_views.models import FundingTrendInput
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    result = execute_funding_trend_view(
+        [FundingTrendInput("SYN", "FY2024", 0.8, 100.0, 20.0, benefits, refunds)]
+    )
+    assert result[0].net_external_cash_flow_usd == 85.0
