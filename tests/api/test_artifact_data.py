@@ -299,10 +299,48 @@ def test_funding_trend_resolves_absolute_flow_path_under_run(tmp_path: Path) -> 
     assert rows[0].net_external_cash_flow_usd == 85
 
 
+def test_funding_trend_manifest_flow_path_survives_run_relocation(tmp_path: Path) -> None:
+    """Moving pilot artifacts must preserve the manifest's relative flow join."""
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    root, _ = _run_flow_pilot(tmp_path)
+    relocated_root = tmp_path / "relocated-artifacts"
+    root.rename(relocated_root)
+    run = relocated_root / "one_pdf_pilot" / "flow-pilot"
+    manifest = json.loads((run / "run_manifest.json").read_text())
+    declared = manifest["artifact_files"]["financial_flow_rows_json"]
+    assert not Path(declared).is_absolute()
+    assert (run / declared).is_file()
+    assert not root.exists()
+
+    snapshot = load_query_data_snapshot(relocated_root)
+
+    assert len(snapshot.funding_trend_inputs) == 1
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd == 85_000_000
+
+
 @pytest.mark.parametrize("field", ["plan_id", "plan_period", "source_document_id"])
 def test_funding_trend_rejects_mismatched_flow_identity(tmp_path: Path, field: str) -> None:
     run = _write_run(tmp_path, "run-a", [_metric_row()])
     _write_flow_artifact(run, **{field: "OTHER"})
+    with pytest.raises(QueryArtifactError, match=f"{field} conflicts with run manifest"):
+        load_query_data_snapshot(tmp_path)
+
+
+@pytest.mark.parametrize("field", ["plan_id", "plan_period", "source_document_id"])
+@pytest.mark.parametrize("mismatched_index", [0, 1])
+def test_funding_trend_rejects_mismatched_identity_among_valid_flow_rows(
+    tmp_path: Path, field: str, mismatched_index: int
+) -> None:
+    """A matching disclosure must not hide another row's conflicting identity."""
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    path = _write_flow_artifact(run)
+    matching = json.loads(path.read_text())[0]
+    rows = [dict(matching), dict(matching)]
+    rows[mismatched_index][field] = "OTHER"
+    path.write_text(json.dumps(rows), encoding="utf-8")
+
     with pytest.raises(QueryArtifactError, match=f"{field} conflicts with run manifest"):
         load_query_data_snapshot(tmp_path)
 
