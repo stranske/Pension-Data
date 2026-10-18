@@ -61,6 +61,83 @@ def test_saved_view_route_maps_auth_errors() -> None:
     assert "missing API key" in response.json()["detail"]
 
 
+@pytest.mark.parametrize(
+    "disclosure",
+    [
+        "disclosed",
+        "missing",
+        "mismatched_plan_id",
+        "mismatched_plan_period",
+        "mismatched_source_document_id",
+        "oversized",
+    ],
+)
+def test_funding_trend_http_uses_identity_bound_flow_artifacts(
+    tmp_path: Path, monkeypatch, disclosure: str
+) -> None:
+    from tests.api.test_artifact_data import _flow_artifact_path, _run_flow_pilot
+
+    root, result = _run_flow_pilot(tmp_path)
+    manifest_path = Path(result["run_manifest_json"])
+    manifest = json.loads(manifest_path.read_text())
+    path = _flow_artifact_path(
+        result["run_manifest_json"], manifest["artifact_files"]["financial_flow_rows_json"]
+    )
+    if disclosure == "missing":
+        del manifest["artifact_files"]["financial_flow_rows_json"]
+        manifest_path.write_text(json.dumps(manifest))
+    elif disclosure.startswith("mismatched_") or disclosure == "oversized":
+        rows = json.loads(path.read_text())
+        if disclosure.startswith("mismatched_"):
+            rows[0][disclosure.removeprefix("mismatched_")] = "OTHER"
+        else:
+            rows[0]["employer_contributions_usd"] = 10**400
+        path.write_text(json.dumps(rows))
+    monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
+    monkeypatch.setenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", str(root))
+    client, secret = _client_with_query_key()
+    response = client.get(
+        "/api/saved-views/funding-trend", headers={"Authorization": f"Bearer {secret}"}
+    )
+    if disclosure.startswith("mismatched_") or disclosure == "oversized":
+        assert response.status_code == 503
+        if disclosure.startswith("mismatched_"):
+            field = disclosure.removeprefix("mismatched_")
+            assert response.json()["detail"] == (
+                f"query artifact row {field} conflicts with run manifest"
+            )
+        else:
+            assert "employer_contributions_usd" in response.json()["detail"]
+    else:
+        assert response.status_code == 200
+        rows = response.json()["rows"]
+        assert len(rows) == 1
+        assert rows[0]["net_external_cash_flow_usd"] == (
+            85_000_000 if disclosure == "disclosed" else None
+        )
+
+
+def test_funding_trend_http_rejects_invalid_manifest_flow_path(tmp_path: Path, monkeypatch) -> None:
+    from tests.api.test_artifact_data import _metric_row, _write_flow_artifact, _write_run
+
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run)
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"]["financial_flow_rows_json"] = "invalid\x00flows.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
+    monkeypatch.setenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", str(tmp_path))
+    client, secret = _client_with_query_key()
+
+    response = client.get(
+        "/api/saved-views/funding-trend", headers={"Authorization": f"Bearer {secret}"}
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "invalid query artifact financial_flow_rows.json path"
+
+
 def test_default_app_uses_environment_api_key(monkeypatch) -> None:
     monkeypatch.setenv("PENSION_DATA_API_KEY", "test-env-secret")
     monkeypatch.setenv("PENSION_DATA_API_KEY_SCOPES", SCOPE_QUERY)

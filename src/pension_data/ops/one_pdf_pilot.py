@@ -399,6 +399,10 @@ def run_one_pdf_pilot(
         ingestion_date=pilot_input.ingestion_date,
         default_money_unit_scale=pilot_input.default_money_unit_scale,
     )
+    flow_path = run_root / "document_orchestration" / effective_run_id / "financial_flow_rows.json"
+    # Orchestration rewrites its outputs even when this document is already
+    # processed. Capture the prior disclosure before that skipped replay.
+    prior_flow_rows = _read_json_row_list(flow_path)
     ledger, next_state, orchestration_artifacts = run_document_orchestration(
         documents=[job],
         parser=_parser,
@@ -428,6 +432,9 @@ def run_one_pdf_pilot(
     )
 
     if _ledger_has_skipped_outcomes(ledger):
+        if not orchestration_artifacts["financial_flow_rows"] and prior_flow_rows:
+            orchestration_artifacts["financial_flow_rows"] = prior_flow_rows
+            _write_json(flow_path, prior_flow_rows)
         persistence_dir = run_root / "extraction_persistence"
         if not core_rows:
             core_rows = _read_json_row_list(persistence_dir / "staging_core_metrics.json")
@@ -500,6 +507,14 @@ def run_one_pdf_pilot(
         "document_outcome_count": len(ledger.document_outcomes),
         "state": asdict(next_state),
         "artifact_files": {
+            "financial_flow_rows_json": str(
+                (
+                    run_root
+                    / "document_orchestration"
+                    / effective_run_id
+                    / "financial_flow_rows.json"
+                ).resolve()
+            ),
             "parser_result_json": str(parser_json),
             "coverage_summary_json": str(coverage_json),
             "component_coverage_report_json": str(component_coverage_report_json),

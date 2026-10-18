@@ -3,6 +3,7 @@
     "component_coverage_report_json",
     "coverage_summary_json",
     "extraction_warnings_json",
+    "financial_flow_rows_json",
     "orchestration_ledger_json",
     "orchestration_published_rows_json",
     "orchestration_review_queue_rows_json",

@@ -76,6 +76,8 @@ def _contained_existing_path(root: Path, candidate: Path, *, kind: str) -> Path:
         resolved = candidate.resolve(strict=True)
     except OSError as exc:
         raise QueryArtifactError(f"missing query artifact {kind}") from exc
+    except ValueError as exc:
+        raise QueryArtifactError(f"invalid query artifact {kind} path") from exc
     if not resolved.is_relative_to(root):
         raise QueryArtifactError(f"query artifact {kind} escapes configured root")
     return resolved
@@ -109,7 +111,10 @@ def _optional_finite_number(row: Mapping[str, object], field: str) -> float | No
         return None
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise QueryArtifactError(f"query artifact row {field} must be numeric or null")
-    normalized = float(value)
+    try:
+        normalized = float(value)
+    except OverflowError as exc:
+        raise QueryArtifactError(f"query artifact row {field} must be finite") from exc
     if not math.isfinite(normalized):
         raise QueryArtifactError(f"query artifact row {field} must be finite")
     return normalized
@@ -240,7 +245,34 @@ def _validate_manifest_row(
             raise QueryArtifactError(f"query artifact row {field} conflicts with run manifest")
 
 
-def _load_run_rows(root: Path, run_dir: Path) -> list[Mapping[str, object]]:
+def _validate_flow_row(row: Mapping[str, object], *, manifest_input: Mapping[str, object]) -> None:
+    """Financial disclosures belong only to their manifest's document/plan/period."""
+    _validate_manifest_row(row, manifest_input=manifest_input)
+    for field in (
+        "employer_contributions_usd",
+        "employee_contributions_usd",
+        "benefit_payments_usd",
+        "refunds_usd",
+    ):
+        _optional_finite_number(row, field)
+    for field in ("effective_period", "reported_at"):
+        _validate_temporal(_required_text(row, field), field=field)
+
+
+def _resolve_run_artifact_path(root: Path, resolved_run: Path, declared: str, *, kind: str) -> Path:
+    """Resolve a manifest-declared path under its run, with root containment."""
+    candidate = Path(declared.strip())
+    if not candidate.is_absolute():
+        candidate = resolved_run / candidate
+    path = _contained_existing_path(root, candidate, kind=kind)
+    if not path.is_relative_to(resolved_run):
+        raise QueryArtifactError(f"{kind} escapes its run directory")
+    return path
+
+
+def _load_run_rows(
+    root: Path, run_dir: Path
+) -> tuple[list[Mapping[str, object]], list[Mapping[str, object]]]:
     resolved_run = _contained_existing_path(root, run_dir, kind="run directory")
     manifest_path = _contained_existing_path(
         root, resolved_run / "run_manifest.json", kind="run manifest"
@@ -264,7 +296,28 @@ def _load_run_rows(root: Path, run_dir: Path) -> list[Mapping[str, object]]:
         row = _required_mapping(item, field="staging_core_metrics row")
         _validate_manifest_row(row, manifest_input=manifest_input)
         rows.append(row)
-    return rows
+    # Old runs without a declared flow artifact remain usable: missing disclosure
+    # is unknown, never an invented zero. A declared but invalid artifact fails closed.
+    artifacts = _required_mapping(manifest.get("artifact_files", {}), field="artifact_files")
+    flow_file = artifacts.get("financial_flow_rows_json")
+    flows: list[Mapping[str, object]] = []
+    if "financial_flow_rows_json" in artifacts:
+        if not isinstance(flow_file, str) or not flow_file.strip():
+            raise QueryArtifactError("financial_flow_rows_json must be a non-empty path")
+        flow_path = _resolve_run_artifact_path(
+            root,
+            resolved_run,
+            flow_file,
+            kind="financial_flow_rows.json",
+        )
+        flow_payload = _read_json(flow_path)
+        if not isinstance(flow_payload, list):
+            raise QueryArtifactError("financial_flow_rows.json must contain a list")
+        for item in flow_payload:
+            flow = _required_mapping(item, field="financial_flow row")
+            _validate_flow_row(flow, manifest_input=manifest_input)
+            flows.append(flow)
+    return rows, flows
 
 
 def _metric_target_name(metric_name: str) -> str | None:
@@ -322,6 +375,7 @@ def _resolve_metric_versions(
 
 def _build_funding_trend_projection(
     rows: Sequence[MetricHistoryRow],
+    flow_rows: Sequence[Mapping[str, object]] = (),
 ) -> tuple[
     tuple[FundingTrendInput, ...],
     tuple[FundingTrendPeriodConflict, ...],
@@ -334,6 +388,11 @@ def _build_funding_trend_projection(
             continue
         if target == "funded_ratio" and row.normalized_unit not in {None, "ratio"}:
             raise QueryArtifactError("funded_ratio must use normalized unit 'ratio'")
+        # Compare staged benefits with flow-artifact outflow magnitudes before
+        # resolving versions, so a sign convention alone cannot create a conflict.
+        value = (
+            abs(row.normalized_value) if target == "benefit_payments_usd" else row.normalized_value
+        )
         key = (row.entity_id, row.plan_period)
         metric_versions = by_period.setdefault(key, {}).setdefault(target, [])
         metric_versions.append(
@@ -341,9 +400,36 @@ def _build_funding_trend_projection(
                 source_document_id=row.source_document_id,
                 effective_date=row.effective_date,
                 ingestion_date=row.ingestion_date,
-                normalized_value=row.normalized_value,
+                normalized_value=value,
             )
         )
+
+    # Use the same document/version conflict policy as funded metrics. Replayed
+    # artifacts agree rather than being summed, and conflicting disclosures stay
+    # unresolved instead of silently choosing one document.
+    for flow in flow_rows:
+        key = (_required_text(flow, "plan_id"), _required_text(flow, "plan_period"))
+        for target in (
+            "employer_contributions_usd",
+            "employee_contributions_usd",
+            "benefit_payments_usd",
+            "refunds_usd",
+        ):
+            flow_value = _optional_finite_number(flow, target)
+            if flow_value is None:
+                continue
+            # Extractor outflows are signed negative; saved-view inputs use
+            # outflow magnitudes. Refunds are a separate outflow, counted once.
+            if target in {"benefit_payments_usd", "refunds_usd"}:
+                flow_value = abs(flow_value)
+            by_period.setdefault(key, {}).setdefault(target, []).append(
+                FundingTrendMetricVersion(
+                    source_document_id=_required_text(flow, "source_document_id"),
+                    effective_date=_required_text(flow, "effective_period"),
+                    ingestion_date=_required_text(flow, "reported_at"),
+                    normalized_value=flow_value,
+                )
+            )
 
     conflicts: list[FundingTrendPeriodConflict] = []
     unresolved: list[FundingTrendUnresolvedPeriod] = []
@@ -353,7 +439,7 @@ def _build_funding_trend_projection(
         resolved_values: dict[str, float] = {}
         period_conflicts: list[FundingTrendPeriodConflict] = []
         for target, versions in sorted(metric_map.items()):
-            value, conflict = _resolve_metric_versions(versions)
+            resolved_value, conflict = _resolve_metric_versions(versions)
             if conflict is not None:
                 period_conflicts.append(
                     FundingTrendPeriodConflict(
@@ -364,8 +450,8 @@ def _build_funding_trend_projection(
                     )
                 )
                 continue
-            if value is not None:
-                resolved_values[target] = value
+            if resolved_value is not None:
+                resolved_values[target] = resolved_value
 
         if period_conflicts:
             conflicts.extend(period_conflicts)
@@ -381,6 +467,13 @@ def _build_funding_trend_projection(
         funded_ratio = resolved_values.get("funded_ratio")
         if funded_ratio is None:
             continue
+        net_flow = sum(
+            (-abs(value) if target in {"benefit_payments_usd", "refunds_usd"} else value)
+            for target, value in resolved_values.items()
+            if target != "funded_ratio"
+        )
+        if not math.isfinite(net_flow):
+            raise QueryArtifactError("funding trend net cash flow must be finite")
         inputs.append(
             FundingTrendInput(
                 plan_id=plan_id,
@@ -389,14 +482,18 @@ def _build_funding_trend_projection(
                 employer_contributions_usd=resolved_values.get("employer_contributions_usd"),
                 employee_contributions_usd=resolved_values.get("employee_contributions_usd"),
                 benefit_payments_usd=resolved_values.get("benefit_payments_usd"),
+                refunds_usd=resolved_values.get("refunds_usd"),
             )
         )
 
     return tuple(inputs), tuple(conflicts), tuple(unresolved)
 
 
-def _funding_trend_inputs(rows: Sequence[MetricHistoryRow]) -> tuple[FundingTrendInput, ...]:
-    inputs, _, _ = _build_funding_trend_projection(rows)
+def _funding_trend_inputs(
+    rows: Sequence[MetricHistoryRow],
+    flow_rows: Sequence[Mapping[str, object]] = (),
+) -> tuple[FundingTrendInput, ...]:
+    inputs, _, _ = _build_funding_trend_projection(rows, flow_rows)
     return inputs
 
 
@@ -422,8 +519,11 @@ def load_query_data_snapshot(artifact_root: Path) -> QueryDataSnapshot:
         raise QueryArtifactError("no completed one-PDF pilot runs found")
 
     rows_by_fact_id: dict[str, Mapping[str, object]] = {}
+    flow_rows: list[Mapping[str, object]] = []
     for run_dir in run_dirs:
-        for row in _load_run_rows(root, run_dir):
+        run_rows, run_flows = _load_run_rows(root, run_dir)
+        flow_rows.extend(run_flows)
+        for row in run_rows:
             fact_id = _required_text(row, "fact_id")
             existing = rows_by_fact_id.get(fact_id)
             if existing is not None and dict(existing) != dict(row):
@@ -446,7 +546,9 @@ def load_query_data_snapshot(artifact_root: Path) -> QueryDataSnapshot:
     )
     if not metric_rows:
         raise QueryArtifactError("completed pilot runs contain no query metric rows")
-    trend_inputs, trend_conflicts, unresolved_periods = _build_funding_trend_projection(metric_rows)
+    trend_inputs, trend_conflicts, unresolved_periods = _build_funding_trend_projection(
+        metric_rows, flow_rows
+    )
     return QueryDataSnapshot(
         metric_history_rows=metric_rows,
         funding_trend_inputs=trend_inputs,

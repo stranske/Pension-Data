@@ -16,6 +16,18 @@ Output fields:
 - `funded_ratio_change`
 - `net_external_cash_flow_usd`
 
+Pilot-backed queries resolve `financial_flow_rows_json` from each run manifest
+and require matching plan, period, and source-document identities. Contributions
+are inflows; benefits and refunds are separate outflows counted once, including
+when extraction represents them as negative values. Missing disclosures remain
+unknown (`null`). Replayed agreeing artifacts are not added together; conflicting
+document/version values use the existing unresolved-period policy.
+
+New one-PDF pilot manifests declare the orchestration flow artifact. Older
+manifests without that declaration remain readable with unknown flow context.
+This loader consumes disclosed parser rows; it does not extend the default PDF
+parser's vocabulary to recognize additional monetary table labels.
+
 Assumptions:
 - `plan_period` values are fiscal-year sortable tokens (for example `FY2024`, `FY2025`).
 - `benefit_payments_usd` is modeled as outflow and subtracted from net external flow.

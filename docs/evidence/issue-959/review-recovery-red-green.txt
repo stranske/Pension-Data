@@ -1,0 +1,154 @@
+Review recovery: explicitnull artifact declaration, skipped replay disclosures, nonfinite total.
+Actual3RED on disconnects; all3 source files byte-restored;3GREEN.
+
+RED
+============================= test session starts ==============================
+platform darwin -- Python 3.12.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/teacher/.codex/automations/pd-workloop-resume/worktrees/Pension-Data-issue-959-flow-trend
+configfile: pyproject.toml
+plugins: langsmith-0.10.9, cov-7.1.0, xdist-3.8.0, rerunfailures-16.3, datadir-1.8.0, typeguard-4.5.1, asyncio-1.3.0, pytest_httpserver-1.1.3, hypothesis-6.155.7, regressions-2.11.0, Faker-40.39.0, anyio-4.13.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 3 items
+
+tests/api/test_artifact_data.py F                                        [ 33%]
+tests/ops/test_one_pdf_pilot.py F                                        [ 66%]
+tests/query/test_saved_views.py F                                        [100%]
+
+=================================== FAILURES ===================================
+________________ test_explicit_null_flow_declaration_is_invalid ________________
+
+tmp_path = PosixPath('/private/var/folders/qm/w0dtc0j132gd6ymf1hxtd2p00000gp/T/pytest-of-teacher/pytest-6711/test_explicit_null_flow_declar0')
+
+    def test_explicit_null_flow_declaration_is_invalid(tmp_path):
+        run = _write_run(tmp_path, "run", [_metric_row()])
+        _write_flow_artifact(run)
+        manifest_path = run / "run_manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["artifact_files"]["financial_flow_rows_json"] = None
+        manifest_path.write_text(json.dumps(manifest))
+>       with pytest.raises(QueryArtifactError, match="must be a non-empty path"):
+E       Failed: DID NOT RAISE QueryArtifactError
+
+tests/api/test_artifact_data.py:918: Failed
+________ test_skipped_pilot_replay_preserves_disclosed_financial_flows _________
+
+tmp_path = PosixPath('/private/var/folders/qm/w0dtc0j132gd6ymf1hxtd2p00000gp/T/pytest-of-teacher/pytest-6711/test_skipped_pilot_replay_pres0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11ba2be00>
+
+    def test_skipped_pilot_replay_preserves_disclosed_financial_flows(tmp_path, monkeypatch):
+        from dataclasses import replace
+    
+        import pension_data.ops.one_pdf_pilot as pilot_module
+        from pension_data.api.artifact_data import load_query_data_snapshot
+        from pension_data.query.saved_views.service import execute_funding_trend_view
+    
+        original_parser = pilot_module.parse_pdf_to_funded_input
+    
+        def disclosed_parser(payload):
+            result = original_parser(payload)
+            assert result.raw is not None
+            flow_rows = tuple(
+                {"label": label, "value": value, "evidence_ref": "p.1#flows"}
+                for label, value in [
+                    ("Employer Contributions", "$100 million"),
+                    ("Employee Contributions", "$20 million"),
+                    ("Benefit Payments", "$-30 million"),
+                    ("Refunds", "$-5 million"),
+                ]
+            )
+            return replace(
+                result, raw=replace(result.raw, table_rows=(*result.raw.table_rows, *flow_rows))
+            )
+    
+        monkeypatch.setattr(pilot_module, "parse_pdf_to_funded_input", disclosed_parser)
+        fixture = Path(__file__).resolve().parents[1] / "golden/one_pdf_pilot/fixture_synthetic.pdf"
+        pilot_input = OnePdfPilotInput(
+            pdf_path=fixture,
+            plan_id="FLOW",
+            plan_period="FY2024",
+            effective_date="2024-06-30",
+            ingestion_date="2026-01-01",
+        )
+        root = tmp_path / "outputs"
+        first = run_one_pdf_pilot(pilot_input=pilot_input, output_root=root, run_id="replay-flows")
+        manifest = json.loads(Path(first["run_manifest_json"]).read_text())
+        flow_path = Path(manifest["artifact_files"]["financial_flow_rows_json"])
+        before = json.loads(flow_path.read_text())
+        assert len(before) == 1 and before[0]["net_external_cash_flow_usd"] == 85_000_000
+        state_payload = json.loads(Path(first["orchestration_state_json"]).read_text())
+        state = DocumentOrchestrationState(
+            artifact_records=tuple(
+                RawArtifactRecord(**row) for row in state_payload["artifact_records"]
+            ),
+            processed_artifact_ids=tuple(state_payload["processed_artifact_ids"]),
+            published_fact_ids=tuple(state_payload["published_fact_ids"]),
+        )
+        second = run_one_pdf_pilot(
+            pilot_input=pilot_input, output_root=root, run_id="replay-flows", state=state
+        )
+        ledger = json.loads(Path(second["orchestration_ledger_json"]).read_text())
+        assert any(row["status"] == "skipped" for row in ledger["document_outcomes"])
+>       assert json.loads(flow_path.read_text()) == before
+E       AssertionError: assert [] == [{'beginning_...artial', ...}]
+E         
+E         Right contains one more item: {'beginning_aum_usd': None, 'benefit_payments_usd': -30000000.0, 'consistency_gap_usd': None, 'disclosure_level': 'partial', ...}
+E         Use -v to get more diff
+
+tests/ops/test_one_pdf_pilot.py:500: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pypdf._reader:_utils.py:457 invalid pdf header: b'Funde'
+WARNING  pypdf._reader:_utils.py:457 EOF marker not found
+WARNING  pypdf._reader:_utils.py:457 invalid pdf header: b'Funde'
+WARNING  pypdf._reader:_utils.py:457 EOF marker not found
+WARNING  pypdf._reader:_utils.py:457 invalid pdf header: b'Funde'
+WARNING  pypdf._reader:_utils.py:457 EOF marker not found
+WARNING  pypdf._reader:_utils.py:457 invalid pdf header: b'Funde'
+WARNING  pypdf._reader:_utils.py:457 EOF marker not found
+_________________ test_funding_trend_rejects_overflowed_total __________________
+
+    def test_funding_trend_rejects_overflowed_total():
+        row = FundingTrendInput("SYN", "FY2024", 0.8, None, None, 1e308, 1e308)
+>       with pytest.raises(ValueError, match="must be finite"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/query/test_saved_views.py:738: Failed
+=============================== warnings summary ===============================
+tests/ops/test_one_pdf_pilot.py::test_skipped_pilot_replay_preserves_disclosed_financial_flows
+  /opt/anaconda3/lib/python3.12/site-packages/pandas/core/computation/expressions.py:23: UserWarning: Pandas requires version '2.10.2' or newer of 'numexpr' (version '2.8.7' currently installed).
+    from pandas.core.computation.check import NUMEXPR_INSTALLED
+
+tests/ops/test_one_pdf_pilot.py::test_skipped_pilot_replay_preserves_disclosed_financial_flows
+  /opt/anaconda3/lib/python3.12/site-packages/pandas/core/arrays/masked.py:56: UserWarning: Pandas requires version '1.4.2' or newer of 'bottleneck' (version '1.3.7' currently installed).
+    from pandas.core import (
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/api/test_artifact_data.py::test_explicit_null_flow_declaration_is_invalid
+FAILED tests/ops/test_one_pdf_pilot.py::test_skipped_pilot_replay_preserves_disclosed_financial_flows
+FAILED tests/query/test_saved_views.py::test_funding_trend_rejects_overflowed_total
+======================== 3 failed, 2 warnings in 1.24s =========================
+
+GREEN
+============================= test session starts ==============================
+platform darwin -- Python 3.12.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/teacher/.codex/automations/pd-workloop-resume/worktrees/Pension-Data-issue-959-flow-trend
+configfile: pyproject.toml
+plugins: langsmith-0.10.9, cov-7.1.0, xdist-3.8.0, rerunfailures-16.3, datadir-1.8.0, typeguard-4.5.1, asyncio-1.3.0, pytest_httpserver-1.1.3, hypothesis-6.155.7, regressions-2.11.0, Faker-40.39.0, anyio-4.13.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 3 items
+
+tests/api/test_artifact_data.py .                                        [ 33%]
+tests/ops/test_one_pdf_pilot.py .                                        [ 66%]
+tests/query/test_saved_views.py .                                        [100%]
+
+=============================== warnings summary ===============================
+tests/ops/test_one_pdf_pilot.py::test_skipped_pilot_replay_preserves_disclosed_financial_flows
+  /opt/anaconda3/lib/python3.12/site-packages/pandas/core/computation/expressions.py:23: UserWarning: Pandas requires version '2.10.2' or newer of 'numexpr' (version '2.8.7' currently installed).
+    from pandas.core.computation.check import NUMEXPR_INSTALLED
+
+tests/ops/test_one_pdf_pilot.py::test_skipped_pilot_replay_preserves_disclosed_financial_flows
+  /opt/anaconda3/lib/python3.12/site-packages/pandas/core/arrays/masked.py:56: UserWarning: Pandas requires version '1.4.2' or newer of 'bottleneck' (version '1.3.7' currently installed).
+    from pandas.core import (
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 3 passed, 2 warnings in 0.99s =========================

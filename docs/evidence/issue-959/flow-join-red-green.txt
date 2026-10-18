@@ -1,0 +1,35 @@
+Command: python3 -m pytest tests/api/test_artifact_data.py::test_funding_trend_joins_actual_pilot_financial_flow_output -q
+Mutation: disconnect flow_rows from _build_funding_trend_projection(metric_rows, flow_rows).
+Actual RED: exit1. Exact source bytes restored before GREEN: exit0.
+Source SHA256:76de6d13da0dd7ec4338ffbb4949c257a90e1b49d9d7ef81b815888d323da3b4
+
+RED
+============================= test session starts ==============================
+platform linux -- Python 3.14.8, pytest-9.1.1, pluggy-1.7.0
+rootdir: /home/runner/work/Pension-Data/Pension-Data
+configfile: pyproject.toml
+plugins: regressions-2.11.0, datadir-1.8.0, langsmith-0.14.11, platformdirs-4.13.4, cov-7.1.0, anyio-4.15.1
+collected 1 item
+
+tests/api/test_artifact_data.py F                                        [100%]
+
+=================================== FAILURES ===================================
+E   AssertionError: assert None == 85000000
+     +  where None = FundingTrendRow(plan_id='SYN-PLAN', plan_period='FY2024', funded_ratio=0.784, funded_ratio_change=None, net_external_cash_flow_usd=None).net_external_cash_flow_usd
+/home/runner/work/Pension-Data/Pension-Data/tests/api/test_artifact_data.py:200: AssertionError: assert None == 85000000
+=========================== short test summary info ============================
+FAILED tests/api/test_artifact_data.py::test_funding_trend_joins_actual_pilot_financial_flow_output - AssertionError: assert None == 85000000
+ +  where None = FundingTrendRow(plan_id='SYN-PLAN', plan_period='FY2024', funded_ratio=0.784, funded_ratio_change=None, net_external_cash_flow_usd=None).net_external_cash_flow_usd
+============================== 1 failed in 0.19s ===============================
+
+GREEN
+============================= test session starts ==============================
+platform linux -- Python 3.14.8, pytest-9.1.1, pluggy-1.7.0
+rootdir: /home/runner/work/Pension-Data/Pension-Data
+configfile: pyproject.toml
+plugins: regressions-2.11.0, datadir-1.8.0, langsmith-0.14.11, platformdirs-4.13.4, cov-7.1.0, anyio-4.15.1
+collected 1 item
+
+tests/api/test_artifact_data.py .                                        [100%]
+
+============================== 1 passed in 0.19s ===============================

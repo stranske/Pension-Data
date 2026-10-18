@@ -702,3 +702,38 @@ def test_load_saved_view_definitions_raises_for_duplicate_output_schema_names(
 
     with pytest.raises(ValueError, match="`output_schema` contains duplicate field names"):
         load_saved_view_definitions(config_dir=tmp_path)
+
+
+@pytest.mark.parametrize("benefits,refunds", [(30.0, 5.0), (-30.0, -5.0)])
+def test_funding_trend_counts_benefits_and_refunds_as_outflows(benefits, refunds) -> None:
+    from pension_data.query.saved_views.models import FundingTrendInput
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    result = execute_funding_trend_view(
+        [FundingTrendInput("SYN", "FY2024", 0.8, 100.0, 20.0, benefits, refunds)]
+    )
+    assert result[0].net_external_cash_flow_usd == 85.0
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "employer_contributions_usd",
+        "employee_contributions_usd",
+        "benefit_payments_usd",
+        "refunds_usd",
+    ],
+)
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_funding_trend_rejects_nonfinite_components(field, value):
+    from dataclasses import replace
+
+    row = FundingTrendInput("SYN", "FY2024", 0.8, 100.0, 20.0, 30.0, 5.0)
+    with pytest.raises(ValueError, match="must be finite"):
+        execute_funding_trend_view([replace(row, **{field: value})])
+
+
+def test_funding_trend_rejects_overflowed_total():
+    row = FundingTrendInput("SYN", "FY2024", 0.8, None, None, 1e308, 1e308)
+    with pytest.raises(ValueError, match="must be finite"):
+        execute_funding_trend_view([row])

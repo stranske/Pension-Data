@@ -82,6 +82,517 @@ def test_load_query_data_snapshot_maps_metric_and_funding_rows(tmp_path: Path) -
     assert snapshot.funding_trend_inputs[0].employer_contributions_usd is None
 
 
+def _write_flow_artifact(run_root: Path, **overrides: object) -> Path:
+    row = {
+        "plan_id": "SYN-PLAN",
+        "plan_period": "FY2024",
+        "source_document_id": "doc:syn-plan",
+        "effective_period": "2024-06-30",
+        "reported_at": "2026-01-01",
+        "employer_contributions_usd": 100.0,
+        "employee_contributions_usd": 20.0,
+        "benefit_payments_usd": -30.0,
+        "refunds_usd": -5.0,
+        **overrides,
+    }
+    path = run_root / "flows.json"
+    path.write_text(json.dumps([row]), encoding="utf-8")
+    manifest_path = run_root / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"] = {"financial_flow_rows_json": "flows.json"}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return path
+
+
+def _run_flow_pilot(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """Exercise real orchestration from disclosed parser rows, then its saved artifacts.
+
+    The default PDF parser only recognizes funded metrics; monetary parser coverage
+    is outside issue 959. Supply its public parser boundary explicitly here.
+    """
+    from pension_data.extract.actuarial.metrics import RawFundedActuarialInput
+    from pension_data.ops.document_orchestration import (
+        DocumentOrchestrationState,
+        SourceDocumentJobItem,
+        run_document_orchestration,
+    )
+
+    root = tmp_path / "artifacts"
+    run = root / "one_pdf_pilot" / "flow-pilot"
+    raw = RawFundedActuarialInput(
+        source_document_id="doc:syn-plan",
+        source_url="https://example.test/flow.pdf",
+        effective_date="2024-06-30",
+        ingestion_date="2026-01-01",
+        default_money_unit_scale="million_usd",
+        text_blocks=(),
+        table_rows=tuple(
+            {"label": label, "value": value, "evidence_ref": "p.1#table"}
+            for label, value in [
+                ("Funded Ratio", "78.4%"),
+                ("AAL", "$640 million"),
+                ("AVA", "$501.8 million"),
+                ("Discount Rate", "6.8%"),
+                ("Employer Contribution Rate", "12.4%"),
+                ("Employee Contribution Rate", "7.5%"),
+                ("Participant Count", "325000"),
+                ("Employer Contributions", "$100 million"),
+                ("Employee Contributions", "$20 million"),
+                ("Benefit Payments", "$-30 million"),
+                ("Refunds", "$-5 million"),
+            ]
+        ),
+    )
+    job = SourceDocumentJobItem(
+        plan_id="SYN-PLAN",
+        plan_period="FY2024",
+        source_url=raw.source_url,
+        fetched_at="2026-01-01T00:00:00Z",
+        mime_type="application/pdf",
+        content_bytes=b"synthetic disclosed flow report",
+        source_document_id=raw.source_document_id,
+        effective_date=raw.effective_date,
+        ingestion_date=raw.ingestion_date,
+        default_money_unit_scale="million_usd",
+    )
+    ledger, _, artifacts = run_document_orchestration(
+        documents=[job],
+        parser=lambda _item, _artifact: raw,
+        state=DocumentOrchestrationState(),
+        run_id="flow-pilot",
+        output_root=run,
+    )
+    assert ledger.status == "success"
+    _write_run(root, "flow-pilot", artifacts["published_rows"])
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    # Relative to the run directory so relocation still resolves via containment.
+    manifest["artifact_files"] = {
+        "financial_flow_rows_json": "document_orchestration/flow-pilot/financial_flow_rows.json"
+    }
+    manifest_path.write_text(json.dumps(manifest))
+    return root, {"run_manifest_json": str(manifest_path)}
+
+
+def _flow_artifact_path(run_manifest_json: str, declared: str) -> Path:
+    path = Path(declared)
+    if path.is_absolute():
+        return path
+    return Path(run_manifest_json).parent / path
+
+
+def test_funding_trend_joins_actual_pilot_financial_flow_output(tmp_path: Path) -> None:
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    root, result = _run_flow_pilot(tmp_path)
+    manifest = json.loads(Path(result["run_manifest_json"]).read_text())
+    declared = manifest["artifact_files"]["financial_flow_rows_json"]
+    assert not Path(declared).is_absolute()
+    flow = json.loads(_flow_artifact_path(result["run_manifest_json"], declared).read_text())[0]
+    assert flow["benefit_payments_usd"] == -30_000_000
+    assert flow["refunds_usd"] == -5_000_000
+    assert flow["net_external_cash_flow_usd"] == 85_000_000
+
+    snapshot = load_query_data_snapshot(root)
+    assert len(snapshot.funding_trend_inputs) == 1
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert len(rows) == 1
+    assert rows[0].net_external_cash_flow_usd == 85_000_000
+
+
+def test_funding_trend_missing_flow_artifact_yields_null_net(tmp_path: Path) -> None:
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    _write_run(tmp_path, "run-a", [_metric_row()])
+    snapshot = load_query_data_snapshot(tmp_path)
+    assert snapshot.funding_trend_inputs[0].employer_contributions_usd is None
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd is None
+
+
+@pytest.mark.parametrize("disclosure", ["empty", "omitted", "null"])
+def test_funding_trend_undisclosed_flow_components_remain_null(
+    tmp_path: Path, disclosure: str
+) -> None:
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    path = _write_flow_artifact(run)
+    payload = json.loads(path.read_text())
+    for field in (
+        "employer_contributions_usd",
+        "employee_contributions_usd",
+        "benefit_payments_usd",
+        "refunds_usd",
+    ):
+        if disclosure == "omitted":
+            del payload[0][field]
+        else:
+            payload[0][field] = None
+    path.write_text(json.dumps([] if disclosure == "empty" else payload), encoding="utf-8")
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.funding_trend_inputs) == 1
+    trend = snapshot.funding_trend_inputs[0]
+    assert trend.funded_ratio == pytest.approx(0.784)
+    assert trend.employer_contributions_usd is None
+    assert trend.employee_contributions_usd is None
+    assert trend.benefit_payments_usd is None
+    assert trend.refunds_usd is None
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd is None
+
+
+@pytest.mark.parametrize(
+    "field, direction",
+    [
+        ("employer_contributions_usd", 1),
+        ("employee_contributions_usd", 1),
+        ("benefit_payments_usd", -1),
+        ("refunds_usd", -1),
+    ],
+)
+@pytest.mark.parametrize("amount", [0.0, 25.0])
+def test_funding_trend_partial_disclosure_preserves_zero_and_unknown_components(
+    tmp_path: Path, field: str, direction: int, amount: float
+) -> None:
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    components: dict[str, float | None] = {
+        "employer_contributions_usd": None,
+        "employee_contributions_usd": None,
+        "benefit_payments_usd": None,
+        "refunds_usd": None,
+    }
+    components[field] = direction * amount
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run, **components)
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.funding_trend_inputs) == 1
+    trend = snapshot.funding_trend_inputs[0]
+    for component in components:
+        if component == field:
+            assert getattr(trend, component) == amount
+        else:
+            assert getattr(trend, component) is None
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd == direction * amount
+
+
+def test_funding_trend_resolves_absolute_flow_path_under_run(tmp_path: Path) -> None:
+    """Absolute manifest paths still resolve when they stay inside the run tree."""
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run)
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    absolute = (run / "flows.json").resolve()
+    manifest["artifact_files"] = {"financial_flow_rows_json": str(absolute)}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    snapshot = load_query_data_snapshot(tmp_path)
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd == 85
+
+
+def test_funding_trend_uses_manifest_selected_flow_over_stale_files(tmp_path: Path) -> None:
+    """Existing flow files must not override the disclosure selected by the manifest."""
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    original = _write_flow_artifact(run, employer_contributions_usd=200.0)
+    selected = run / "disclosures" / "revised-flows.json"
+    selected.parent.mkdir()
+    original.rename(selected)
+    stale = json.loads(selected.read_text())
+    stale[0]["employer_contributions_usd"] = 100.0
+    for name in ("flows.json", "financial_flow_rows.json"):
+        (run / name).write_text(json.dumps(stale), encoding="utf-8")
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"]["financial_flow_rows_json"] = selected.relative_to(run).as_posix()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.funding_trend_inputs) == 1
+    assert snapshot.funding_trend_inputs[0].employer_contributions_usd == 200.0
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd == 185.0
+
+
+def test_funding_trend_manifest_flow_path_survives_run_relocation(tmp_path: Path) -> None:
+    """Moving pilot artifacts must preserve the manifest's relative flow join."""
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    root, _ = _run_flow_pilot(tmp_path)
+    relocated_root = tmp_path / "relocated-artifacts"
+    root.rename(relocated_root)
+    run = relocated_root / "one_pdf_pilot" / "flow-pilot"
+    manifest = json.loads((run / "run_manifest.json").read_text())
+    declared = manifest["artifact_files"]["financial_flow_rows_json"]
+    assert not Path(declared).is_absolute()
+    assert (run / declared).is_file()
+    assert not root.exists()
+
+    snapshot = load_query_data_snapshot(relocated_root)
+
+    assert len(snapshot.funding_trend_inputs) == 1
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd == 85_000_000
+
+
+@pytest.mark.parametrize("field", ["plan_id", "plan_period", "source_document_id"])
+def test_funding_trend_rejects_mismatched_flow_identity(tmp_path: Path, field: str) -> None:
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run, **{field: "OTHER"})
+    with pytest.raises(QueryArtifactError, match=f"{field} conflicts with run manifest"):
+        load_query_data_snapshot(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        pytest.param(None, "financial_flow_rows.json must contain a list", id="null-payload"),
+        pytest.param({}, "financial_flow_rows.json must contain a list", id="object-payload"),
+        pytest.param([None], "query artifact financial_flow row must be an object", id="null-row"),
+        pytest.param([[]], "query artifact financial_flow row must be an object", id="list-row"),
+        pytest.param(
+            ["invalid"], "query artifact financial_flow row must be an object", id="string-row"
+        ),
+    ],
+)
+def test_funding_trend_rejects_malformed_flow_payload(
+    tmp_path: Path, payload: object, error: str
+) -> None:
+    """Malformed disclosures must fail validation before the funding-trend join."""
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    path = _write_flow_artifact(run)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(QueryArtifactError) as exc_info:
+        load_query_data_snapshot(tmp_path)
+
+    assert str(exc_info.value) == error
+
+
+@pytest.mark.parametrize("field", ["plan_id", "plan_period", "source_document_id"])
+@pytest.mark.parametrize("mismatched_index", [0, 1])
+def test_funding_trend_rejects_mismatched_identity_among_valid_flow_rows(
+    tmp_path: Path, field: str, mismatched_index: int
+) -> None:
+    """A matching disclosure must not hide another row's conflicting identity."""
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    path = _write_flow_artifact(run)
+    matching = json.loads(path.read_text())[0]
+    rows = [dict(matching), dict(matching)]
+    rows[mismatched_index][field] = "OTHER"
+    path.write_text(json.dumps(rows), encoding="utf-8")
+
+    with pytest.raises(QueryArtifactError, match=f"{field} conflicts with run manifest"):
+        load_query_data_snapshot(tmp_path)
+
+
+@pytest.mark.parametrize("value", [True, "100", float("inf"), float("nan"), 10**400, -(10**400)])
+def test_funding_trend_rejects_invalid_flow_amount(tmp_path: Path, value: object) -> None:
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run, employer_contributions_usd=value)
+    with pytest.raises(QueryArtifactError, match="employer_contributions_usd must be"):
+        load_query_data_snapshot(tmp_path)
+
+
+def test_funding_trend_flow_path_cannot_escape_run(tmp_path: Path) -> None:
+    run = _write_run(tmp_path / "root", "run-a", [_metric_row()])
+    flow = _write_flow_artifact(run)
+    outside = tmp_path / "outside.json"
+    flow.rename(outside)
+    flow.symlink_to(outside)
+    with pytest.raises(QueryArtifactError, match="escapes configured root"):
+        load_query_data_snapshot(tmp_path / "root")
+
+
+@pytest.mark.parametrize("path_kind", ["relative", "absolute", "symlink"])
+def test_funding_trend_flow_path_cannot_reference_another_run(
+    tmp_path: Path, path_kind: str
+) -> None:
+    """Root containment alone must not allow one run to borrow another's flows."""
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run)
+    other_run = _write_run(tmp_path, "run-b", [_metric_row()])
+    other_flow = _write_flow_artifact(other_run)
+    # Both runs intentionally have matching document identities so identity
+    # validation cannot mask a missing run-directory containment check.
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    if path_kind == "relative":
+        declared = "../run-b/flows.json"
+    elif path_kind == "absolute":
+        declared = str(other_flow.resolve())
+    else:
+        link = run / "borrowed-flows.json"
+        link.symlink_to(other_flow)
+        declared = link.name
+    manifest["artifact_files"]["financial_flow_rows_json"] = declared
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(QueryArtifactError, match="financial_flow_rows.json escapes its run"):
+        load_query_data_snapshot(tmp_path)
+
+
+def test_funding_trend_declared_missing_flow_artifact_is_rejected(tmp_path: Path) -> None:
+    """A broken declaration must not silently use another available flow file."""
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run)
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"]["financial_flow_rows_json"] = "missing-flows.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(QueryArtifactError, match="missing query artifact financial_flow_rows.json"):
+        load_query_data_snapshot(tmp_path)
+
+
+def test_funding_trend_rejects_invalid_manifest_flow_path(tmp_path: Path) -> None:
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run)
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"]["financial_flow_rows_json"] = "invalid\x00flows.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(
+        QueryArtifactError, match="invalid query artifact financial_flow_rows.json path"
+    ):
+        load_query_data_snapshot(tmp_path)
+
+
+def test_funding_trend_repeated_flows_are_not_summed(tmp_path: Path) -> None:
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    for name in ("a", "b"):
+        _write_flow_artifact(_write_run(tmp_path, name, [_metric_row()]))
+    snapshot = load_query_data_snapshot(tmp_path)
+    assert len(snapshot.metric_history_rows) == 1
+    assert (
+        execute_funding_trend_view(list(snapshot.funding_trend_inputs))[
+            0
+        ].net_external_cash_flow_usd
+        == 85
+    )
+
+
+def test_funding_trend_conflicting_flows_remain_unresolved(tmp_path: Path) -> None:
+    _write_flow_artifact(_write_run(tmp_path, "a", [_metric_row()]))
+    _write_flow_artifact(_write_run(tmp_path, "b", [_metric_row()]), employer_contributions_usd=200)
+    snapshot = load_query_data_snapshot(tmp_path)
+    assert snapshot.funding_trend_inputs == ()
+    assert snapshot.funding_trend_conflicts[0].metric_target == "employer_contributions_usd"
+
+
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+@pytest.mark.parametrize(
+    ("revised_reported_at", "is_tie"),
+    [
+        pytest.param("2025-12-31T23:45:00Z", False, id="latest-instant"),
+        pytest.param("2025-12-31T23:30:00Z", True, id="equal-instant"),
+    ],
+)
+def test_funding_trend_flow_revisions_use_reported_instants(
+    tmp_path: Path, reverse_run_order: bool, revised_reported_at: str, is_tie: bool
+) -> None:
+    """Flow timestamps govern supersession independently of staged metric timestamps."""
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    original = {
+        "reported_at": "2026-01-01T00:30:00+01:00",
+        "employer_contributions_usd": 100.0,
+        "employee_contributions_usd": 20.0,
+        "benefit_payments_usd": -30.0,
+        "refunds_usd": -5.0,
+    }
+    revised = {
+        "reported_at": revised_reported_at,
+        "employer_contributions_usd": 200.0,
+        "employee_contributions_usd": 40.0,
+        "benefit_payments_usd": -60.0,
+        "refunds_usd": -10.0,
+    }
+    disclosures = [original, revised]
+    if reverse_run_order:
+        disclosures.reverse()
+    for index, disclosure in enumerate(disclosures):
+        # Replayed staged metrics are identical; only the flow disclosures change.
+        run = _write_run(tmp_path, f"run-{index}", [_metric_row()])
+        _write_flow_artifact(run, **disclosure)
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 1
+    if is_tie:
+        assert snapshot.funding_trend_inputs == ()
+        assert len(snapshot.funding_trend_unresolved_periods) == 1
+        assert {conflict.metric_target for conflict in snapshot.funding_trend_conflicts} == {
+            "employer_contributions_usd",
+            "employee_contributions_usd",
+            "benefit_payments_usd",
+            "refunds_usd",
+        }
+        for conflict in snapshot.funding_trend_conflicts:
+            assert {version.ingestion_date for version in conflict.versions} == {
+                original["reported_at"],
+                revised_reported_at,
+            }
+    else:
+        assert snapshot.funding_trend_conflicts == ()
+        assert snapshot.funding_trend_unresolved_periods == ()
+        assert len(snapshot.funding_trend_inputs) == 1
+        trend = snapshot.funding_trend_inputs[0]
+        assert trend.employer_contributions_usd == 200.0
+        assert trend.employee_contributions_usd == 40.0
+        assert trend.benefit_payments_usd == 60.0
+        assert trend.refunds_usd == 10.0
+        rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+        assert rows[0].net_external_cash_flow_usd == 170.0
+
+
+@pytest.mark.parametrize("metric_name", ["benefit_payments", "benefit_payments_usd"])
+@pytest.mark.parametrize("staged_benefits", [-30.0, 30.0])
+@pytest.mark.parametrize("disclosed_benefits", [-30.0, 30.0])
+def test_funding_trend_joins_equivalent_signed_benefits(
+    tmp_path: Path, metric_name: str, staged_benefits: float, disclosed_benefits: float
+) -> None:
+    """Signed and magnitude representations agree before version conflict detection."""
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    benefit_row = {
+        **_metric_row(fact_id="fact:benefits"),
+        "metric_family": "cash_flow",
+        "metric_name": metric_name,
+        "as_reported_value": staged_benefits,
+        "normalized_value": staged_benefits,
+        "as_reported_unit": "USD",
+        "normalized_unit": "USD",
+    }
+    run = _write_run(tmp_path, "run", [_metric_row(), benefit_row])
+    _write_flow_artifact(run, benefit_payments_usd=disclosed_benefits)
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert snapshot.funding_trend_conflicts == ()
+    assert snapshot.funding_trend_unresolved_periods == ()
+    assert len(snapshot.funding_trend_inputs) == 1
+    assert snapshot.funding_trend_inputs[0].benefit_payments_usd == 30.0
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd == 85.0
+    # Projection normalization must preserve the original metric history value.
+    history = next(row for row in snapshot.metric_history_rows if row.metric_name == metric_name)
+    assert history.normalized_value == staged_benefits
+
+
 def test_load_query_data_snapshot_rejects_conflicting_duplicate_fact_id(
     tmp_path: Path,
 ) -> None:
@@ -712,3 +1223,22 @@ def test_load_query_data_snapshot_rejects_symlink_escape(tmp_path: Path) -> None
 
     with pytest.raises(QueryArtifactError, match="escapes configured root"):
         load_query_data_snapshot(root)
+
+
+@pytest.mark.parametrize("declared", [None, "", "   ", 123, False, [], {}])
+def test_explicit_invalid_flow_declaration_is_rejected(tmp_path: Path, declared: object) -> None:
+    run = _write_run(tmp_path, "run", [_metric_row()])
+    _write_flow_artifact(run)
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"]["financial_flow_rows_json"] = declared
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(QueryArtifactError, match="must be a non-empty path"):
+        load_query_data_snapshot(tmp_path)
+
+
+def test_funding_trend_rejects_overflowed_flow_total(tmp_path):
+    run = _write_run(tmp_path, "run", [_metric_row()])
+    _write_flow_artifact(run, benefit_payments_usd=-1e308, refunds_usd=-1e308)
+    with pytest.raises(QueryArtifactError, match="net cash flow must be finite"):
+        load_query_data_snapshot(tmp_path)

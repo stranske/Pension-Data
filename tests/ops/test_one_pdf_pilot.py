@@ -83,8 +83,9 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
         "orchestration_state_json",
         "workspace_bundle_json",
     }
-    assert set(artifact_files) == expected_keys
     expected_result_keys = expected_keys | {"run_id", "run_manifest_json"}
+    expected_keys.add("financial_flow_rows_json")
+    assert set(artifact_files) == expected_keys
     assert set(result) == expected_result_keys
     for artifact_path in artifact_files.values():
         assert Path(artifact_path).exists()
@@ -441,3 +442,61 @@ def test_resolve_runtime_options_uses_contract_defaults_and_env() -> None:
 
     assert output_root == Path("pilot-outputs")
     assert run_id == "pilot-run-id"
+
+
+def test_skipped_pilot_replay_preserves_disclosed_financial_flows(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    import pension_data.ops.one_pdf_pilot as pilot_module
+    from pension_data.api.artifact_data import load_query_data_snapshot
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    original_parser = pilot_module.parse_pdf_to_funded_input
+
+    def disclosed_parser(payload):
+        result = original_parser(payload)
+        assert result.raw is not None
+        flow_rows = tuple(
+            {"label": label, "value": value, "evidence_ref": "p.1#flows"}
+            for label, value in [
+                ("Employer Contributions", "$100 million"),
+                ("Employee Contributions", "$20 million"),
+                ("Benefit Payments", "$-30 million"),
+                ("Refunds", "$-5 million"),
+            ]
+        )
+        return replace(
+            result, raw=replace(result.raw, table_rows=(*result.raw.table_rows, *flow_rows))
+        )
+
+    monkeypatch.setattr(pilot_module, "parse_pdf_to_funded_input", disclosed_parser)
+    fixture = Path(__file__).resolve().parents[1] / "golden/one_pdf_pilot/fixture_synthetic.pdf"
+    pilot_input = OnePdfPilotInput(
+        pdf_path=fixture,
+        plan_id="FLOW",
+        plan_period="FY2024",
+        effective_date="2024-06-30",
+        ingestion_date="2026-01-01",
+    )
+    root = tmp_path / "outputs"
+    first = run_one_pdf_pilot(pilot_input=pilot_input, output_root=root, run_id="replay-flows")
+    manifest = json.loads(Path(first["run_manifest_json"]).read_text())
+    flow_path = Path(manifest["artifact_files"]["financial_flow_rows_json"])
+    before = json.loads(flow_path.read_text())
+    assert len(before) == 1 and before[0]["net_external_cash_flow_usd"] == 85_000_000
+    state_payload = json.loads(Path(first["orchestration_state_json"]).read_text())
+    state = DocumentOrchestrationState(
+        artifact_records=tuple(
+            RawArtifactRecord(**row) for row in state_payload["artifact_records"]
+        ),
+        processed_artifact_ids=tuple(state_payload["processed_artifact_ids"]),
+        published_fact_ids=tuple(state_payload["published_fact_ids"]),
+    )
+    second = run_one_pdf_pilot(
+        pilot_input=pilot_input, output_root=root, run_id="replay-flows", state=state
+    )
+    ledger = json.loads(Path(second["orchestration_ledger_json"]).read_text())
+    assert any(row["status"] == "skipped" for row in ledger["document_outcomes"])
+    assert json.loads(flow_path.read_text()) == before
+    trend = execute_funding_trend_view(list(load_query_data_snapshot(root).funding_trend_inputs))
+    assert len(trend) == 1 and trend[0].net_external_cash_flow_usd == 85_000_000

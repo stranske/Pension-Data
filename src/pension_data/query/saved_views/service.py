@@ -81,12 +81,16 @@ def _net_external_flow(row: FundingTrendInput) -> float | None:
     components = [
         row.employer_contributions_usd,
         row.employee_contributions_usd,
-        None if row.benefit_payments_usd is None else -row.benefit_payments_usd,
+        None if row.benefit_payments_usd is None else -abs(row.benefit_payments_usd),
+        None if row.refunds_usd is None else -abs(row.refunds_usd),
     ]
     known = [value for value in components if value is not None]
     if not known:
         return None
-    return round(sum(known), 6)
+    total = sum(known)
+    if not all(math.isfinite(value) for value in known) or not math.isfinite(total):
+        raise ValueError("funding trend cash-flow components and total must be finite")
+    return round(total, 6)
 
 
 def execute_funding_trend_view(rows: list[FundingTrendInput]) -> list[FundingTrendRow]:
