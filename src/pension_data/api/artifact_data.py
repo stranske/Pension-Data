@@ -296,7 +296,7 @@ def _load_run_rows(
     artifacts = _required_mapping(manifest.get("artifact_files", {}), field="artifact_files")
     flow_file = artifacts.get("financial_flow_rows_json")
     flows: list[Mapping[str, object]] = []
-    if flow_file is not None:
+    if "financial_flow_rows_json" in artifacts:
         if not isinstance(flow_file, str) or not flow_file.strip():
             raise QueryArtifactError("financial_flow_rows_json must be a non-empty path")
         flow_path = _resolve_run_artifact_path(
@@ -457,6 +457,13 @@ def _build_funding_trend_projection(
         funded_ratio = resolved_values.get("funded_ratio")
         if funded_ratio is None:
             continue
+        net_flow = sum(
+            (-abs(value) if target in {"benefit_payments_usd", "refunds_usd"} else value)
+            for target, value in resolved_values.items()
+            if target != "funded_ratio"
+        )
+        if not math.isfinite(net_flow):
+            raise QueryArtifactError("funding trend net cash flow must be finite")
         inputs.append(
             FundingTrendInput(
                 plan_id=plan_id,

@@ -906,3 +906,21 @@ def test_load_query_data_snapshot_rejects_symlink_escape(tmp_path: Path) -> None
 
     with pytest.raises(QueryArtifactError, match="escapes configured root"):
         load_query_data_snapshot(root)
+
+
+def test_explicit_null_flow_declaration_is_invalid(tmp_path):
+    run = _write_run(tmp_path, "run", [_metric_row()])
+    _write_flow_artifact(run)
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"]["financial_flow_rows_json"] = None
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(QueryArtifactError, match="must be a non-empty path"):
+        load_query_data_snapshot(tmp_path)
+
+
+def test_funding_trend_rejects_overflowed_flow_total(tmp_path):
+    run = _write_run(tmp_path, "run", [_metric_row()])
+    _write_flow_artifact(run, benefit_payments_usd=-1e308, refunds_usd=-1e308)
+    with pytest.raises(QueryArtifactError, match="net cash flow must be finite"):
+        load_query_data_snapshot(tmp_path)

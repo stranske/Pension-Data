@@ -9,3 +9,9 @@ The actual orchestration-to-loader and authenticated HTTP tests supply disclosed
 See `flow-join-red-green.txt` for the executed disconnection failure and exact-byte restoration pass. Additional controls cover three identity mismatches, invalid numeric disclosures, escaping paths, agreeing replays and conflicting disclosures, missing artifacts, and positive/negative outflow representations.
 
 Hosted CI, independent review, guarded merge and post-merge comparison remain separate delivery stages.
+
+## Coherent review recovery
+
+After terminal native writer proof, preserved native golden-baseline and path-resolution changes. Reject explicit null artifact paths, retain real disclosed flow rows across a skipped pilot replay, and reject nonfinite components and overflowed totals before serialization. The actual replay uses the one-PDF harness with disclosed parser rows, processed-artifact state, production orchestration and subsequent query loading.
+
+135 tests pass including the issue acceptance paths and all golden tests. Three actual disconnect controls fail independently in one run, followed by three byte-restored passes; see `review-recovery-red-green.txt`. Ruff, Black, and core mypy pass.
