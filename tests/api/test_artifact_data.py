@@ -210,6 +210,78 @@ def test_funding_trend_missing_flow_artifact_yields_null_net(tmp_path: Path) -> 
     assert rows[0].net_external_cash_flow_usd is None
 
 
+@pytest.mark.parametrize("disclosure", ["empty", "omitted", "null"])
+def test_funding_trend_undisclosed_flow_components_remain_null(
+    tmp_path: Path, disclosure: str
+) -> None:
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    path = _write_flow_artifact(run)
+    payload = json.loads(path.read_text())
+    for field in (
+        "employer_contributions_usd",
+        "employee_contributions_usd",
+        "benefit_payments_usd",
+        "refunds_usd",
+    ):
+        if disclosure == "omitted":
+            del payload[0][field]
+        else:
+            payload[0][field] = None
+    path.write_text(json.dumps([] if disclosure == "empty" else payload), encoding="utf-8")
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.funding_trend_inputs) == 1
+    trend = snapshot.funding_trend_inputs[0]
+    assert trend.funded_ratio == pytest.approx(0.784)
+    assert trend.employer_contributions_usd is None
+    assert trend.employee_contributions_usd is None
+    assert trend.benefit_payments_usd is None
+    assert trend.refunds_usd is None
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd is None
+
+
+@pytest.mark.parametrize(
+    "field, direction",
+    [
+        ("employer_contributions_usd", 1),
+        ("employee_contributions_usd", 1),
+        ("benefit_payments_usd", -1),
+        ("refunds_usd", -1),
+    ],
+)
+@pytest.mark.parametrize("amount", [0.0, 25.0])
+def test_funding_trend_partial_disclosure_preserves_zero_and_unknown_components(
+    tmp_path: Path, field: str, direction: int, amount: float
+) -> None:
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    components: dict[str, float | None] = {
+        "employer_contributions_usd": None,
+        "employee_contributions_usd": None,
+        "benefit_payments_usd": None,
+        "refunds_usd": None,
+    }
+    components[field] = direction * amount
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run, **components)
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.funding_trend_inputs) == 1
+    trend = snapshot.funding_trend_inputs[0]
+    for component in components:
+        if component == field:
+            assert getattr(trend, component) == amount
+        else:
+            assert getattr(trend, component) is None
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd == direction * amount
+
+
 def test_funding_trend_resolves_absolute_flow_path_under_run(tmp_path: Path) -> None:
     """Absolute manifest paths still resolve when they stay inside the run tree."""
     from pension_data.query.saved_views.service import execute_funding_trend_view
