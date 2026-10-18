@@ -324,7 +324,17 @@ def test_conflicted_plan_period_does_not_disable_metric_history_for_other_plan(
             "net_external_cash_flow_usd": None,
         }
     ]
-    assert payload["unresolved_periods"][0]["entity_id"] == "PLAN-CONFLICT"
+    unresolved = payload["unresolved_periods"][0]
+    assert unresolved["entity_id"] == "PLAN-CONFLICT"
+    assert unresolved["plan_period"] == "FY2024"
+    assert len(unresolved["conflicts"]) == 1
+    conflict = unresolved["conflicts"][0]
+    assert conflict["metric_target"] == "funded_ratio"
+    versions = {
+        version["source_document_id"]: version for version in conflict["versions"]
+    }
+    assert versions["doc:conflict:a"]["normalized_value"] == pytest.approx(0.784)
+    assert versions["doc:conflict:b"]["normalized_value"] == pytest.approx(0.8)
 
 
 def test_authenticated_query_reports_missing_artifact_root(monkeypatch) -> None:
