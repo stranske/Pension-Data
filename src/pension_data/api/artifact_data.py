@@ -26,11 +26,42 @@ class QueryArtifactError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class FundingTrendMetricVersion:
+    """One observed value for a plan-period metric with temporal provenance."""
+
+    source_document_id: str
+    effective_date: str
+    ingestion_date: str
+    normalized_value: float
+
+
+@dataclass(frozen=True, slots=True)
+class FundingTrendPeriodConflict:
+    """Conflicting trend metric values that could not be auto-adjudicated."""
+
+    entity_id: str
+    plan_period: str
+    metric_target: str
+    versions: tuple[FundingTrendMetricVersion, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FundingTrendUnresolvedPeriod:
+    """Plan period omitted from funding-trend inputs because metrics conflict."""
+
+    entity_id: str
+    plan_period: str
+    conflicts: tuple[FundingTrendPeriodConflict, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class QueryDataSnapshot:
     """Immutable query data loaded from completed pilot runs."""
 
     metric_history_rows: tuple[MetricHistoryRow, ...]
     funding_trend_inputs: tuple[FundingTrendInput, ...]
+    funding_trend_conflicts: tuple[FundingTrendPeriodConflict, ...] = ()
+    funding_trend_unresolved_periods: tuple[FundingTrendUnresolvedPeriod, ...] = ()
 
 
 def _read_json(path: Path) -> Any:
@@ -230,8 +261,7 @@ def _load_run_rows(root: Path, run_dir: Path) -> list[Mapping[str, object]]:
     return rows
 
 
-def _funding_trend_inputs(rows: Sequence[MetricHistoryRow]) -> tuple[FundingTrendInput, ...]:
-    by_period: dict[tuple[str, str], dict[str, float]] = {}
+def _metric_target_name(metric_name: str) -> str | None:
     metric_names = {
         "funded_ratio": "funded_ratio",
         "employer_contributions": "employer_contributions_usd",
@@ -241,22 +271,100 @@ def _funding_trend_inputs(rows: Sequence[MetricHistoryRow]) -> tuple[FundingTren
         "benefit_payments": "benefit_payments_usd",
         "benefit_payments_usd": "benefit_payments_usd",
     }
+    return metric_names.get(metric_name.casefold())
+
+
+def _resolve_metric_versions(
+    versions: Sequence[FundingTrendMetricVersion],
+) -> tuple[float | None, FundingTrendPeriodConflict | None]:
+    if not versions:
+        return None, None
+    distinct_values = {version.normalized_value for version in versions}
+    if len(distinct_values) == 1:
+        return versions[0].normalized_value, None
+
+    source_ids = {version.source_document_id for version in versions}
+    if len(source_ids) == 1:
+        latest = max(versions, key=lambda version: version.ingestion_date)
+        return latest.normalized_value, None
+
+    conflict = FundingTrendPeriodConflict(
+        entity_id="",
+        plan_period="",
+        metric_target="",
+        versions=tuple(
+            sorted(
+                versions,
+                key=lambda version: (
+                    version.source_document_id,
+                    version.ingestion_date,
+                    version.effective_date,
+                ),
+            )
+        ),
+    )
+    return None, conflict
+
+
+def _build_funding_trend_projection(
+    rows: Sequence[MetricHistoryRow],
+) -> tuple[
+    tuple[FundingTrendInput, ...],
+    tuple[FundingTrendPeriodConflict, ...],
+    tuple[FundingTrendUnresolvedPeriod, ...],
+]:
+    by_period: dict[tuple[str, str], dict[str, list[FundingTrendMetricVersion]]] = {}
     for row in rows:
-        target = metric_names.get(row.metric_name.casefold())
+        target = _metric_target_name(row.metric_name)
         if target is None or row.normalized_value is None:
             continue
         if target == "funded_ratio" and row.normalized_unit not in {None, "ratio"}:
             raise QueryArtifactError("funded_ratio must use normalized unit 'ratio'")
         key = (row.entity_id, row.plan_period)
-        values = by_period.setdefault(key, {})
-        previous = values.get(target)
-        if previous is not None and previous != row.normalized_value:
-            raise QueryArtifactError(f"ambiguous {target} for {row.entity_id} {row.plan_period}")
-        values[target] = row.normalized_value
+        metric_versions = by_period.setdefault(key, {}).setdefault(target, [])
+        metric_versions.append(
+            FundingTrendMetricVersion(
+                source_document_id=row.source_document_id,
+                effective_date=row.effective_date,
+                ingestion_date=row.ingestion_date,
+                normalized_value=row.normalized_value,
+            )
+        )
 
+    conflicts: list[FundingTrendPeriodConflict] = []
+    unresolved: list[FundingTrendUnresolvedPeriod] = []
     inputs: list[FundingTrendInput] = []
-    for (plan_id, plan_period), values in sorted(by_period.items()):
-        funded_ratio = values.get("funded_ratio")
+
+    for (plan_id, plan_period), metric_map in sorted(by_period.items()):
+        resolved_values: dict[str, float] = {}
+        period_conflicts: list[FundingTrendPeriodConflict] = []
+        for target, versions in sorted(metric_map.items()):
+            value, conflict = _resolve_metric_versions(versions)
+            if conflict is not None:
+                period_conflicts.append(
+                    FundingTrendPeriodConflict(
+                        entity_id=plan_id,
+                        plan_period=plan_period,
+                        metric_target=target,
+                        versions=conflict.versions,
+                    )
+                )
+                continue
+            if value is not None:
+                resolved_values[target] = value
+
+        if period_conflicts:
+            conflicts.extend(period_conflicts)
+            unresolved.append(
+                FundingTrendUnresolvedPeriod(
+                    entity_id=plan_id,
+                    plan_period=plan_period,
+                    conflicts=tuple(period_conflicts),
+                )
+            )
+            continue
+
+        funded_ratio = resolved_values.get("funded_ratio")
         if funded_ratio is None:
             continue
         inputs.append(
@@ -264,12 +372,18 @@ def _funding_trend_inputs(rows: Sequence[MetricHistoryRow]) -> tuple[FundingTren
                 plan_id=plan_id,
                 plan_period=plan_period,
                 funded_ratio=funded_ratio,
-                employer_contributions_usd=values.get("employer_contributions_usd"),
-                employee_contributions_usd=values.get("employee_contributions_usd"),
-                benefit_payments_usd=values.get("benefit_payments_usd"),
+                employer_contributions_usd=resolved_values.get("employer_contributions_usd"),
+                employee_contributions_usd=resolved_values.get("employee_contributions_usd"),
+                benefit_payments_usd=resolved_values.get("benefit_payments_usd"),
             )
         )
-    return tuple(inputs)
+
+    return tuple(inputs), tuple(conflicts), tuple(unresolved)
+
+
+def _funding_trend_inputs(rows: Sequence[MetricHistoryRow]) -> tuple[FundingTrendInput, ...]:
+    inputs, _, _ = _build_funding_trend_projection(rows)
+    return inputs
 
 
 def load_query_data_snapshot(artifact_root: Path) -> QueryDataSnapshot:
@@ -318,7 +432,10 @@ def load_query_data_snapshot(artifact_root: Path) -> QueryDataSnapshot:
     )
     if not metric_rows:
         raise QueryArtifactError("completed pilot runs contain no query metric rows")
+    trend_inputs, trend_conflicts, unresolved_periods = _build_funding_trend_projection(metric_rows)
     return QueryDataSnapshot(
         metric_history_rows=metric_rows,
-        funding_trend_inputs=_funding_trend_inputs(metric_rows),
+        funding_trend_inputs=trend_inputs,
+        funding_trend_conflicts=trend_conflicts,
+        funding_trend_unresolved_periods=unresolved_periods,
     )

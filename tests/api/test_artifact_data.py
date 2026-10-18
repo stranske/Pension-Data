@@ -16,6 +16,8 @@ def _metric_row(
     plan_id: str = "SYN-PLAN",
     normalized_value: float = 0.784,
     confidence: float = 0.9,
+    source_document_id: str = "doc:syn-plan",
+    ingestion_date: str = "2026-01-01",
 ) -> dict[str, object]:
     return {
         "fact_id": fact_id,
@@ -23,20 +25,28 @@ def _metric_row(
         "plan_period": "FY2024",
         "metric_family": "funded",
         "metric_name": "funded_ratio",
-        "as_reported_value": 78.4,
+        "as_reported_value": normalized_value * 100,
         "normalized_value": normalized_value,
         "as_reported_unit": "percent",
         "normalized_unit": "ratio",
         "confidence": confidence,
         "evidence_refs": ["p.4#table"],
         "effective_date": "2024-06-30",
-        "ingestion_date": "2026-01-01",
+        "ingestion_date": ingestion_date,
         "benchmark_version": "parser-v1",
-        "source_document_id": "doc:syn-plan",
+        "source_document_id": source_document_id,
     }
 
 
-def _write_run(root: Path, run_id: str, rows: list[dict[str, object]]) -> Path:
+def _write_run(
+    root: Path,
+    run_id: str,
+    rows: list[dict[str, object]],
+    *,
+    plan_id: str = "SYN-PLAN",
+    plan_period: str = "FY2024",
+    source_document_id: str = "doc:syn-plan",
+) -> Path:
     run_root = root / "one_pdf_pilot" / run_id
     persistence_root = run_root / "extraction_persistence"
     persistence_root.mkdir(parents=True)
@@ -44,9 +54,9 @@ def _write_run(root: Path, run_id: str, rows: list[dict[str, object]]) -> Path:
         "run_id": run_id,
         "ledger_status": "success",
         "input": {
-            "plan_id": "SYN-PLAN",
-            "plan_period": "FY2024",
-            "source_document_id": "doc:syn-plan",
+            "plan_id": plan_id,
+            "plan_period": plan_period,
+            "source_document_id": source_document_id,
         },
     }
     (run_root / "run_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -94,6 +104,84 @@ def test_load_query_data_snapshot_rejects_nonfinite_confidence(tmp_path: Path) -
 
     with pytest.raises(QueryArtifactError, match="confidence must be finite"):
         load_query_data_snapshot(tmp_path)
+
+
+def test_load_query_data_snapshot_keeps_revised_rows_and_marks_cross_document_conflict(
+    tmp_path: Path,
+) -> None:
+    _write_run(
+        tmp_path,
+        "run-original",
+        [
+            _metric_row(
+                fact_id="fact:funded:original",
+                normalized_value=0.784,
+                source_document_id="doc:syn-plan:original",
+            )
+        ],
+        source_document_id="doc:syn-plan:original",
+    )
+    _write_run(
+        tmp_path,
+        "run-revised",
+        [
+            _metric_row(
+                fact_id="fact:funded:revised",
+                normalized_value=0.8,
+                source_document_id="doc:syn-plan:revised",
+                ingestion_date="2026-02-01",
+            )
+        ],
+        source_document_id="doc:syn-plan:revised",
+    )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    funded_rows = [
+        row for row in snapshot.metric_history_rows if row.metric_name == "funded_ratio"
+    ]
+    assert len(funded_rows) == 2
+    assert {row.normalized_value for row in funded_rows} == {0.784, 0.8}
+    assert snapshot.funding_trend_inputs == ()
+    assert len(snapshot.funding_trend_unresolved_periods) == 1
+    unresolved = snapshot.funding_trend_unresolved_periods[0]
+    assert unresolved.entity_id == "SYN-PLAN"
+    assert unresolved.plan_period == "FY2024"
+    assert unresolved.conflicts[0].metric_target == "funded_ratio"
+    assert len(unresolved.conflicts[0].versions) == 2
+
+
+def test_load_query_data_snapshot_same_document_revision_supersedes_for_trend(
+    tmp_path: Path,
+) -> None:
+    _write_run(
+        tmp_path,
+        "run-original",
+        [
+            _metric_row(
+                fact_id="fact:funded:original",
+                normalized_value=0.784,
+                ingestion_date="2026-01-01",
+            )
+        ],
+    )
+    _write_run(
+        tmp_path,
+        "run-revised",
+        [
+            _metric_row(
+                fact_id="fact:funded:revised",
+                normalized_value=0.8,
+                ingestion_date="2026-02-01",
+            )
+        ],
+    )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 2
+    assert snapshot.funding_trend_inputs[0].funded_ratio == pytest.approx(0.8)
+    assert snapshot.funding_trend_unresolved_periods == ()
 
 
 def test_load_query_data_snapshot_rejects_symlink_escape(tmp_path: Path) -> None:
