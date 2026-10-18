@@ -431,6 +431,61 @@ def test_load_query_data_snapshot_same_document_timezone_aware_supersession(
     assert snapshot.funding_trend_unresolved_periods == ()
 
 
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+@pytest.mark.parametrize(
+    "revisions",
+    [
+        pytest.param(
+            [
+                (0.784, "2026-01-01"),
+                (0.8, "2026-02-01T06:00:00Z"),
+                (0.8, "2026-02-01T11:00:00+05:00"),
+            ],
+            id="agreeing-latest-copies",
+        ),
+        pytest.param(
+            [
+                (0.784, "2026-01-01T06:00:00Z"),
+                (0.75, "2026-01-01T11:00:00+05:00"),
+                (0.8, "2026-02-01"),
+            ],
+            id="superseded-historical-tie",
+        ),
+    ],
+)
+def test_load_query_data_snapshot_resolves_same_document_three_version_history(
+    tmp_path: Path, revisions: list[tuple[float, str]], reverse_run_order: bool
+) -> None:
+    """Only disagreement at the latest instant blocks same-document supersession."""
+    ordered_revisions = list(reversed(revisions)) if reverse_run_order else revisions
+    for index, (value, ingestion_date) in enumerate(ordered_revisions):
+        _write_run(
+            tmp_path,
+            f"run-{index}",
+            [
+                _metric_row(
+                    fact_id=f"fact:funded:{index}",
+                    normalized_value=value,
+                    ingestion_date=ingestion_date,
+                )
+            ],
+        )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 3
+    assert {
+        (row.normalized_value, row.ingestion_date) for row in snapshot.metric_history_rows
+    } == set(revisions)
+    assert {row.source_document_id for row in snapshot.metric_history_rows} == {"doc:syn-plan"}
+    assert len(snapshot.funding_trend_inputs) == 1
+    trend_input = snapshot.funding_trend_inputs[0]
+    assert (trend_input.plan_id, trend_input.plan_period) == ("SYN-PLAN", "FY2024")
+    assert trend_input.funded_ratio == pytest.approx(0.8)
+    assert snapshot.funding_trend_conflicts == ()
+    assert snapshot.funding_trend_unresolved_periods == ()
+
+
 def test_load_query_data_snapshot_rejects_symlink_escape(tmp_path: Path) -> None:
     root = tmp_path / "root"
     pilot_root = root / "one_pdf_pilot"
