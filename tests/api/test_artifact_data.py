@@ -370,6 +370,87 @@ def test_load_query_data_snapshot_cash_flow_conflict_is_scoped_to_period(
     }
 
 
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+def test_load_query_data_snapshot_keeps_conflicts_separate_between_plans(
+    tmp_path: Path, reverse_run_order: bool
+) -> None:
+    """Conflicts sharing a period retain each plan's versions and clean periods."""
+    observations = [
+        ("PLAN-ALPHA", "original", 0.784),
+        ("PLAN-ALPHA", "revised", 0.8),
+        ("PLAN-BETA", "original", 0.65),
+        ("PLAN-BETA", "revised", 0.7),
+    ]
+    ordered = list(reversed(observations)) if reverse_run_order else observations
+    for index, (plan_id, version, value) in enumerate(ordered):
+        source_document_id = f"doc:{plan_id}:{version}"
+        _write_run(
+            tmp_path,
+            f"run-{index}",
+            [
+                _metric_row(
+                    fact_id=f"fact:{plan_id}:{version}",
+                    plan_id=plan_id,
+                    normalized_value=value,
+                    source_document_id=source_document_id,
+                    ingestion_date="2026-01-01" if version == "original" else "2026-02-01",
+                )
+            ],
+            plan_id=plan_id,
+            source_document_id=source_document_id,
+        )
+    _write_run(
+        tmp_path,
+        "run-clean-period",
+        [
+            {
+                **_metric_row(fact_id="fact:alpha:clean", plan_id="PLAN-ALPHA"),
+                "plan_period": "FY2025",
+                "effective_date": "2025-06-30",
+            }
+        ],
+        plan_id="PLAN-ALPHA",
+        plan_period="FY2025",
+    )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 5
+    assert len(snapshot.funding_trend_inputs) == 1
+    clean_input = snapshot.funding_trend_inputs[0]
+    assert (clean_input.plan_id, clean_input.plan_period) == ("PLAN-ALPHA", "FY2025")
+    assert clean_input.funded_ratio == pytest.approx(0.784)
+    assert [
+        (period.entity_id, period.plan_period)
+        for period in snapshot.funding_trend_unresolved_periods
+    ] == [("PLAN-ALPHA", "FY2024"), ("PLAN-BETA", "FY2024")]
+    assert snapshot.funding_trend_conflicts == tuple(
+        conflict
+        for period in snapshot.funding_trend_unresolved_periods
+        for conflict in period.conflicts
+    )
+    for period in snapshot.funding_trend_unresolved_periods:
+        assert len(period.conflicts) == 1
+        conflict = period.conflicts[0]
+        assert (conflict.entity_id, conflict.plan_period, conflict.metric_target) == (
+            period.entity_id,
+            "FY2024",
+            "funded_ratio",
+        )
+        assert {
+            (item.source_document_id, item.normalized_value, item.ingestion_date)
+            for item in conflict.versions
+        } == {
+            (
+                f"doc:{plan_id}:{version}",
+                value,
+                "2026-01-01" if version == "original" else "2026-02-01",
+            )
+            for plan_id, version, value in observations
+            if plan_id == period.entity_id
+        }
+
+
 def test_load_query_data_snapshot_collects_all_conflicts_in_one_period(tmp_path: Path) -> None:
     metric_values = {
         "funded_ratio": (0.784, 0.8),
