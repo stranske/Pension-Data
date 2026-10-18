@@ -493,6 +493,72 @@ def test_funding_trend_conflicting_flows_remain_unresolved(tmp_path: Path) -> No
     assert snapshot.funding_trend_conflicts[0].metric_target == "employer_contributions_usd"
 
 
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+@pytest.mark.parametrize(
+    ("revised_reported_at", "is_tie"),
+    [
+        pytest.param("2025-12-31T23:45:00Z", False, id="latest-instant"),
+        pytest.param("2025-12-31T23:30:00Z", True, id="equal-instant"),
+    ],
+)
+def test_funding_trend_flow_revisions_use_reported_instants(
+    tmp_path: Path, reverse_run_order: bool, revised_reported_at: str, is_tie: bool
+) -> None:
+    """Flow timestamps govern supersession independently of staged metric timestamps."""
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    original = {
+        "reported_at": "2026-01-01T00:30:00+01:00",
+        "employer_contributions_usd": 100.0,
+        "employee_contributions_usd": 20.0,
+        "benefit_payments_usd": -30.0,
+        "refunds_usd": -5.0,
+    }
+    revised = {
+        "reported_at": revised_reported_at,
+        "employer_contributions_usd": 200.0,
+        "employee_contributions_usd": 40.0,
+        "benefit_payments_usd": -60.0,
+        "refunds_usd": -10.0,
+    }
+    disclosures = [original, revised]
+    if reverse_run_order:
+        disclosures.reverse()
+    for index, disclosure in enumerate(disclosures):
+        # Replayed staged metrics are identical; only the flow disclosures change.
+        run = _write_run(tmp_path, f"run-{index}", [_metric_row()])
+        _write_flow_artifact(run, **disclosure)
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 1
+    if is_tie:
+        assert snapshot.funding_trend_inputs == ()
+        assert len(snapshot.funding_trend_unresolved_periods) == 1
+        assert {conflict.metric_target for conflict in snapshot.funding_trend_conflicts} == {
+            "employer_contributions_usd",
+            "employee_contributions_usd",
+            "benefit_payments_usd",
+            "refunds_usd",
+        }
+        for conflict in snapshot.funding_trend_conflicts:
+            assert {version.ingestion_date for version in conflict.versions} == {
+                original["reported_at"],
+                revised_reported_at,
+            }
+    else:
+        assert snapshot.funding_trend_conflicts == ()
+        assert snapshot.funding_trend_unresolved_periods == ()
+        assert len(snapshot.funding_trend_inputs) == 1
+        trend = snapshot.funding_trend_inputs[0]
+        assert trend.employer_contributions_usd == 200.0
+        assert trend.employee_contributions_usd == 40.0
+        assert trend.benefit_payments_usd == 60.0
+        assert trend.refunds_usd == 10.0
+        rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+        assert rows[0].net_external_cash_flow_usd == 170.0
+
+
 @pytest.mark.parametrize("metric_name", ["benefit_payments", "benefit_payments_usd"])
 @pytest.mark.parametrize("staged_benefits", [-30.0, 30.0])
 @pytest.mark.parametrize("disclosed_benefits", [-30.0, 30.0])
