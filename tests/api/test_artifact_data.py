@@ -307,7 +307,7 @@ def test_funding_trend_rejects_mismatched_flow_identity(tmp_path: Path, field: s
         load_query_data_snapshot(tmp_path)
 
 
-@pytest.mark.parametrize("value", [True, "100", float("inf"), float("nan")])
+@pytest.mark.parametrize("value", [True, "100", float("inf"), float("nan"), 10**400, -(10**400)])
 def test_funding_trend_rejects_invalid_flow_amount(tmp_path: Path, value: object) -> None:
     run = _write_run(tmp_path, "run-a", [_metric_row()])
     _write_flow_artifact(run, employer_contributions_usd=value)

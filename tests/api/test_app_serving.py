@@ -61,7 +61,7 @@ def test_saved_view_route_maps_auth_errors() -> None:
     assert "missing API key" in response.json()["detail"]
 
 
-@pytest.mark.parametrize("disclosure", ["disclosed", "missing", "mismatched"])
+@pytest.mark.parametrize("disclosure", ["disclosed", "missing", "mismatched", "oversized"])
 def test_funding_trend_http_uses_identity_bound_flow_artifacts(
     tmp_path: Path, monkeypatch, disclosure: str
 ) -> None:
@@ -76,9 +76,12 @@ def test_funding_trend_http_uses_identity_bound_flow_artifacts(
     if disclosure == "missing":
         del manifest["artifact_files"]["financial_flow_rows_json"]
         manifest_path.write_text(json.dumps(manifest))
-    elif disclosure == "mismatched":
+    elif disclosure in {"mismatched", "oversized"}:
         rows = json.loads(path.read_text())
-        rows[0]["source_document_id"] = "OTHER"
+        if disclosure == "mismatched":
+            rows[0]["source_document_id"] = "OTHER"
+        else:
+            rows[0]["employer_contributions_usd"] = 10**400
         path.write_text(json.dumps(rows))
     monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
     monkeypatch.setenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", str(root))
@@ -86,9 +89,10 @@ def test_funding_trend_http_uses_identity_bound_flow_artifacts(
     response = client.get(
         "/api/saved-views/funding-trend", headers={"Authorization": f"Bearer {secret}"}
     )
-    if disclosure == "mismatched":
+    if disclosure in {"mismatched", "oversized"}:
         assert response.status_code == 503
-        assert "source_document_id" in response.json()["detail"]
+        field = "source_document_id" if disclosure == "mismatched" else "employer_contributions_usd"
+        assert field in response.json()["detail"]
     else:
         assert response.status_code == 200
         rows = response.json()["rows"]

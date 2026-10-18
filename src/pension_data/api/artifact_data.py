@@ -109,7 +109,10 @@ def _optional_finite_number(row: Mapping[str, object], field: str) -> float | No
         return None
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise QueryArtifactError(f"query artifact row {field} must be numeric or null")
-    normalized = float(value)
+    try:
+        normalized = float(value)
+    except OverflowError as exc:
+        raise QueryArtifactError(f"query artifact row {field} must be finite") from exc
     if not math.isfinite(normalized):
         raise QueryArtifactError(f"query artifact row {field} must be finite")
     return normalized
