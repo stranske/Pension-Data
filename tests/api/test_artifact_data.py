@@ -452,6 +452,41 @@ def test_load_query_data_snapshot_same_document_ingestion_tie_is_unresolved(
     }
 
 
+def test_load_query_data_snapshot_tied_conflict_order_is_independent_of_run_names(
+    tmp_path: Path,
+) -> None:
+    """Renaming runs cannot reorder otherwise identical conflicting versions."""
+    snapshots = []
+    for label, values in (
+        ("forward", (0.784, 0.8)),
+        ("reverse", (0.8, 0.784)),
+    ):
+        root = tmp_path / label
+        for index, value in enumerate(values):
+            _write_run(
+                root,
+                f"run-{index}",
+                [
+                    _metric_row(
+                        fact_id=f"fact:funded:{value}",
+                        normalized_value=value,
+                    )
+                ],
+            )
+        snapshot = load_query_data_snapshot(root)
+        assert {row.normalized_value for row in snapshot.metric_history_rows} == {0.784, 0.8}
+        assert snapshot.funding_trend_inputs == ()
+        assert len(snapshot.funding_trend_conflicts) == 1
+        assert len(snapshot.funding_trend_unresolved_periods) == 1
+        snapshots.append(snapshot)
+
+    assert snapshots[0].funding_trend_conflicts == snapshots[1].funding_trend_conflicts
+    assert (
+        snapshots[0].funding_trend_unresolved_periods
+        == snapshots[1].funding_trend_unresolved_periods
+    )
+
+
 def test_load_query_data_snapshot_same_document_timezone_aware_supersession(
     tmp_path: Path,
 ) -> None:

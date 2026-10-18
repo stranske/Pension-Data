@@ -312,6 +312,7 @@ def _resolve_metric_versions(
                     version.source_document_id,
                     version.ingestion_date,
                     version.effective_date,
+                    version.normalized_value,
                 ),
             )
         ),
