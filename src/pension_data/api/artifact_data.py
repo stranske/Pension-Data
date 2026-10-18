@@ -410,19 +410,19 @@ def _build_funding_trend_projection(
             "benefit_payments_usd",
             "refunds_usd",
         ):
-            value = _optional_finite_number(flow, target)
-            if value is None:
+            flow_value = _optional_finite_number(flow, target)
+            if flow_value is None:
                 continue
             # Extractor outflows are signed negative; saved-view inputs use
             # outflow magnitudes. Refunds are a separate outflow, counted once.
             if target in {"benefit_payments_usd", "refunds_usd"}:
-                value = abs(value)
+                flow_value = abs(flow_value)
             by_period.setdefault(key, {}).setdefault(target, []).append(
                 FundingTrendMetricVersion(
                     source_document_id=_required_text(flow, "source_document_id"),
                     effective_date=_required_text(flow, "effective_period"),
                     ingestion_date=_required_text(flow, "reported_at"),
-                    normalized_value=value,
+                    normalized_value=flow_value,
                 )
             )
 
@@ -434,7 +434,7 @@ def _build_funding_trend_projection(
         resolved_values: dict[str, float] = {}
         period_conflicts: list[FundingTrendPeriodConflict] = []
         for target, versions in sorted(metric_map.items()):
-            value, conflict = _resolve_metric_versions(versions)
+            resolved_value, conflict = _resolve_metric_versions(versions)
             if conflict is not None:
                 period_conflicts.append(
                     FundingTrendPeriodConflict(
@@ -445,8 +445,8 @@ def _build_funding_trend_projection(
                     )
                 )
                 continue
-            if value is not None:
-                resolved_values[target] = value
+            if resolved_value is not None:
+                resolved_values[target] = resolved_value
 
         if period_conflicts:
             conflicts.extend(period_conflicts)
