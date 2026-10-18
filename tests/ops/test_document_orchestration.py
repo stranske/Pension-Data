@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 import pension_data.ops.document_orchestration as document_orchestration_module
@@ -652,3 +654,102 @@ def test_valid_low_confidence_funded_rows_publish_and_route_to_review(monkeypatc
         for row in _artifact_rows(artifacts, "review_queue_rows")
     )
     assert not ledger.failures
+
+
+@pytest.mark.parametrize("rate_rows_last", [False, True])
+def test_cash_flow_uses_monetary_rows_independent_of_rate_order(rate_rows_last) -> None:
+    document = _job(
+        source_url="https://example.org/money.pdf",
+        fetched_at="2026-03-03T00:00:00Z",
+        source_document_id="doc:money",
+        content=b"money",
+    )
+
+    def parser(item, artifact):
+        raw = _parser(item, artifact)
+        if rate_rows_last:
+            rates = tuple(row for row in raw.table_rows if "Contribution Rate" in row["label"])
+            amounts = tuple(row for row in raw.table_rows if row not in rates)
+            raw = replace(raw, table_rows=amounts + rates)
+        return raw
+
+    ledger, _, artifacts = run_document_orchestration(
+        documents=[document], parser=parser, run_id="money-rows"
+    )
+    assert ledger.status == "success"
+    flow = _artifact_rows(artifacts, "financial_flow_rows")[0]
+    assert flow["employer_contributions_usd"] == 18_000_000.0
+    assert flow["employee_contributions_usd"] == 9_000_000.0
+    assert flow["net_external_cash_flow_usd"] == 21_000_000.0
+    assert flow["evidence_refs"] == ["p.55"]
+    funded = {row["metric_name"]: row for row in _artifact_rows(artifacts, "published_rows")}
+    assert funded["employer_contribution_rate"]["as_reported_value"] == 12.4
+    assert funded["employer_contribution_rate"]["normalized_value"] == pytest.approx(0.124)
+    assert funded["employee_contribution_rate"]["as_reported_value"] == 7.5
+    assert funded["employee_contribution_rate"]["normalized_value"] == pytest.approx(0.075)
+
+
+@pytest.mark.parametrize(
+    ("label", "value"),
+    [
+        ("Employer Contribution Rate", "12.4%"),
+        ("Employer Contribution Rate", "12.4"),
+        ("Employer Contributions", "12.4%"),
+        ("Employer Contributions", "12.4 percent"),
+        ("Employer Contributions (% of payroll)", "12.4"),
+        ("Employer Contributions", "124 basis points"),
+    ],
+)
+def test_rate_only_cash_flow_keeps_missing_amount_and_warning(label, value) -> None:
+    document = _job(
+        source_url="https://example.org/rate.pdf",
+        fetched_at="2026-03-03T00:00:00Z",
+        source_document_id="doc:rate",
+        content=b"rate",
+    )
+
+    def parser(item, artifact):
+        raw = _parser(item, artifact)
+        # Keep all actuarial metrics and other disclosed flows; only the employer
+        # dollar amount is absent. Its rate must not fill that monetary slot.
+        rows = tuple(
+            row for row in raw.table_rows if "employer contribution" not in row["label"].lower()
+        )
+        return replace(
+            raw, table_rows=rows + ({"label": label, "value": value, "evidence_ref": "p.rate"},)
+        )
+
+    _, _, artifacts = run_document_orchestration(
+        documents=[document], parser=parser, run_id="rate-only"
+    )
+    flow = _artifact_rows(artifacts, "financial_flow_rows")[0]
+    assert flow["employer_contributions_usd"] is None
+    assert "p.rate" not in flow["evidence_refs"]
+    assert flow["disclosure_level"] == "partial"
+    assert any(
+        row["metric_name"] == "financial_flow:partial_disclosure"
+        for row in _artifact_rows(artifacts, "review_queue_rows")
+    )
+
+
+@pytest.mark.parametrize("invalid_value", ["not disclosed", "12.4%", "12.4 pct"])
+def test_invalid_cash_flow_candidate_does_not_hide_later_money_row(invalid_value) -> None:
+    raw = RawFundedActuarialInput(
+        source_document_id="doc:selection",
+        source_url="https://example.org/selection.pdf",
+        effective_date="2024-06-30",
+        ingestion_date="2026-03-03",
+        default_money_unit_scale="million_usd",
+        text_blocks=(),
+        table_rows=(
+            {
+                "label": "Employer Contributions",
+                "value": invalid_value,
+                "evidence_ref": "p.invalid",
+            },
+            {"label": "Employer Contributions", "value": "$18 million", "evidence_ref": "p.55"},
+        ),
+    )
+    flow = document_orchestration_module._build_financial_flow_input(raw=raw)
+    assert flow.employer_contributions == 18.0
+    assert flow.evidence_refs == ("p.55",)

@@ -1,0 +1,380 @@
+Issue958 cash-flow monetary-row classification
+Acceptance: python -m pytest tests/ops/test_document_orchestration.py tests/extract/funded/test_financial_flows.py -q
+30 passed. Ruff/Black/mypy passed on restored source.
+Actuarial as-reported percentages12.4/7.5 retain normalized fractions0.124/0.075.
+
+Mutation disconnects _RATE_TOKEN classification, retaining numeric parsing.
+Command: PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ops/test_document_orchestration.py -q -k "cash_flow_uses_monetary_rows or rate_only_cash_flow or invalid_cash_flow_candidate"
+
+--- 958-deliberate-red.txt ---
+============================= test session starts ==============================
+platform darwin -- Python 3.12.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: $WORKTREE
+configfile: pyproject.toml
+collected 22 items / 11 deselected / 11 selected
+
+tests/ops/test_document_orchestration.py F.FFFFFF.FF                     [100%]
+
+=================================== FAILURES ===================================
+______ test_cash_flow_uses_monetary_rows_independent_of_rate_order[False] ______
+
+rate_rows_last = False
+
+    @pytest.mark.parametrize("rate_rows_last", [False, True])
+    def test_cash_flow_uses_monetary_rows_independent_of_rate_order(rate_rows_last) -> None:
+        document = _job(
+            source_url="https://example.org/money.pdf",
+            fetched_at="2026-03-03T00:00:00Z",
+            source_document_id="doc:money",
+            content=b"money",
+        )
+    
+        def parser(item, artifact):
+            raw = _parser(item, artifact)
+            if rate_rows_last:
+                rates = tuple(row for row in raw.table_rows if "Contribution Rate" in row["label"])
+                amounts = tuple(row for row in raw.table_rows if row not in rates)
+                raw = replace(raw, table_rows=amounts + rates)
+            return raw
+    
+        ledger, _, artifacts = run_document_orchestration(
+            documents=[document], parser=parser, run_id="money-rows"
+        )
+        assert ledger.status == "success"
+        flow = _artifact_rows(artifacts, "financial_flow_rows")[0]
+>       assert flow["employer_contributions_usd"] == 18_000_000.0
+E       assert 12400000.0 == 18000000.0
+
+tests/ops/test_document_orchestration.py:681: AssertionError
+_ test_rate_only_cash_flow_keeps_missing_amount_and_warning[Employer Contribution Rate-12.4%] _
+
+label = 'Employer Contribution Rate', value = '12.4%'
+
+    @pytest.mark.parametrize(
+        ("label", "value"),
+        [
+            ("Employer Contribution Rate", "12.4%"),
+            ("Employer Contribution Rate", "12.4"),
+            ("Employer Contributions", "12.4%"),
+            ("Employer Contributions", "12.4 percent"),
+            ("Employer Contributions (% of payroll)", "12.4"),
+            ("Employer Contributions", "124 basis points"),
+        ],
+    )
+    def test_rate_only_cash_flow_keeps_missing_amount_and_warning(label, value) -> None:
+        document = _job(
+            source_url="https://example.org/rate.pdf",
+            fetched_at="2026-03-03T00:00:00Z",
+            source_document_id="doc:rate",
+            content=b"rate",
+        )
+    
+        def parser(item, artifact):
+            raw = _parser(item, artifact)
+            # Keep all actuarial metrics and other disclosed flows; only the employer
+            # dollar amount is absent. Its rate must not fill that monetary slot.
+            rows = tuple(
+                row for row in raw.table_rows if "employer contribution" not in row["label"].lower()
+            )
+            return replace(
+                raw, table_rows=rows + ({"label": label, "value": value, "evidence_ref": "p.rate"},)
+            )
+    
+        _, _, artifacts = run_document_orchestration(
+            documents=[document], parser=parser, run_id="rate-only"
+        )
+        flow = _artifact_rows(artifacts, "financial_flow_rows")[0]
+>       assert flow["employer_contributions_usd"] is None
+E       assert 12400000.0 is None
+
+tests/ops/test_document_orchestration.py:726: AssertionError
+_ test_rate_only_cash_flow_keeps_missing_amount_and_warning[Employer Contribution Rate-12.4] _
+
+label = 'Employer Contribution Rate', value = '12.4'
+
+    @pytest.mark.parametrize(
+        ("label", "value"),
+        [
+            ("Employer Contribution Rate", "12.4%"),
+            ("Employer Contribution Rate", "12.4"),
+            ("Employer Contributions", "12.4%"),
+            ("Employer Contributions", "12.4 percent"),
+            ("Employer Contributions (% of payroll)", "12.4"),
+            ("Employer Contributions", "124 basis points"),
+        ],
+    )
+    def test_rate_only_cash_flow_keeps_missing_amount_and_warning(label, value) -> None:
+        document = _job(
+            source_url="https://example.org/rate.pdf",
+            fetched_at="2026-03-03T00:00:00Z",
+            source_document_id="doc:rate",
+            content=b"rate",
+        )
+    
+        def parser(item, artifact):
+            raw = _parser(item, artifact)
+            # Keep all actuarial metrics and other disclosed flows; only the employer
+            # dollar amount is absent. Its rate must not fill that monetary slot.
+            rows = tuple(
+                row for row in raw.table_rows if "employer contribution" not in row["label"].lower()
+            )
+            return replace(
+                raw, table_rows=rows + ({"label": label, "value": value, "evidence_ref": "p.rate"},)
+            )
+    
+        _, _, artifacts = run_document_orchestration(
+            documents=[document], parser=parser, run_id="rate-only"
+        )
+        flow = _artifact_rows(artifacts, "financial_flow_rows")[0]
+>       assert flow["employer_contributions_usd"] is None
+E       assert 12400000.0 is None
+
+tests/ops/test_document_orchestration.py:726: AssertionError
+_ test_rate_only_cash_flow_keeps_missing_amount_and_warning[Employer Contributions-12.4%] _
+
+label = 'Employer Contributions', value = '12.4%'
+
+    @pytest.mark.parametrize(
+        ("label", "value"),
+        [
+            ("Employer Contribution Rate", "12.4%"),
+            ("Employer Contribution Rate", "12.4"),
+            ("Employer Contributions", "12.4%"),
+            ("Employer Contributions", "12.4 percent"),
+            ("Employer Contributions (% of payroll)", "12.4"),
+            ("Employer Contributions", "124 basis points"),
+        ],
+    )
+    def test_rate_only_cash_flow_keeps_missing_amount_and_warning(label, value) -> None:
+        document = _job(
+            source_url="https://example.org/rate.pdf",
+            fetched_at="2026-03-03T00:00:00Z",
+            source_document_id="doc:rate",
+            content=b"rate",
+        )
+    
+        def parser(item, artifact):
+            raw = _parser(item, artifact)
+            # Keep all actuarial metrics and other disclosed flows; only the employer
+            # dollar amount is absent. Its rate must not fill that monetary slot.
+            rows = tuple(
+                row for row in raw.table_rows if "employer contribution" not in row["label"].lower()
+            )
+            return replace(
+                raw, table_rows=rows + ({"label": label, "value": value, "evidence_ref": "p.rate"},)
+            )
+    
+        _, _, artifacts = run_document_orchestration(
+            documents=[document], parser=parser, run_id="rate-only"
+        )
+        flow = _artifact_rows(artifacts, "financial_flow_rows")[0]
+>       assert flow["employer_contributions_usd"] is None
+E       assert 12400000.0 is None
+
+tests/ops/test_document_orchestration.py:726: AssertionError
+_ test_rate_only_cash_flow_keeps_missing_amount_and_warning[Employer Contributions-12.4 percent] _
+
+label = 'Employer Contributions', value = '12.4 percent'
+
+    @pytest.mark.parametrize(
+        ("label", "value"),
+        [
+            ("Employer Contribution Rate", "12.4%"),
+            ("Employer Contribution Rate", "12.4"),
+            ("Employer Contributions", "12.4%"),
+            ("Employer Contributions", "12.4 percent"),
+            ("Employer Contributions (% of payroll)", "12.4"),
+            ("Employer Contributions", "124 basis points"),
+        ],
+    )
+    def test_rate_only_cash_flow_keeps_missing_amount_and_warning(label, value) -> None:
+        document = _job(
+            source_url="https://example.org/rate.pdf",
+            fetched_at="2026-03-03T00:00:00Z",
+            source_document_id="doc:rate",
+            content=b"rate",
+        )
+    
+        def parser(item, artifact):
+            raw = _parser(item, artifact)
+            # Keep all actuarial metrics and other disclosed flows; only the employer
+            # dollar amount is absent. Its rate must not fill that monetary slot.
+            rows = tuple(
+                row for row in raw.table_rows if "employer contribution" not in row["label"].lower()
+            )
+            return replace(
+                raw, table_rows=rows + ({"label": label, "value": value, "evidence_ref": "p.rate"},)
+            )
+    
+        _, _, artifacts = run_document_orchestration(
+            documents=[document], parser=parser, run_id="rate-only"
+        )
+        flow = _artifact_rows(artifacts, "financial_flow_rows")[0]
+>       assert flow["employer_contributions_usd"] is None
+E       assert 12400000.0 is None
+
+tests/ops/test_document_orchestration.py:726: AssertionError
+_ test_rate_only_cash_flow_keeps_missing_amount_and_warning[Employer Contributions (% of payroll)-12.4] _
+
+label = 'Employer Contributions (% of payroll)', value = '12.4'
+
+    @pytest.mark.parametrize(
+        ("label", "value"),
+        [
+            ("Employer Contribution Rate", "12.4%"),
+            ("Employer Contribution Rate", "12.4"),
+            ("Employer Contributions", "12.4%"),
+            ("Employer Contributions", "12.4 percent"),
+            ("Employer Contributions (% of payroll)", "12.4"),
+            ("Employer Contributions", "124 basis points"),
+        ],
+    )
+    def test_rate_only_cash_flow_keeps_missing_amount_and_warning(label, value) -> None:
+        document = _job(
+            source_url="https://example.org/rate.pdf",
+            fetched_at="2026-03-03T00:00:00Z",
+            source_document_id="doc:rate",
+            content=b"rate",
+        )
+    
+        def parser(item, artifact):
+            raw = _parser(item, artifact)
+            # Keep all actuarial metrics and other disclosed flows; only the employer
+            # dollar amount is absent. Its rate must not fill that monetary slot.
+            rows = tuple(
+                row for row in raw.table_rows if "employer contribution" not in row["label"].lower()
+            )
+            return replace(
+                raw, table_rows=rows + ({"label": label, "value": value, "evidence_ref": "p.rate"},)
+            )
+    
+        _, _, artifacts = run_document_orchestration(
+            documents=[document], parser=parser, run_id="rate-only"
+        )
+        flow = _artifact_rows(artifacts, "financial_flow_rows")[0]
+>       assert flow["employer_contributions_usd"] is None
+E       assert 12400000.0 is None
+
+tests/ops/test_document_orchestration.py:726: AssertionError
+_ test_rate_only_cash_flow_keeps_missing_amount_and_warning[Employer Contributions-124 basis points] _
+
+label = 'Employer Contributions', value = '124 basis points'
+
+    @pytest.mark.parametrize(
+        ("label", "value"),
+        [
+            ("Employer Contribution Rate", "12.4%"),
+            ("Employer Contribution Rate", "12.4"),
+            ("Employer Contributions", "12.4%"),
+            ("Employer Contributions", "12.4 percent"),
+            ("Employer Contributions (% of payroll)", "12.4"),
+            ("Employer Contributions", "124 basis points"),
+        ],
+    )
+    def test_rate_only_cash_flow_keeps_missing_amount_and_warning(label, value) -> None:
+        document = _job(
+            source_url="https://example.org/rate.pdf",
+            fetched_at="2026-03-03T00:00:00Z",
+            source_document_id="doc:rate",
+            content=b"rate",
+        )
+    
+        def parser(item, artifact):
+            raw = _parser(item, artifact)
+            # Keep all actuarial metrics and other disclosed flows; only the employer
+            # dollar amount is absent. Its rate must not fill that monetary slot.
+            rows = tuple(
+                row for row in raw.table_rows if "employer contribution" not in row["label"].lower()
+            )
+            return replace(
+                raw, table_rows=rows + ({"label": label, "value": value, "evidence_ref": "p.rate"},)
+            )
+    
+        _, _, artifacts = run_document_orchestration(
+            documents=[document], parser=parser, run_id="rate-only"
+        )
+        flow = _artifact_rows(artifacts, "financial_flow_rows")[0]
+>       assert flow["employer_contributions_usd"] is None
+E       assert 124000000.0 is None
+
+tests/ops/test_document_orchestration.py:726: AssertionError
+____ test_invalid_cash_flow_candidate_does_not_hide_later_money_row[12.4%] _____
+
+invalid_value = '12.4%'
+
+    @pytest.mark.parametrize("invalid_value", ["not disclosed", "12.4%", "12.4 pct"])
+    def test_invalid_cash_flow_candidate_does_not_hide_later_money_row(invalid_value) -> None:
+        raw = RawFundedActuarialInput(
+            source_document_id="doc:selection",
+            source_url="https://example.org/selection.pdf",
+            effective_date="2024-06-30",
+            ingestion_date="2026-03-03",
+            default_money_unit_scale="million_usd",
+            text_blocks=(),
+            table_rows=(
+                {
+                    "label": "Employer Contributions",
+                    "value": invalid_value,
+                    "evidence_ref": "p.invalid",
+                },
+                {"label": "Employer Contributions", "value": "$18 million", "evidence_ref": "p.55"},
+            ),
+        )
+        flow = document_orchestration_module._build_financial_flow_input(raw=raw)
+>       assert flow.employer_contributions == 18.0
+E       AssertionError: assert 12.4 == 18.0
+E        +  where 12.4 = RawFinancialFlowInput(source_document_id='doc:selection', source_url='https://example.org/selection.pdf', effective_pe...yer_contributions=12.4, employee_contributions=None, benefit_payments=None, refunds=None, evidence_refs=('p.invalid',)).employer_contributions
+
+tests/ops/test_document_orchestration.py:754: AssertionError
+___ test_invalid_cash_flow_candidate_does_not_hide_later_money_row[12.4 pct] ___
+
+invalid_value = '12.4 pct'
+
+    @pytest.mark.parametrize("invalid_value", ["not disclosed", "12.4%", "12.4 pct"])
+    def test_invalid_cash_flow_candidate_does_not_hide_later_money_row(invalid_value) -> None:
+        raw = RawFundedActuarialInput(
+            source_document_id="doc:selection",
+            source_url="https://example.org/selection.pdf",
+            effective_date="2024-06-30",
+            ingestion_date="2026-03-03",
+            default_money_unit_scale="million_usd",
+            text_blocks=(),
+            table_rows=(
+                {
+                    "label": "Employer Contributions",
+                    "value": invalid_value,
+                    "evidence_ref": "p.invalid",
+                },
+                {"label": "Employer Contributions", "value": "$18 million", "evidence_ref": "p.55"},
+            ),
+        )
+        flow = document_orchestration_module._build_financial_flow_input(raw=raw)
+>       assert flow.employer_contributions == 18.0
+E       AssertionError: assert 12.4 == 18.0
+E        +  where 12.4 = RawFinancialFlowInput(source_document_id='doc:selection', source_url='https://example.org/selection.pdf', effective_pe...yer_contributions=12.4, employee_contributions=None, benefit_payments=None, refunds=None, evidence_refs=('p.invalid',)).employer_contributions
+
+tests/ops/test_document_orchestration.py:754: AssertionError
+=========================== short test summary info ============================
+FAILED tests/ops/test_document_orchestration.py::test_cash_flow_uses_monetary_rows_independent_of_rate_order[False]
+FAILED tests/ops/test_document_orchestration.py::test_rate_only_cash_flow_keeps_missing_amount_and_warning[Employer Contribution Rate-12.4%]
+FAILED tests/ops/test_document_orchestration.py::test_rate_only_cash_flow_keeps_missing_amount_and_warning[Employer Contribution Rate-12.4]
+FAILED tests/ops/test_document_orchestration.py::test_rate_only_cash_flow_keeps_missing_amount_and_warning[Employer Contributions-12.4%]
+FAILED tests/ops/test_document_orchestration.py::test_rate_only_cash_flow_keeps_missing_amount_and_warning[Employer Contributions-12.4 percent]
+FAILED tests/ops/test_document_orchestration.py::test_rate_only_cash_flow_keeps_missing_amount_and_warning[Employer Contributions (% of payroll)-12.4]
+FAILED tests/ops/test_document_orchestration.py::test_rate_only_cash_flow_keeps_missing_amount_and_warning[Employer Contributions-124 basis points]
+FAILED tests/ops/test_document_orchestration.py::test_invalid_cash_flow_candidate_does_not_hide_later_money_row[12.4%]
+FAILED tests/ops/test_document_orchestration.py::test_invalid_cash_flow_candidate_does_not_hide_later_money_row[12.4 pct]
+================== 9 failed, 2 passed, 11 deselected in 0.20s ==================
+
+--- 958-restored-green.txt ---
+============================= test session starts ==============================
+platform darwin -- Python 3.12.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: $WORKTREE
+configfile: pyproject.toml
+collected 22 items / 11 deselected / 11 selected
+
+tests/ops/test_document_orchestration.py ...........                     [100%]
+
+====================== 11 passed, 11 deselected in 0.12s =======================
+
+Restored source SHA256: c96fff093ab3d7a1c964301497bf742ca46fcb158b67a6d5c07e5fcc5c1550ca

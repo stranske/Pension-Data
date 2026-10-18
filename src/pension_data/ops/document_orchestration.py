@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from datetime import UTC, datetime
@@ -295,6 +296,20 @@ def _table_entries(raw: RawFundedActuarialInput) -> list[tuple[str, str, str]]:
     return entries
 
 
+_RATE_TOKEN = re.compile(r"\b(?:rates?|percent(?:age)?|pct|basis\s+points?|bps)\b|[%‰]", re.I)
+
+
+def _money_entry_value(label: str, value: str) -> float | None:
+    """Classify the disclosure before applying the report's monetary unit scale.
+
+    A bare number is an amount in this cash-flow domain (with the report's
+    default scale), but an explicit rate in either column cannot be dollars.
+    """
+    if _RATE_TOKEN.search(f"{label} {value}"):
+        return None
+    return _parse_numeric_token(value)
+
+
 def _first_matching_entry(
     entries: Sequence[tuple[str, str, str]],
     aliases: Sequence[str],
@@ -303,6 +318,8 @@ def _first_matching_entry(
     for label, value, evidence_ref in entries:
         normalized_label = _canonical_label(label)
         if any(alias in normalized_label for alias in lowered_aliases):
+            if _money_entry_value(label, value) is None:
+                continue
             return label, value, evidence_ref
     return None
 
@@ -330,7 +347,7 @@ def _build_financial_flow_input(
             parsed_values[field_name] = None
             continue
         label, value, evidence_ref = match
-        parsed_values[field_name] = _parse_numeric_token(value)
+        parsed_values[field_name] = _money_entry_value(label, value)
         if evidence_ref:
             parsed_evidence.append(evidence_ref)
         inferred_scale = _detect_money_scale(f"{label} {value}", fallback=inferred_scale)
