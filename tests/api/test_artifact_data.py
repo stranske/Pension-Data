@@ -182,9 +182,20 @@ def test_load_query_data_snapshot_same_document_revision_supersedes_for_trend(
     assert snapshot.funding_trend_unresolved_periods == ()
 
 
+@pytest.mark.parametrize(
+    ("first_ingestion", "second_ingestion"),
+    [
+        pytest.param("2026-02-01T06:00:00Z", "2026-02-01T06:00:00+00:00", id="aware-equivalents"),
+        pytest.param("2026-02-01T06:00:00", "2026-02-01T06:00:00Z", id="naive-aware"),
+        pytest.param("2026-02-01T06:00:00Z", "2026-02-01T06:00:00", id="aware-naive"),
+        pytest.param("2026-02-01T06:00:00", "2026-02-01T11:00:00+05:00", id="naive-offset"),
+        pytest.param("2026-02-01", "2026-02-01T00:00:00Z", id="date-only-aware"),
+    ],
+)
 def test_load_query_data_snapshot_same_document_ingestion_tie_is_unresolved(
-    tmp_path: Path,
+    tmp_path: Path, first_ingestion: str, second_ingestion: str
 ) -> None:
+    """Equivalent ingestion instants cannot adjudicate differing same-document values."""
     _write_run(
         tmp_path,
         "run-a",
@@ -192,7 +203,7 @@ def test_load_query_data_snapshot_same_document_ingestion_tie_is_unresolved(
             _metric_row(
                 fact_id="fact:funded:a",
                 normalized_value=0.784,
-                ingestion_date="2026-02-01T06:00:00Z",
+                ingestion_date=first_ingestion,
             )
         ],
     )
@@ -203,7 +214,7 @@ def test_load_query_data_snapshot_same_document_ingestion_tie_is_unresolved(
             _metric_row(
                 fact_id="fact:funded:b",
                 normalized_value=0.8,
-                ingestion_date="2026-02-01T06:00:00+00:00",
+                ingestion_date=second_ingestion,
             )
         ],
     )
@@ -211,14 +222,34 @@ def test_load_query_data_snapshot_same_document_ingestion_tie_is_unresolved(
     snapshot = load_query_data_snapshot(tmp_path)
 
     assert len(snapshot.metric_history_rows) == 2
+    assert {
+        (row.normalized_value, row.ingestion_date, row.source_document_id, row.effective_date)
+        for row in snapshot.metric_history_rows
+    } == {
+        (0.784, first_ingestion, "doc:syn-plan", "2024-06-30"),
+        (0.8, second_ingestion, "doc:syn-plan", "2024-06-30"),
+    }
     assert snapshot.funding_trend_inputs == ()
     assert len(snapshot.funding_trend_unresolved_periods) == 1
     unresolved = snapshot.funding_trend_unresolved_periods[0]
+    assert unresolved.entity_id == "SYN-PLAN"
     assert unresolved.plan_period == "FY2024"
-    assert unresolved.conflicts[0].metric_target == "funded_ratio"
-    assert {version.normalized_value for version in unresolved.conflicts[0].versions} == {
-        0.784,
-        0.8,
+    assert len(unresolved.conflicts) == 1
+    conflict = unresolved.conflicts[0]
+    assert conflict.metric_target == "funded_ratio"
+    assert snapshot.funding_trend_conflicts == (conflict,)
+    assert len(conflict.versions) == 2
+    assert {
+        (
+            version.normalized_value,
+            version.ingestion_date,
+            version.source_document_id,
+            version.effective_date,
+        )
+        for version in conflict.versions
+    } == {
+        (0.784, first_ingestion, "doc:syn-plan", "2024-06-30"),
+        (0.8, second_ingestion, "doc:syn-plan", "2024-06-30"),
     }
 
 
