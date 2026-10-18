@@ -183,6 +183,94 @@ def test_load_query_data_snapshot_same_document_revision_supersedes_for_trend(
 
 
 @pytest.mark.parametrize(
+    ("metric_name", "metric_target"),
+    [
+        ("employer_contributions", "employer_contributions_usd"),
+        ("employer_contributions_usd", "employer_contributions_usd"),
+        ("employee_contributions", "employee_contributions_usd"),
+        ("employee_contributions_usd", "employee_contributions_usd"),
+        ("benefit_payments", "benefit_payments_usd"),
+        ("benefit_payments_usd", "benefit_payments_usd"),
+    ],
+)
+def test_load_query_data_snapshot_cash_flow_conflict_is_scoped_to_period(
+    tmp_path: Path, metric_name: str, metric_target: str
+) -> None:
+    """A cash-flow disagreement omits only its period, even with a stable funded ratio."""
+    for version, value, ingestion_date in (
+        ("original", 100.0, "2026-01-01"),
+        ("revised", 120.0, "2026-02-01"),
+    ):
+        source_document_id = f"doc:syn-plan:{version}"
+        funded_row = _metric_row(
+            fact_id=f"fact:funded:{version}",
+            source_document_id=source_document_id,
+            ingestion_date=ingestion_date,
+        )
+        cash_flow_row = {
+            **funded_row,
+            "fact_id": f"fact:cash-flow:{version}",
+            "metric_name": metric_name,
+            "metric_family": "cash_flow",
+            "as_reported_value": value,
+            "normalized_value": value,
+            "as_reported_unit": "USD",
+            "normalized_unit": "USD",
+        }
+        _write_run(
+            tmp_path,
+            f"run-{version}",
+            [funded_row, cash_flow_row],
+            source_document_id=source_document_id,
+        )
+    _write_run(
+        tmp_path,
+        "run-clean-period",
+        [
+            {
+                **_metric_row(fact_id="fact:funded:clean", normalized_value=0.85),
+                "plan_period": "FY2025",
+                "effective_date": "2025-06-30",
+            }
+        ],
+        plan_period="FY2025",
+    )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 5
+    cash_flow_rows = [row for row in snapshot.metric_history_rows if row.metric_name == metric_name]
+    assert {row.normalized_value for row in cash_flow_rows} == {100.0, 120.0}
+    assert len(snapshot.funding_trend_inputs) == 1
+    trend_input = snapshot.funding_trend_inputs[0]
+    assert (trend_input.plan_id, trend_input.plan_period) == ("SYN-PLAN", "FY2025")
+    assert trend_input.funded_ratio == pytest.approx(0.85)
+    assert len(snapshot.funding_trend_unresolved_periods) == 1
+    unresolved = snapshot.funding_trend_unresolved_periods[0]
+    assert (unresolved.entity_id, unresolved.plan_period) == ("SYN-PLAN", "FY2024")
+    assert len(unresolved.conflicts) == 1
+    conflict = unresolved.conflicts[0]
+    assert (conflict.entity_id, conflict.plan_period, conflict.metric_target) == (
+        "SYN-PLAN",
+        "FY2024",
+        metric_target,
+    )
+    assert snapshot.funding_trend_conflicts == (conflict,)
+    assert {
+        (
+            version.normalized_value,
+            version.source_document_id,
+            version.effective_date,
+            version.ingestion_date,
+        )
+        for version in conflict.versions
+    } == {
+        (100.0, "doc:syn-plan:original", "2024-06-30", "2026-01-01"),
+        (120.0, "doc:syn-plan:revised", "2024-06-30", "2026-02-01"),
+    }
+
+
+@pytest.mark.parametrize(
     ("first_ingestion", "second_ingestion"),
     [
         pytest.param("2026-02-01T06:00:00Z", "2026-02-01T06:00:00+00:00", id="aware-equivalents"),
