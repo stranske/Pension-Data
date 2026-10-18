@@ -16,6 +16,8 @@ def _metric_row(
     plan_id: str = "SYN-PLAN",
     normalized_value: float = 0.784,
     confidence: float = 0.9,
+    source_document_id: str = "doc:syn-plan",
+    ingestion_date: str = "2026-01-01",
 ) -> dict[str, object]:
     return {
         "fact_id": fact_id,
@@ -23,20 +25,28 @@ def _metric_row(
         "plan_period": "FY2024",
         "metric_family": "funded",
         "metric_name": "funded_ratio",
-        "as_reported_value": 78.4,
+        "as_reported_value": normalized_value * 100,
         "normalized_value": normalized_value,
         "as_reported_unit": "percent",
         "normalized_unit": "ratio",
         "confidence": confidence,
         "evidence_refs": ["p.4#table"],
         "effective_date": "2024-06-30",
-        "ingestion_date": "2026-01-01",
+        "ingestion_date": ingestion_date,
         "benchmark_version": "parser-v1",
-        "source_document_id": "doc:syn-plan",
+        "source_document_id": source_document_id,
     }
 
 
-def _write_run(root: Path, run_id: str, rows: list[dict[str, object]]) -> Path:
+def _write_run(
+    root: Path,
+    run_id: str,
+    rows: list[dict[str, object]],
+    *,
+    plan_id: str = "SYN-PLAN",
+    plan_period: str = "FY2024",
+    source_document_id: str = "doc:syn-plan",
+) -> Path:
     run_root = root / "one_pdf_pilot" / run_id
     persistence_root = run_root / "extraction_persistence"
     persistence_root.mkdir(parents=True)
@@ -44,9 +54,9 @@ def _write_run(root: Path, run_id: str, rows: list[dict[str, object]]) -> Path:
         "run_id": run_id,
         "ledger_status": "success",
         "input": {
-            "plan_id": "SYN-PLAN",
-            "plan_period": "FY2024",
-            "source_document_id": "doc:syn-plan",
+            "plan_id": plan_id,
+            "plan_period": plan_period,
+            "source_document_id": source_document_id,
         },
     }
     (run_root / "run_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -94,6 +104,602 @@ def test_load_query_data_snapshot_rejects_nonfinite_confidence(tmp_path: Path) -
 
     with pytest.raises(QueryArtifactError, match="confidence must be finite"):
         load_query_data_snapshot(tmp_path)
+
+
+def test_load_query_data_snapshot_keeps_revised_rows_and_marks_cross_document_conflict(
+    tmp_path: Path,
+) -> None:
+    _write_run(
+        tmp_path,
+        "run-original",
+        [
+            _metric_row(
+                fact_id="fact:funded:original",
+                normalized_value=0.784,
+                source_document_id="doc:syn-plan:original",
+            )
+        ],
+        source_document_id="doc:syn-plan:original",
+    )
+    _write_run(
+        tmp_path,
+        "run-revised",
+        [
+            _metric_row(
+                fact_id="fact:funded:revised",
+                normalized_value=0.8,
+                source_document_id="doc:syn-plan:revised",
+                ingestion_date="2026-02-01",
+            )
+        ],
+        source_document_id="doc:syn-plan:revised",
+    )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    funded_rows = [row for row in snapshot.metric_history_rows if row.metric_name == "funded_ratio"]
+    assert len(funded_rows) == 2
+    assert {row.normalized_value for row in funded_rows} == {0.784, 0.8}
+    assert snapshot.funding_trend_inputs == ()
+    assert len(snapshot.funding_trend_unresolved_periods) == 1
+    unresolved = snapshot.funding_trend_unresolved_periods[0]
+    assert unresolved.entity_id == "SYN-PLAN"
+    assert unresolved.plan_period == "FY2024"
+    assert unresolved.conflicts[0].metric_target == "funded_ratio"
+    assert len(unresolved.conflicts[0].versions) == 2
+
+
+@pytest.mark.parametrize("other_ingestion_date", ["2026-01-01", "2026-02-01"])
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+def test_load_query_data_snapshot_agreeing_documents_remain_resolved(
+    tmp_path: Path, other_ingestion_date: str, reverse_run_order: bool
+) -> None:
+    """Document identity and ingestion order alone cannot create a value conflict."""
+    observations = [
+        ("doc:syn-plan:original", "2026-01-01"),
+        ("doc:syn-plan:other", other_ingestion_date),
+    ]
+    if reverse_run_order:
+        observations.reverse()
+    for index, (source_document_id, ingestion_date) in enumerate(observations):
+        row = _metric_row(
+            fact_id=f"fact:funded:{source_document_id}",
+            source_document_id=source_document_id,
+            ingestion_date=ingestion_date,
+        )
+        _write_run(
+            tmp_path,
+            f"run-{index}",
+            [row],
+            source_document_id=source_document_id,
+        )
+        _write_run(
+            tmp_path,
+            f"run-{index}-copy",
+            [row],
+            source_document_id=source_document_id,
+        )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 2
+    assert {
+        (row.source_document_id, row.ingestion_date) for row in snapshot.metric_history_rows
+    } == set(observations)
+    assert {row.normalized_value for row in snapshot.metric_history_rows} == {0.784}
+    assert len(snapshot.funding_trend_inputs) == 1
+    trend_input = snapshot.funding_trend_inputs[0]
+    assert (trend_input.plan_id, trend_input.plan_period) == ("SYN-PLAN", "FY2024")
+    assert trend_input.funded_ratio == pytest.approx(0.784)
+    assert snapshot.funding_trend_conflicts == ()
+    assert snapshot.funding_trend_unresolved_periods == ()
+
+
+def test_load_query_data_snapshot_same_document_revision_supersedes_for_trend(
+    tmp_path: Path,
+) -> None:
+    _write_run(
+        tmp_path,
+        "run-original",
+        [
+            _metric_row(
+                fact_id="fact:funded:original",
+                normalized_value=0.784,
+                ingestion_date="2026-01-01",
+            )
+        ],
+    )
+    _write_run(
+        tmp_path,
+        "run-revised",
+        [
+            _metric_row(
+                fact_id="fact:funded:revised",
+                normalized_value=0.8,
+                ingestion_date="2026-02-01",
+            )
+        ],
+    )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 2
+    assert snapshot.funding_trend_inputs[0].funded_ratio == pytest.approx(0.8)
+    assert snapshot.funding_trend_unresolved_periods == ()
+
+
+@pytest.mark.parametrize("other_document_value", [0.8, 0.82])
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+def test_load_query_data_snapshot_cross_document_conflict_survives_same_document_revision(
+    tmp_path: Path, other_document_value: float, reverse_run_order: bool
+) -> None:
+    """Same-document supersession cannot establish authority across documents."""
+    revisions = [
+        ("doc:syn-plan", 0.784, "2026-01-01"),
+        ("doc:syn-plan", 0.8, "2026-02-01"),
+        ("doc:other", other_document_value, "2026-03-01"),
+    ]
+    ordered_revisions = list(reversed(revisions)) if reverse_run_order else revisions
+    for index, (source_document_id, value, ingestion_date) in enumerate(ordered_revisions):
+        _write_run(
+            tmp_path,
+            f"run-{index}",
+            [
+                _metric_row(
+                    fact_id=f"fact:funded:{index}",
+                    source_document_id=source_document_id,
+                    normalized_value=value,
+                    ingestion_date=ingestion_date,
+                )
+            ],
+            source_document_id=source_document_id,
+        )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 3
+    assert {
+        (row.source_document_id, row.normalized_value, row.ingestion_date)
+        for row in snapshot.metric_history_rows
+    } == set(revisions)
+    assert snapshot.funding_trend_inputs == ()
+    assert len(snapshot.funding_trend_unresolved_periods) == 1
+    unresolved = snapshot.funding_trend_unresolved_periods[0]
+    assert (unresolved.entity_id, unresolved.plan_period) == ("SYN-PLAN", "FY2024")
+    assert len(unresolved.conflicts) == 1
+    conflict = unresolved.conflicts[0]
+    assert (conflict.entity_id, conflict.plan_period, conflict.metric_target) == (
+        "SYN-PLAN",
+        "FY2024",
+        "funded_ratio",
+    )
+    assert snapshot.funding_trend_conflicts == (conflict,)
+    assert len(conflict.versions) == 3
+    assert {
+        (version.source_document_id, version.normalized_value, version.ingestion_date)
+        for version in conflict.versions
+    } == set(revisions)
+    assert {version.effective_date for version in conflict.versions} == {"2024-06-30"}
+
+
+@pytest.mark.parametrize(
+    ("metric_name", "metric_target"),
+    [
+        ("employer_contributions", "employer_contributions_usd"),
+        ("employer_contributions_usd", "employer_contributions_usd"),
+        ("employee_contributions", "employee_contributions_usd"),
+        ("employee_contributions_usd", "employee_contributions_usd"),
+        ("benefit_payments", "benefit_payments_usd"),
+        ("benefit_payments_usd", "benefit_payments_usd"),
+    ],
+)
+def test_load_query_data_snapshot_cash_flow_conflict_is_scoped_to_period(
+    tmp_path: Path, metric_name: str, metric_target: str
+) -> None:
+    """A cash-flow disagreement omits only its period, even with a stable funded ratio."""
+    for version, value, ingestion_date in (
+        ("original", 100.0, "2026-01-01"),
+        ("revised", 120.0, "2026-02-01"),
+    ):
+        source_document_id = f"doc:syn-plan:{version}"
+        funded_row = _metric_row(
+            fact_id=f"fact:funded:{version}",
+            source_document_id=source_document_id,
+            ingestion_date=ingestion_date,
+        )
+        cash_flow_row = {
+            **funded_row,
+            "fact_id": f"fact:cash-flow:{version}",
+            "metric_name": metric_name,
+            "metric_family": "cash_flow",
+            "as_reported_value": value,
+            "normalized_value": value,
+            "as_reported_unit": "USD",
+            "normalized_unit": "USD",
+        }
+        _write_run(
+            tmp_path,
+            f"run-{version}",
+            [funded_row, cash_flow_row],
+            source_document_id=source_document_id,
+        )
+    _write_run(
+        tmp_path,
+        "run-clean-period",
+        [
+            {
+                **_metric_row(fact_id="fact:funded:clean", normalized_value=0.85),
+                "plan_period": "FY2025",
+                "effective_date": "2025-06-30",
+            }
+        ],
+        plan_period="FY2025",
+    )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 5
+    cash_flow_rows = [row for row in snapshot.metric_history_rows if row.metric_name == metric_name]
+    assert {row.normalized_value for row in cash_flow_rows} == {100.0, 120.0}
+    assert len(snapshot.funding_trend_inputs) == 1
+    trend_input = snapshot.funding_trend_inputs[0]
+    assert (trend_input.plan_id, trend_input.plan_period) == ("SYN-PLAN", "FY2025")
+    assert trend_input.funded_ratio == pytest.approx(0.85)
+    assert len(snapshot.funding_trend_unresolved_periods) == 1
+    unresolved = snapshot.funding_trend_unresolved_periods[0]
+    assert (unresolved.entity_id, unresolved.plan_period) == ("SYN-PLAN", "FY2024")
+    assert len(unresolved.conflicts) == 1
+    conflict = unresolved.conflicts[0]
+    assert (conflict.entity_id, conflict.plan_period, conflict.metric_target) == (
+        "SYN-PLAN",
+        "FY2024",
+        metric_target,
+    )
+    assert snapshot.funding_trend_conflicts == (conflict,)
+    assert {
+        (
+            version.normalized_value,
+            version.source_document_id,
+            version.effective_date,
+            version.ingestion_date,
+        )
+        for version in conflict.versions
+    } == {
+        (100.0, "doc:syn-plan:original", "2024-06-30", "2026-01-01"),
+        (120.0, "doc:syn-plan:revised", "2024-06-30", "2026-02-01"),
+    }
+
+
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+def test_load_query_data_snapshot_keeps_conflicts_separate_between_plans(
+    tmp_path: Path, reverse_run_order: bool
+) -> None:
+    """Conflicts sharing a period retain each plan's versions and clean periods."""
+    observations = [
+        ("PLAN-ALPHA", "original", 0.784),
+        ("PLAN-ALPHA", "revised", 0.8),
+        ("PLAN-BETA", "original", 0.65),
+        ("PLAN-BETA", "revised", 0.7),
+    ]
+    ordered = list(reversed(observations)) if reverse_run_order else observations
+    for index, (plan_id, version, value) in enumerate(ordered):
+        source_document_id = f"doc:{plan_id}:{version}"
+        _write_run(
+            tmp_path,
+            f"run-{index}",
+            [
+                _metric_row(
+                    fact_id=f"fact:{plan_id}:{version}",
+                    plan_id=plan_id,
+                    normalized_value=value,
+                    source_document_id=source_document_id,
+                    ingestion_date="2026-01-01" if version == "original" else "2026-02-01",
+                )
+            ],
+            plan_id=plan_id,
+            source_document_id=source_document_id,
+        )
+    _write_run(
+        tmp_path,
+        "run-clean-period",
+        [
+            {
+                **_metric_row(fact_id="fact:alpha:clean", plan_id="PLAN-ALPHA"),
+                "plan_period": "FY2025",
+                "effective_date": "2025-06-30",
+            }
+        ],
+        plan_id="PLAN-ALPHA",
+        plan_period="FY2025",
+    )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 5
+    assert len(snapshot.funding_trend_inputs) == 1
+    clean_input = snapshot.funding_trend_inputs[0]
+    assert (clean_input.plan_id, clean_input.plan_period) == ("PLAN-ALPHA", "FY2025")
+    assert clean_input.funded_ratio == pytest.approx(0.784)
+    assert [
+        (period.entity_id, period.plan_period)
+        for period in snapshot.funding_trend_unresolved_periods
+    ] == [("PLAN-ALPHA", "FY2024"), ("PLAN-BETA", "FY2024")]
+    assert snapshot.funding_trend_conflicts == tuple(
+        conflict
+        for period in snapshot.funding_trend_unresolved_periods
+        for conflict in period.conflicts
+    )
+    for period in snapshot.funding_trend_unresolved_periods:
+        assert len(period.conflicts) == 1
+        conflict = period.conflicts[0]
+        assert (conflict.entity_id, conflict.plan_period, conflict.metric_target) == (
+            period.entity_id,
+            "FY2024",
+            "funded_ratio",
+        )
+        assert {
+            (item.source_document_id, item.normalized_value, item.ingestion_date)
+            for item in conflict.versions
+        } == {
+            (
+                f"doc:{plan_id}:{version}",
+                value,
+                "2026-01-01" if version == "original" else "2026-02-01",
+            )
+            for plan_id, version, value in observations
+            if plan_id == period.entity_id
+        }
+
+
+def test_load_query_data_snapshot_collects_all_conflicts_in_one_period(tmp_path: Path) -> None:
+    metric_values = {
+        "funded_ratio": (0.784, 0.8),
+        "employer_contributions": (100.0, 120.0),
+        "benefit_payments": (80.0, 90.0),
+    }
+    for index, version in enumerate(("original", "revised")):
+        source_document_id = f"doc:syn-plan:{version}"
+        rows = []
+        for metric_name, values in metric_values.items():
+            row = _metric_row(
+                fact_id=f"fact:{metric_name}:{version}",
+                normalized_value=values[index],
+                source_document_id=source_document_id,
+                ingestion_date=f"2026-0{index + 1}-01",
+            )
+            if metric_name != "funded_ratio":
+                row.update(
+                    metric_name=metric_name,
+                    metric_family="cash_flow",
+                    as_reported_value=values[index],
+                    as_reported_unit="USD",
+                    normalized_unit="USD",
+                )
+            rows.append(row)
+        _write_run(tmp_path, f"run-{version}", rows, source_document_id=source_document_id)
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 6
+    assert snapshot.funding_trend_inputs == ()
+    assert len(snapshot.funding_trend_unresolved_periods) == 1
+    unresolved = snapshot.funding_trend_unresolved_periods[0]
+    assert (unresolved.entity_id, unresolved.plan_period) == ("SYN-PLAN", "FY2024")
+    assert snapshot.funding_trend_conflicts == unresolved.conflicts
+    assert [conflict.metric_target for conflict in unresolved.conflicts] == [
+        "benefit_payments_usd",
+        "employer_contributions_usd",
+        "funded_ratio",
+    ]
+    for conflict in unresolved.conflicts:
+        assert (conflict.entity_id, conflict.plan_period) == ("SYN-PLAN", "FY2024")
+        metric_name = conflict.metric_target.removesuffix("_usd")
+        assert {
+            (
+                version.normalized_value,
+                version.source_document_id,
+                version.effective_date,
+                version.ingestion_date,
+            )
+            for version in conflict.versions
+        } == {
+            (metric_values[metric_name][0], "doc:syn-plan:original", "2024-06-30", "2026-01-01"),
+            (metric_values[metric_name][1], "doc:syn-plan:revised", "2024-06-30", "2026-02-01"),
+        }
+
+
+@pytest.mark.parametrize(
+    ("first_ingestion", "second_ingestion"),
+    [
+        pytest.param("2026-02-01T06:00:00Z", "2026-02-01T06:00:00+00:00", id="aware-equivalents"),
+        pytest.param("2026-02-01T06:00:00", "2026-02-01T06:00:00Z", id="naive-aware"),
+        pytest.param("2026-02-01T06:00:00Z", "2026-02-01T06:00:00", id="aware-naive"),
+        pytest.param("2026-02-01T06:00:00", "2026-02-01T11:00:00+05:00", id="naive-offset"),
+        pytest.param("2026-02-01", "2026-02-01T00:00:00Z", id="date-only-aware"),
+    ],
+)
+def test_load_query_data_snapshot_same_document_ingestion_tie_is_unresolved(
+    tmp_path: Path, first_ingestion: str, second_ingestion: str
+) -> None:
+    """Equivalent ingestion instants cannot adjudicate differing same-document values."""
+    _write_run(
+        tmp_path,
+        "run-a",
+        [
+            _metric_row(
+                fact_id="fact:funded:a",
+                normalized_value=0.784,
+                ingestion_date=first_ingestion,
+            )
+        ],
+    )
+    _write_run(
+        tmp_path,
+        "run-b",
+        [
+            _metric_row(
+                fact_id="fact:funded:b",
+                normalized_value=0.8,
+                ingestion_date=second_ingestion,
+            )
+        ],
+    )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 2
+    assert {
+        (row.normalized_value, row.ingestion_date, row.source_document_id, row.effective_date)
+        for row in snapshot.metric_history_rows
+    } == {
+        (0.784, first_ingestion, "doc:syn-plan", "2024-06-30"),
+        (0.8, second_ingestion, "doc:syn-plan", "2024-06-30"),
+    }
+    assert snapshot.funding_trend_inputs == ()
+    assert len(snapshot.funding_trend_unresolved_periods) == 1
+    unresolved = snapshot.funding_trend_unresolved_periods[0]
+    assert unresolved.entity_id == "SYN-PLAN"
+    assert unresolved.plan_period == "FY2024"
+    assert len(unresolved.conflicts) == 1
+    conflict = unresolved.conflicts[0]
+    assert conflict.metric_target == "funded_ratio"
+    assert snapshot.funding_trend_conflicts == (conflict,)
+    assert len(conflict.versions) == 2
+    assert {
+        (
+            version.normalized_value,
+            version.ingestion_date,
+            version.source_document_id,
+            version.effective_date,
+        )
+        for version in conflict.versions
+    } == {
+        (0.784, first_ingestion, "doc:syn-plan", "2024-06-30"),
+        (0.8, second_ingestion, "doc:syn-plan", "2024-06-30"),
+    }
+
+
+def test_load_query_data_snapshot_tied_conflict_order_is_independent_of_run_names(
+    tmp_path: Path,
+) -> None:
+    """Renaming runs cannot reorder otherwise identical conflicting versions."""
+    snapshots = []
+    for label, values in (
+        ("forward", (0.784, 0.8)),
+        ("reverse", (0.8, 0.784)),
+    ):
+        root = tmp_path / label
+        for index, value in enumerate(values):
+            _write_run(
+                root,
+                f"run-{index}",
+                [
+                    _metric_row(
+                        fact_id=f"fact:funded:{value}",
+                        normalized_value=value,
+                    )
+                ],
+            )
+        snapshot = load_query_data_snapshot(root)
+        assert {row.normalized_value for row in snapshot.metric_history_rows} == {0.784, 0.8}
+        assert snapshot.funding_trend_inputs == ()
+        assert len(snapshot.funding_trend_conflicts) == 1
+        assert len(snapshot.funding_trend_unresolved_periods) == 1
+        snapshots.append(snapshot)
+
+    assert snapshots[0].funding_trend_conflicts == snapshots[1].funding_trend_conflicts
+    assert (
+        snapshots[0].funding_trend_unresolved_periods
+        == snapshots[1].funding_trend_unresolved_periods
+    )
+
+
+def test_load_query_data_snapshot_same_document_timezone_aware_supersession(
+    tmp_path: Path,
+) -> None:
+    _write_run(
+        tmp_path,
+        "run-earlier-offset",
+        [
+            _metric_row(
+                fact_id="fact:funded:earlier",
+                normalized_value=0.784,
+                # Wall-clock string sorts after the later UTC instant, but is earlier.
+                ingestion_date="2026-02-01T10:00:00+05:00",
+            )
+        ],
+    )
+    _write_run(
+        tmp_path,
+        "run-later-utc",
+        [
+            _metric_row(
+                fact_id="fact:funded:later",
+                normalized_value=0.8,
+                ingestion_date="2026-02-01T06:00:00Z",
+            )
+        ],
+    )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert snapshot.funding_trend_inputs[0].funded_ratio == pytest.approx(0.8)
+    assert snapshot.funding_trend_unresolved_periods == ()
+
+
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+@pytest.mark.parametrize(
+    "revisions",
+    [
+        pytest.param(
+            [
+                (0.784, "2026-01-01"),
+                (0.8, "2026-02-01T06:00:00Z"),
+                (0.8, "2026-02-01T11:00:00+05:00"),
+            ],
+            id="agreeing-latest-copies",
+        ),
+        pytest.param(
+            [
+                (0.784, "2026-01-01T06:00:00Z"),
+                (0.75, "2026-01-01T11:00:00+05:00"),
+                (0.8, "2026-02-01"),
+            ],
+            id="superseded-historical-tie",
+        ),
+    ],
+)
+def test_load_query_data_snapshot_resolves_same_document_three_version_history(
+    tmp_path: Path, revisions: list[tuple[float, str]], reverse_run_order: bool
+) -> None:
+    """Only disagreement at the latest instant blocks same-document supersession."""
+    ordered_revisions = list(reversed(revisions)) if reverse_run_order else revisions
+    for index, (value, ingestion_date) in enumerate(ordered_revisions):
+        _write_run(
+            tmp_path,
+            f"run-{index}",
+            [
+                _metric_row(
+                    fact_id=f"fact:funded:{index}",
+                    normalized_value=value,
+                    ingestion_date=ingestion_date,
+                )
+            ],
+        )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 3
+    assert {
+        (row.normalized_value, row.ingestion_date) for row in snapshot.metric_history_rows
+    } == set(revisions)
+    assert {row.source_document_id for row in snapshot.metric_history_rows} == {"doc:syn-plan"}
+    assert len(snapshot.funding_trend_inputs) == 1
+    trend_input = snapshot.funding_trend_inputs[0]
+    assert (trend_input.plan_id, trend_input.plan_period) == ("SYN-PLAN", "FY2024")
+    assert trend_input.funded_ratio == pytest.approx(0.8)
+    assert snapshot.funding_trend_conflicts == ()
+    assert snapshot.funding_trend_unresolved_periods == ()
 
 
 def test_load_query_data_snapshot_rejects_symlink_escape(tmp_path: Path) -> None:

@@ -105,6 +105,20 @@ def create_app(*, key_store: APIKeyStore | None = None, web_root: Path | None = 
         return {
             "view_name": result.view_name,
             "rows": [_jsonable(row) for row in result.rows],
+            "unresolved_periods": [
+                {
+                    "entity_id": period.entity_id,
+                    "plan_period": period.plan_period,
+                    "conflicts": [
+                        {
+                            "metric_target": conflict.metric_target,
+                            "versions": [_jsonable(version) for version in conflict.versions],
+                        }
+                        for conflict in period.conflicts
+                    ],
+                }
+                for period in snapshot.funding_trend_unresolved_periods
+            ],
             "audit_event": result.audit_event,
         }
 

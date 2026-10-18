@@ -210,6 +210,131 @@ def test_metric_history_serves_two_plans_under_one_artifact_root(
     assert trend_by_plan["PLAN-BETA"]["funded_ratio"] == pytest.approx(expected_beta)
 
 
+def test_metric_history_returns_both_revised_versions_with_provenance(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from tests.api.test_artifact_data import _metric_row, _write_run
+
+    artifact_root = tmp_path / "artifacts"
+    _write_run(
+        artifact_root,
+        "run-original",
+        [
+            _metric_row(
+                fact_id="fact:funded:original",
+                normalized_value=0.784,
+                source_document_id="doc:syn-plan:original",
+            )
+        ],
+        source_document_id="doc:syn-plan:original",
+    )
+    _write_run(
+        artifact_root,
+        "run-revised",
+        [
+            _metric_row(
+                fact_id="fact:funded:revised",
+                normalized_value=0.8,
+                source_document_id="doc:syn-plan:revised",
+                ingestion_date="2026-02-01",
+            )
+        ],
+        source_document_id="doc:syn-plan:revised",
+    )
+
+    monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
+    monkeypatch.setenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", str(artifact_root))
+    client, secret = _client_with_query_key()
+    headers = {"Authorization": f"Bearer {secret}"}
+
+    response = client.get("/api/metric-history/SYN-PLAN", headers=headers)
+    assert response.status_code == 200
+    payload = response.json()
+    funded_rows = [row for row in payload["rows"] if row["metric_name"] == "funded_ratio"]
+    assert len(funded_rows) == 2
+    assert {row["normalized_value"] for row in funded_rows} == {0.784, 0.8}
+    assert {row["source_document_id"] for row in funded_rows} == {
+        "doc:syn-plan:original",
+        "doc:syn-plan:revised",
+    }
+    assert {row["effective_date"] for row in funded_rows} == {"2024-06-30"}
+    assert {row["ingestion_date"] for row in funded_rows} == {"2026-01-01", "2026-02-01"}
+
+
+def test_conflicted_plan_period_does_not_disable_metric_history_for_other_plan(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from tests.api.test_artifact_data import _metric_row, _write_run
+
+    artifact_root = tmp_path / "artifacts"
+    _write_run(
+        artifact_root,
+        "run-conflicted-a",
+        [
+            _metric_row(
+                fact_id="fact:conflict:a",
+                plan_id="PLAN-CONFLICT",
+                normalized_value=0.784,
+                source_document_id="doc:conflict:a",
+            )
+        ],
+        plan_id="PLAN-CONFLICT",
+        source_document_id="doc:conflict:a",
+    )
+    _write_run(
+        artifact_root,
+        "run-conflicted-b",
+        [
+            _metric_row(
+                fact_id="fact:conflict:b",
+                plan_id="PLAN-CONFLICT",
+                normalized_value=0.8,
+                source_document_id="doc:conflict:b",
+                ingestion_date="2026-02-01",
+            )
+        ],
+        plan_id="PLAN-CONFLICT",
+        source_document_id="doc:conflict:b",
+    )
+    _write_run(
+        artifact_root,
+        "run-clean",
+        [_metric_row(fact_id="fact:clean", plan_id="PLAN-CLEAN", normalized_value=0.75)],
+        plan_id="PLAN-CLEAN",
+    )
+
+    monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
+    monkeypatch.setenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", str(artifact_root))
+    client, secret = _client_with_query_key()
+    headers = {"Authorization": f"Bearer {secret}"}
+
+    clean_response = client.get("/api/metric-history/PLAN-CLEAN", headers=headers)
+    assert clean_response.status_code == 200
+    assert clean_response.json()["total_rows"] == 1
+
+    trend_response = client.get("/api/saved-views/funding-trend", headers=headers)
+    assert trend_response.status_code == 200
+    payload = trend_response.json()
+    assert payload["rows"] == [
+        {
+            "plan_id": "PLAN-CLEAN",
+            "plan_period": "FY2024",
+            "funded_ratio": pytest.approx(0.75),
+            "funded_ratio_change": None,
+            "net_external_cash_flow_usd": None,
+        }
+    ]
+    unresolved = payload["unresolved_periods"][0]
+    assert unresolved["entity_id"] == "PLAN-CONFLICT"
+    assert unresolved["plan_period"] == "FY2024"
+    assert len(unresolved["conflicts"]) == 1
+    conflict = unresolved["conflicts"][0]
+    assert conflict["metric_target"] == "funded_ratio"
+    versions = {version["source_document_id"]: version for version in conflict["versions"]}
+    assert versions["doc:conflict:a"]["normalized_value"] == pytest.approx(0.784)
+    assert versions["doc:conflict:b"]["normalized_value"] == pytest.approx(0.8)
+
+
 def test_authenticated_query_reports_missing_artifact_root(monkeypatch) -> None:
     monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
     monkeypatch.delenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", raising=False)
