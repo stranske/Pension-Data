@@ -149,6 +149,52 @@ def test_load_query_data_snapshot_keeps_revised_rows_and_marks_cross_document_co
     assert len(unresolved.conflicts[0].versions) == 2
 
 
+@pytest.mark.parametrize("other_ingestion_date", ["2026-01-01", "2026-02-01"])
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+def test_load_query_data_snapshot_agreeing_documents_remain_resolved(
+    tmp_path: Path, other_ingestion_date: str, reverse_run_order: bool
+) -> None:
+    """Document identity and ingestion order alone cannot create a value conflict."""
+    observations = [
+        ("doc:syn-plan:original", "2026-01-01"),
+        ("doc:syn-plan:other", other_ingestion_date),
+    ]
+    if reverse_run_order:
+        observations.reverse()
+    for index, (source_document_id, ingestion_date) in enumerate(observations):
+        row = _metric_row(
+            fact_id=f"fact:funded:{source_document_id}",
+            source_document_id=source_document_id,
+            ingestion_date=ingestion_date,
+        )
+        _write_run(
+            tmp_path,
+            f"run-{index}",
+            [row],
+            source_document_id=source_document_id,
+        )
+        _write_run(
+            tmp_path,
+            f"run-{index}-copy",
+            [row],
+            source_document_id=source_document_id,
+        )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 2
+    assert {
+        (row.source_document_id, row.ingestion_date) for row in snapshot.metric_history_rows
+    } == set(observations)
+    assert {row.normalized_value for row in snapshot.metric_history_rows} == {0.784}
+    assert len(snapshot.funding_trend_inputs) == 1
+    trend_input = snapshot.funding_trend_inputs[0]
+    assert (trend_input.plan_id, trend_input.plan_period) == ("SYN-PLAN", "FY2024")
+    assert trend_input.funded_ratio == pytest.approx(0.784)
+    assert snapshot.funding_trend_conflicts == ()
+    assert snapshot.funding_trend_unresolved_periods == ()
+
+
 def test_load_query_data_snapshot_same_document_revision_supersedes_for_trend(
     tmp_path: Path,
 ) -> None:
