@@ -166,13 +166,19 @@ def _run_flow_pilot(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     _write_run(root, "flow-pilot", artifacts["published_rows"])
     manifest_path = run / "run_manifest.json"
     manifest = json.loads(manifest_path.read_text())
+    # Relative to the run directory so relocation still resolves via containment.
     manifest["artifact_files"] = {
-        "financial_flow_rows_json": str(
-            run / "document_orchestration" / "flow-pilot" / "financial_flow_rows.json"
-        )
+        "financial_flow_rows_json": "document_orchestration/flow-pilot/financial_flow_rows.json"
     }
     manifest_path.write_text(json.dumps(manifest))
     return root, {"run_manifest_json": str(manifest_path)}
+
+
+def _flow_artifact_path(run_manifest_json: str, declared: str) -> Path:
+    path = Path(declared)
+    if path.is_absolute():
+        return path
+    return Path(run_manifest_json).parent / path
 
 
 def test_funding_trend_joins_actual_pilot_financial_flow_output(tmp_path: Path) -> None:
@@ -180,7 +186,9 @@ def test_funding_trend_joins_actual_pilot_financial_flow_output(tmp_path: Path) 
 
     root, result = _run_flow_pilot(tmp_path)
     manifest = json.loads(Path(result["run_manifest_json"]).read_text())
-    flow = json.loads(Path(manifest["artifact_files"]["financial_flow_rows_json"]).read_text())[0]
+    declared = manifest["artifact_files"]["financial_flow_rows_json"]
+    assert not Path(declared).is_absolute()
+    flow = json.loads(_flow_artifact_path(result["run_manifest_json"], declared).read_text())[0]
     assert flow["benefit_payments_usd"] == -30_000_000
     assert flow["refunds_usd"] == -5_000_000
     assert flow["net_external_cash_flow_usd"] == 85_000_000
@@ -190,6 +198,33 @@ def test_funding_trend_joins_actual_pilot_financial_flow_output(tmp_path: Path) 
     rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
     assert len(rows) == 1
     assert rows[0].net_external_cash_flow_usd == 85_000_000
+
+
+def test_funding_trend_missing_flow_artifact_yields_null_net(tmp_path: Path) -> None:
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    _write_run(tmp_path, "run-a", [_metric_row()])
+    snapshot = load_query_data_snapshot(tmp_path)
+    assert snapshot.funding_trend_inputs[0].employer_contributions_usd is None
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd is None
+
+
+def test_funding_trend_resolves_absolute_flow_path_under_run(tmp_path: Path) -> None:
+    """Absolute manifest paths still resolve when they stay inside the run tree."""
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run)
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    absolute = (run / "flows.json").resolve()
+    manifest["artifact_files"] = {"financial_flow_rows_json": str(absolute)}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    snapshot = load_query_data_snapshot(tmp_path)
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd == 85
 
 
 @pytest.mark.parametrize("field", ["plan_id", "plan_period", "source_document_id"])

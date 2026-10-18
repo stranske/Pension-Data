@@ -65,12 +65,14 @@ def test_saved_view_route_maps_auth_errors() -> None:
 def test_funding_trend_http_uses_identity_bound_flow_artifacts(
     tmp_path: Path, monkeypatch, disclosure: str
 ) -> None:
-    from tests.api.test_artifact_data import _run_flow_pilot
+    from tests.api.test_artifact_data import _flow_artifact_path, _run_flow_pilot
 
     root, result = _run_flow_pilot(tmp_path)
     manifest_path = Path(result["run_manifest_json"])
     manifest = json.loads(manifest_path.read_text())
-    path = Path(manifest["artifact_files"]["financial_flow_rows_json"])
+    path = _flow_artifact_path(
+        result["run_manifest_json"], manifest["artifact_files"]["financial_flow_rows_json"]
+    )
     if disclosure == "missing":
         del manifest["artifact_files"]["financial_flow_rows_json"]
         manifest_path.write_text(json.dumps(manifest))

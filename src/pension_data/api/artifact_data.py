@@ -254,6 +254,17 @@ def _validate_flow_row(row: Mapping[str, object], *, manifest_input: Mapping[str
         _validate_temporal(_required_text(row, field), field=field)
 
 
+def _resolve_run_artifact_path(root: Path, resolved_run: Path, declared: str, *, kind: str) -> Path:
+    """Resolve a manifest-declared path under its run, with root containment."""
+    candidate = Path(declared.strip())
+    if not candidate.is_absolute():
+        candidate = resolved_run / candidate
+    path = _contained_existing_path(root, candidate, kind=kind)
+    if not path.is_relative_to(resolved_run):
+        raise QueryArtifactError(f"{kind} escapes its run directory")
+    return path
+
+
 def _load_run_rows(
     root: Path, run_dir: Path
 ) -> tuple[list[Mapping[str, object]], list[Mapping[str, object]]]:
@@ -288,11 +299,12 @@ def _load_run_rows(
     if flow_file is not None:
         if not isinstance(flow_file, str) or not flow_file.strip():
             raise QueryArtifactError("financial_flow_rows_json must be a non-empty path")
-        flow_path = _contained_existing_path(
-            root, resolved_run / flow_file, kind="financial_flow_rows.json"
+        flow_path = _resolve_run_artifact_path(
+            root,
+            resolved_run,
+            flow_file,
+            kind="financial_flow_rows.json",
         )
-        if not flow_path.is_relative_to(resolved_run):
-            raise QueryArtifactError("financial flow artifact escapes its run directory")
         flow_payload = _read_json(flow_path)
         if not isinstance(flow_payload, list):
             raise QueryArtifactError("financial_flow_rows.json must contain a list")
@@ -460,8 +472,11 @@ def _build_funding_trend_projection(
     return tuple(inputs), tuple(conflicts), tuple(unresolved)
 
 
-def _funding_trend_inputs(rows: Sequence[MetricHistoryRow]) -> tuple[FundingTrendInput, ...]:
-    inputs, _, _ = _build_funding_trend_projection(rows)
+def _funding_trend_inputs(
+    rows: Sequence[MetricHistoryRow],
+    flow_rows: Sequence[Mapping[str, object]] = (),
+) -> tuple[FundingTrendInput, ...]:
+    inputs, _, _ = _build_funding_trend_projection(rows, flow_rows)
     return inputs
 
 
