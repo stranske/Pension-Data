@@ -299,6 +299,32 @@ def test_funding_trend_resolves_absolute_flow_path_under_run(tmp_path: Path) -> 
     assert rows[0].net_external_cash_flow_usd == 85
 
 
+def test_funding_trend_uses_manifest_selected_flow_over_stale_files(tmp_path: Path) -> None:
+    """Existing flow files must not override the disclosure selected by the manifest."""
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    original = _write_flow_artifact(run, employer_contributions_usd=200.0)
+    selected = run / "disclosures" / "revised-flows.json"
+    selected.parent.mkdir()
+    original.rename(selected)
+    stale = json.loads(selected.read_text())
+    stale[0]["employer_contributions_usd"] = 100.0
+    for name in ("flows.json", "financial_flow_rows.json"):
+        (run / name).write_text(json.dumps(stale), encoding="utf-8")
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"]["financial_flow_rows_json"] = selected.relative_to(run).as_posix()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.funding_trend_inputs) == 1
+    assert snapshot.funding_trend_inputs[0].employer_contributions_usd == 200.0
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd == 185.0
+
+
 def test_funding_trend_manifest_flow_path_survives_run_relocation(tmp_path: Path) -> None:
     """Moving pilot artifacts must preserve the manifest's relative flow join."""
     from pension_data.query.saved_views.service import execute_funding_trend_view
