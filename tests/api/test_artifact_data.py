@@ -366,6 +366,20 @@ def test_funding_trend_declared_missing_flow_artifact_is_rejected(tmp_path: Path
         load_query_data_snapshot(tmp_path)
 
 
+def test_funding_trend_rejects_invalid_manifest_flow_path(tmp_path: Path) -> None:
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run)
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"]["financial_flow_rows_json"] = "invalid\x00flows.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(
+        QueryArtifactError, match="invalid query artifact financial_flow_rows.json path"
+    ):
+        load_query_data_snapshot(tmp_path)
+
+
 def test_funding_trend_repeated_flows_are_not_summed(tmp_path: Path) -> None:
     from pension_data.query.saved_views.service import execute_funding_trend_view
 

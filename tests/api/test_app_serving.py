@@ -102,6 +102,27 @@ def test_funding_trend_http_uses_identity_bound_flow_artifacts(
         )
 
 
+def test_funding_trend_http_rejects_invalid_manifest_flow_path(tmp_path: Path, monkeypatch) -> None:
+    from tests.api.test_artifact_data import _metric_row, _write_flow_artifact, _write_run
+
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    _write_flow_artifact(run)
+    manifest_path = run / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifact_files"]["financial_flow_rows_json"] = "invalid\x00flows.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
+    monkeypatch.setenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", str(tmp_path))
+    client, secret = _client_with_query_key()
+
+    response = client.get(
+        "/api/saved-views/funding-trend", headers={"Authorization": f"Bearer {secret}"}
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "invalid query artifact financial_flow_rows.json path"
+
+
 def test_default_app_uses_environment_api_key(monkeypatch) -> None:
     monkeypatch.setenv("PENSION_DATA_API_KEY", "test-env-secret")
     monkeypatch.setenv("PENSION_DATA_API_KEY_SCOPES", SCOPE_QUERY)

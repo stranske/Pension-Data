@@ -76,6 +76,8 @@ def _contained_existing_path(root: Path, candidate: Path, *, kind: str) -> Path:
         resolved = candidate.resolve(strict=True)
     except OSError as exc:
         raise QueryArtifactError(f"missing query artifact {kind}") from exc
+    except ValueError as exc:
+        raise QueryArtifactError(f"invalid query artifact {kind} path") from exc
     if not resolved.is_relative_to(root):
         raise QueryArtifactError(f"query artifact {kind} escapes configured root")
     return resolved

@@ -1,0 +1,39 @@
+Manifest-declared financial-flow path validation follow-up
+
+The new loader and authenticated HTTP tests use a JSON manifest path containing
+an embedded null character. A raw pathlib ValueError previously bypassed the
+QueryArtifactError handler. The loader now wraps that error; HTTP returns 503.
+
+Deliberate-break control: temporarily removed only the two new ValueError-handler
+lines in _contained_existing_path, ran both new regressions, and restored the
+source byte-for-byte in a finally block. The disconnected test process exited 1:
+
+<frozen posixpath>:457: ValueError
+=========================== short test summary info ============================
+FAILED tests/api/test_artifact_data.py::test_funding_trend_rejects_invalid_manifest_flow_path - ValueError: lstat: embedded null character in path
+FAILED tests/api/test_app_serving.py::test_funding_trend_http_rejects_invalid_manifest_flow_path - ValueError: lstat: embedded null character in path
+============================== 2 failed in 1.22s ===============================
+
+After restoration, ran the complete acceptance command with -m "not slow":
+pytest tests/api/test_artifact_data.py tests/api/test_app_serving.py tests/query/test_saved_views.py tests/extract/funded/test_financial_flows.py -m 'not slow' -q
+
+collected 138 items
+
+tests/api/test_artifact_data.py ........................................ [ 28%]
+....................................                                     [ 55%]
+tests/api/test_app_serving.py ................                           [ 66%]
+tests/query/test_saved_views.py ......................................   [ 94%]
+tests/extract/funded/test_financial_flows.py ........                    [100%]
+
+============================= 138 passed in 2.00s ==============================
+
+Environment: this sandbox blocks socket wakeups used by TestClient, including
+an unchanged health-route test. HTTP verification used a temporary sitecustomize
+under /tmp that bounds selector waits to 10ms, injected through PYTHONPATH.
+No application or tracked test runtime was patched for this workaround.
+
+Black formatting and the repository-wide --check --line-length 100 --exclude
+'(\.workflows-lib|node_modules)' gate passed: 458 files unchanged. The global
+gate used BLACK_NUM_WORKERS=1 and the same temporary polling workaround because
+the sandbox denies multiprocessing sockets. Relevant-file Ruff and source-file
+strict mypy passed, as did git diff --check.
