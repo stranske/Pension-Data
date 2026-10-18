@@ -6,7 +6,7 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -128,6 +128,12 @@ def _validate_temporal(value: str, *, field: str) -> str:
     except ValueError as exc:
         raise QueryArtifactError(f"query artifact row {field} must be ISO-8601") from exc
     return value
+
+
+def _ingestion_instant(value: str) -> datetime:
+    """Parse an ISO-8601 ingestion timestamp as a timezone-aware UTC instant."""
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def _evidence_refs(row: Mapping[str, object]) -> tuple[str, ...]:
@@ -285,8 +291,15 @@ def _resolve_metric_versions(
 
     source_ids = {version.source_document_id for version in versions}
     if len(source_ids) == 1:
-        latest = max(versions, key=lambda version: version.ingestion_date)
-        return latest.normalized_value, None
+        latest_instant = max(_ingestion_instant(version.ingestion_date) for version in versions)
+        latest_values = {
+            version.normalized_value
+            for version in versions
+            if _ingestion_instant(version.ingestion_date) == latest_instant
+        }
+        # Same-document supersession requires a unique latest ingestion instant.
+        if len(latest_values) == 1:
+            return next(iter(latest_values)), None
 
     conflict = FundingTrendPeriodConflict(
         entity_id="",

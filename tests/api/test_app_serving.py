@@ -257,6 +257,8 @@ def test_metric_history_returns_both_revised_versions_with_provenance(
         "doc:syn-plan:original",
         "doc:syn-plan:revised",
     }
+    assert {row["effective_date"] for row in funded_rows} == {"2024-06-30"}
+    assert {row["ingestion_date"] for row in funded_rows} == {"2026-01-01", "2026-02-01"}
 
 
 def test_conflicted_plan_period_does_not_disable_metric_history_for_other_plan(

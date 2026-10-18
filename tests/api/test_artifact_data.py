@@ -182,6 +182,79 @@ def test_load_query_data_snapshot_same_document_revision_supersedes_for_trend(
     assert snapshot.funding_trend_unresolved_periods == ()
 
 
+def test_load_query_data_snapshot_same_document_ingestion_tie_is_unresolved(
+    tmp_path: Path,
+) -> None:
+    _write_run(
+        tmp_path,
+        "run-a",
+        [
+            _metric_row(
+                fact_id="fact:funded:a",
+                normalized_value=0.784,
+                ingestion_date="2026-02-01T06:00:00Z",
+            )
+        ],
+    )
+    _write_run(
+        tmp_path,
+        "run-b",
+        [
+            _metric_row(
+                fact_id="fact:funded:b",
+                normalized_value=0.8,
+                ingestion_date="2026-02-01T06:00:00+00:00",
+            )
+        ],
+    )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 2
+    assert snapshot.funding_trend_inputs == ()
+    assert len(snapshot.funding_trend_unresolved_periods) == 1
+    unresolved = snapshot.funding_trend_unresolved_periods[0]
+    assert unresolved.plan_period == "FY2024"
+    assert unresolved.conflicts[0].metric_target == "funded_ratio"
+    assert {version.normalized_value for version in unresolved.conflicts[0].versions} == {
+        0.784,
+        0.8,
+    }
+
+
+def test_load_query_data_snapshot_same_document_timezone_aware_supersession(
+    tmp_path: Path,
+) -> None:
+    _write_run(
+        tmp_path,
+        "run-earlier-offset",
+        [
+            _metric_row(
+                fact_id="fact:funded:earlier",
+                normalized_value=0.784,
+                # Wall-clock string sorts after the later UTC instant, but is earlier.
+                ingestion_date="2026-02-01T10:00:00+05:00",
+            )
+        ],
+    )
+    _write_run(
+        tmp_path,
+        "run-later-utc",
+        [
+            _metric_row(
+                fact_id="fact:funded:later",
+                normalized_value=0.8,
+                ingestion_date="2026-02-01T06:00:00Z",
+            )
+        ],
+    )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert snapshot.funding_trend_inputs[0].funded_ratio == pytest.approx(0.8)
+    assert snapshot.funding_trend_unresolved_periods == ()
+
+
 def test_load_query_data_snapshot_rejects_symlink_escape(tmp_path: Path) -> None:
     root = tmp_path / "root"
     pilot_root = root / "one_pdf_pilot"

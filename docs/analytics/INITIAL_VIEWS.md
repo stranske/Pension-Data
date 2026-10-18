@@ -22,7 +22,8 @@ Assumptions:
 
 Revision and conflict policy:
 - Metric-history rows always retain every ingested version; funding-trend projection never drops history from `/api/metric-history`.
-- When multiple values exist for the same plan-period metric, the API selects a single trend input only when they share one `source_document_id` and differ only by ingestion order (same-document revision). Otherwise the plan-period is listed under `unresolved_periods` on the funding-trend response with per-metric provenance, and that period is omitted from trend `rows`.
+- When multiple values exist for the same plan-period metric, the API selects a single trend input only when they share one `source_document_id` and the latest timezone-normalized `ingestion_date` has exactly one distinct value (same-document revision). Equal latest ingestion instants with disagreeing values are unresolved.
+- Otherwise the plan-period is listed under `unresolved_periods` on the funding-trend response with per-metric provenance, and that period is omitted from trend `rows`.
 - Cross-document disagreements are never auto-picked; operators must adjudicate outside the trend builder.
 
 ## Allocation Peer Compare (`allocation_peer_compare:v1`)
