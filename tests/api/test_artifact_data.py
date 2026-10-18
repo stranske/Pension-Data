@@ -182,6 +182,60 @@ def test_load_query_data_snapshot_same_document_revision_supersedes_for_trend(
     assert snapshot.funding_trend_unresolved_periods == ()
 
 
+@pytest.mark.parametrize("other_document_value", [0.8, 0.82])
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+def test_load_query_data_snapshot_cross_document_conflict_survives_same_document_revision(
+    tmp_path: Path, other_document_value: float, reverse_run_order: bool
+) -> None:
+    """Same-document supersession cannot establish authority across documents."""
+    revisions = [
+        ("doc:syn-plan", 0.784, "2026-01-01"),
+        ("doc:syn-plan", 0.8, "2026-02-01"),
+        ("doc:other", other_document_value, "2026-03-01"),
+    ]
+    ordered_revisions = list(reversed(revisions)) if reverse_run_order else revisions
+    for index, (source_document_id, value, ingestion_date) in enumerate(ordered_revisions):
+        _write_run(
+            tmp_path,
+            f"run-{index}",
+            [
+                _metric_row(
+                    fact_id=f"fact:funded:{index}",
+                    source_document_id=source_document_id,
+                    normalized_value=value,
+                    ingestion_date=ingestion_date,
+                )
+            ],
+            source_document_id=source_document_id,
+        )
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 3
+    assert {
+        (row.source_document_id, row.normalized_value, row.ingestion_date)
+        for row in snapshot.metric_history_rows
+    } == set(revisions)
+    assert snapshot.funding_trend_inputs == ()
+    assert len(snapshot.funding_trend_unresolved_periods) == 1
+    unresolved = snapshot.funding_trend_unresolved_periods[0]
+    assert (unresolved.entity_id, unresolved.plan_period) == ("SYN-PLAN", "FY2024")
+    assert len(unresolved.conflicts) == 1
+    conflict = unresolved.conflicts[0]
+    assert (conflict.entity_id, conflict.plan_period, conflict.metric_target) == (
+        "SYN-PLAN",
+        "FY2024",
+        "funded_ratio",
+    )
+    assert snapshot.funding_trend_conflicts == (conflict,)
+    assert len(conflict.versions) == 3
+    assert {
+        (version.source_document_id, version.normalized_value, version.ingestion_date)
+        for version in conflict.versions
+    } == set(revisions)
+    assert {version.effective_date for version in conflict.versions} == {"2024-06-30"}
+
+
 @pytest.mark.parametrize(
     ("metric_name", "metric_target"),
     [
