@@ -137,9 +137,7 @@ def test_load_query_data_snapshot_keeps_revised_rows_and_marks_cross_document_co
 
     snapshot = load_query_data_snapshot(tmp_path)
 
-    funded_rows = [
-        row for row in snapshot.metric_history_rows if row.metric_name == "funded_ratio"
-    ]
+    funded_rows = [row for row in snapshot.metric_history_rows if row.metric_name == "funded_ratio"]
     assert len(funded_rows) == 2
     assert {row.normalized_value for row in funded_rows} == {0.784, 0.8}
     assert snapshot.funding_trend_inputs == ()
