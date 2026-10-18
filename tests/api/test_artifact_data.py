@@ -276,6 +276,40 @@ def test_funding_trend_conflicting_flows_remain_unresolved(tmp_path: Path) -> No
     assert snapshot.funding_trend_conflicts[0].metric_target == "employer_contributions_usd"
 
 
+@pytest.mark.parametrize("metric_name", ["benefit_payments", "benefit_payments_usd"])
+@pytest.mark.parametrize("staged_benefits", [-30.0, 30.0])
+@pytest.mark.parametrize("disclosed_benefits", [-30.0, 30.0])
+def test_funding_trend_joins_equivalent_signed_benefits(
+    tmp_path: Path, metric_name: str, staged_benefits: float, disclosed_benefits: float
+) -> None:
+    """Signed and magnitude representations agree before version conflict detection."""
+    from pension_data.query.saved_views.service import execute_funding_trend_view
+
+    benefit_row = {
+        **_metric_row(fact_id="fact:benefits"),
+        "metric_family": "cash_flow",
+        "metric_name": metric_name,
+        "as_reported_value": staged_benefits,
+        "normalized_value": staged_benefits,
+        "as_reported_unit": "USD",
+        "normalized_unit": "USD",
+    }
+    run = _write_run(tmp_path, "run", [_metric_row(), benefit_row])
+    _write_flow_artifact(run, benefit_payments_usd=disclosed_benefits)
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert snapshot.funding_trend_conflicts == ()
+    assert snapshot.funding_trend_unresolved_periods == ()
+    assert len(snapshot.funding_trend_inputs) == 1
+    assert snapshot.funding_trend_inputs[0].benefit_payments_usd == 30.0
+    rows = execute_funding_trend_view(list(snapshot.funding_trend_inputs))
+    assert rows[0].net_external_cash_flow_usd == 85.0
+    # Projection normalization must preserve the original metric history value.
+    history = next(row for row in snapshot.metric_history_rows if row.metric_name == metric_name)
+    assert history.normalized_value == staged_benefits
+
+
 def test_load_query_data_snapshot_rejects_conflicting_duplicate_fact_id(
     tmp_path: Path,
 ) -> None:

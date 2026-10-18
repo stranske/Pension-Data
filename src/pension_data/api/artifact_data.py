@@ -383,6 +383,11 @@ def _build_funding_trend_projection(
             continue
         if target == "funded_ratio" and row.normalized_unit not in {None, "ratio"}:
             raise QueryArtifactError("funded_ratio must use normalized unit 'ratio'")
+        # Compare staged benefits with flow-artifact outflow magnitudes before
+        # resolving versions, so a sign convention alone cannot create a conflict.
+        value = (
+            abs(row.normalized_value) if target == "benefit_payments_usd" else row.normalized_value
+        )
         key = (row.entity_id, row.plan_period)
         metric_versions = by_period.setdefault(key, {}).setdefault(target, [])
         metric_versions.append(
@@ -390,7 +395,7 @@ def _build_funding_trend_projection(
                 source_document_id=row.source_document_id,
                 effective_date=row.effective_date,
                 ingestion_date=row.ingestion_date,
-                normalized_value=row.normalized_value,
+                normalized_value=value,
             )
         )
 
