@@ -328,6 +328,32 @@ def test_funding_trend_rejects_mismatched_flow_identity(tmp_path: Path, field: s
         load_query_data_snapshot(tmp_path)
 
 
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        pytest.param(None, "financial_flow_rows.json must contain a list", id="null-payload"),
+        pytest.param({}, "financial_flow_rows.json must contain a list", id="object-payload"),
+        pytest.param([None], "query artifact financial_flow row must be an object", id="null-row"),
+        pytest.param([[]], "query artifact financial_flow row must be an object", id="list-row"),
+        pytest.param(
+            ["invalid"], "query artifact financial_flow row must be an object", id="string-row"
+        ),
+    ],
+)
+def test_funding_trend_rejects_malformed_flow_payload(
+    tmp_path: Path, payload: object, error: str
+) -> None:
+    """Malformed disclosures must fail validation before the funding-trend join."""
+    run = _write_run(tmp_path, "run-a", [_metric_row()])
+    path = _write_flow_artifact(run)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(QueryArtifactError) as exc_info:
+        load_query_data_snapshot(tmp_path)
+
+    assert str(exc_info.value) == error
+
+
 @pytest.mark.parametrize("field", ["plan_id", "plan_period", "source_document_id"])
 @pytest.mark.parametrize("mismatched_index", [0, 1])
 def test_funding_trend_rejects_mismatched_identity_among_valid_flow_rows(
