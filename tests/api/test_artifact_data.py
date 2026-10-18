@@ -1069,12 +1069,13 @@ def test_load_query_data_snapshot_rejects_symlink_escape(tmp_path: Path) -> None
         load_query_data_snapshot(root)
 
 
-def test_explicit_null_flow_declaration_is_invalid(tmp_path):
+@pytest.mark.parametrize("declared", [None, "", "   ", 123, False, [], {}])
+def test_explicit_invalid_flow_declaration_is_rejected(tmp_path: Path, declared: object) -> None:
     run = _write_run(tmp_path, "run", [_metric_row()])
     _write_flow_artifact(run)
     manifest_path = run / "run_manifest.json"
     manifest = json.loads(manifest_path.read_text())
-    manifest["artifact_files"]["financial_flow_rows_json"] = None
+    manifest["artifact_files"]["financial_flow_rows_json"] = declared
     manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(QueryArtifactError, match="must be a non-empty path"):
         load_query_data_snapshot(tmp_path)

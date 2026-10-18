@@ -61,7 +61,17 @@ def test_saved_view_route_maps_auth_errors() -> None:
     assert "missing API key" in response.json()["detail"]
 
 
-@pytest.mark.parametrize("disclosure", ["disclosed", "missing", "mismatched", "oversized"])
+@pytest.mark.parametrize(
+    "disclosure",
+    [
+        "disclosed",
+        "missing",
+        "mismatched_plan_id",
+        "mismatched_plan_period",
+        "mismatched_source_document_id",
+        "oversized",
+    ],
+)
 def test_funding_trend_http_uses_identity_bound_flow_artifacts(
     tmp_path: Path, monkeypatch, disclosure: str
 ) -> None:
@@ -76,10 +86,10 @@ def test_funding_trend_http_uses_identity_bound_flow_artifacts(
     if disclosure == "missing":
         del manifest["artifact_files"]["financial_flow_rows_json"]
         manifest_path.write_text(json.dumps(manifest))
-    elif disclosure in {"mismatched", "oversized"}:
+    elif disclosure.startswith("mismatched_") or disclosure == "oversized":
         rows = json.loads(path.read_text())
-        if disclosure == "mismatched":
-            rows[0]["source_document_id"] = "OTHER"
+        if disclosure.startswith("mismatched_"):
+            rows[0][disclosure.removeprefix("mismatched_")] = "OTHER"
         else:
             rows[0]["employer_contributions_usd"] = 10**400
         path.write_text(json.dumps(rows))
@@ -89,10 +99,15 @@ def test_funding_trend_http_uses_identity_bound_flow_artifacts(
     response = client.get(
         "/api/saved-views/funding-trend", headers={"Authorization": f"Bearer {secret}"}
     )
-    if disclosure in {"mismatched", "oversized"}:
+    if disclosure.startswith("mismatched_") or disclosure == "oversized":
         assert response.status_code == 503
-        field = "source_document_id" if disclosure == "mismatched" else "employer_contributions_usd"
-        assert field in response.json()["detail"]
+        if disclosure.startswith("mismatched_"):
+            field = disclosure.removeprefix("mismatched_")
+            assert response.json()["detail"] == (
+                f"query artifact row {field} conflicts with run manifest"
+            )
+        else:
+            assert "employer_contributions_usd" in response.json()["detail"]
     else:
         assert response.status_code == 200
         rows = response.json()["rows"]
