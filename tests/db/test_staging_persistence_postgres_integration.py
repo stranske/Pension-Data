@@ -621,6 +621,92 @@ def test_same_assertion_bool_identity_matches_replacement_key(
     assert _same_assertion(tuple(fetched), _row_values({**row, "restated": True}))
 
 
+@pytest.mark.parametrize(
+    ("first", "equivalent", "distinct"),
+    [
+        pytest.param({"page": "40.0"}, {"page": 40}, {"page": 41}, id="object-integral"),
+        pytest.param({"page": "0.790"}, {"page": "0.79"}, {"page": "0.80"}, id="trailing-zero"),
+        pytest.param(
+            {"refs": ["2.50", 3]},
+            {"refs": [2.5, "3.0"]},
+            {"refs": [2.5, 4]},
+            id="nested-list",
+        ),
+    ],
+)
+def test_replacement_key_evidence_decimal_equivalence_preserves_distinct_values(
+    first: object, equivalent: object, distinct: object
+) -> None:
+    """Decimal spellings inside evidence objects derive the numeric key (#964).
+
+    ``_canonical_key_value`` already canonicalizes Decimals nested in
+    mappings, but ``_row_values`` serialized evidence with plain
+    ``json.dumps`` first, so a Decimal evidence value crashed with
+    ``TypeError`` before either contract could see it.
+    """
+    from decimal import Decimal
+
+    from pension_data.db.staging_persistence import _replacement_fact_id
+
+    def dec(value: object) -> object:
+        if isinstance(value, str):
+            return Decimal(value)
+        if isinstance(value, dict):
+            return {key: dec(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [dec(item) for item in value]
+        return value
+
+    row = _base_pg_row(fact_id="audit:evidence-decimal-key:1", plan_id="AUDIT-EVIDENCE-DECIMAL")
+    first_value, equivalent_value, distinct_value = dec(first), dec(equivalent), dec(distinct)
+    assert _same_assertion(
+        _row_values({**row, "evidence_refs": first_value}),
+        _row_values({**row, "evidence_refs": equivalent_value}),
+    )
+    key = _replacement_fact_id({**row, "evidence_refs": first_value})
+    assert key == _replacement_fact_id({**row, "evidence_refs": equivalent_value})
+    assert key != _replacement_fact_id({**row, "evidence_refs": distinct_value})
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_audit_evidence_decimal_restatement_retry_is_idempotent(
+    dialect: DatabaseDialect,
+) -> None:
+    """A Decimal vs int evidence retry must not raise a same-source conflict."""
+    from decimal import Decimal
+
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = {
+        **_base_pg_row(fact_id="audit:evidence-decimal:1", plan_id="AUDIT-EVIDENCE-DECIMAL"),
+        "evidence_refs": {"page": 39},
+    }
+    restatement = {
+        **base,
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+        "evidence_refs": {"page": Decimal("40.0")},
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated",
+    }
+    retry = {**restatement, "evidence_refs": {"page": 40}}
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-EVIDENCE-DECIMAL")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
+        count = connection.execute(
+            "SELECT COUNT(*) FROM staging_core_metrics WHERE plan_id = 'AUDIT-EVIDENCE-DECIMAL'"
+        ).fetchone()[0]
+        assert count == 2
+    finally:
+        connection.close()
+
+
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 def test_audit_bool_evidence_restatement_is_not_dropped_as_retry(
     dialect: DatabaseDialect,

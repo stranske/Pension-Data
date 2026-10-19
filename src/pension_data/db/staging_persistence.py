@@ -58,7 +58,21 @@ def _serialize_evidence_refs(value: object) -> str | None:
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
         refs = [str(item) for item in value]
         return json.dumps(refs, sort_keys=True)
-    return json.dumps(value, sort_keys=True)
+    return json.dumps(_json_ready(value), sort_keys=True)
+
+
+def _json_ready(value: object) -> object:
+    # Serialize Decimal spellings inside evidence objects as JSON numbers so
+    # Decimal("40.0") reaches the canonical assertion/key contracts as 40
+    # instead of crashing json.dumps or being stored as a quoted string.
+    if isinstance(value, Decimal):
+        canonical = _canonical_key_value(value)
+        return float(canonical) if isinstance(canonical, Decimal) else canonical
+    if isinstance(value, Mapping):
+        return {key: _json_ready(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_json_ready(item) for item in value]
+    return value
 
 
 def _row_values(row: Mapping[str, object]) -> tuple[object, ...]:
