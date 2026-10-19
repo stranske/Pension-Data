@@ -96,6 +96,7 @@ def build_quant_workspace(pilot_run_dir: Path) -> dict[str, Any]:
         raise ValueError("pilot input and artifact_files objects required")
     plan_id, period = _text(inputs, "plan_id"), _text(inputs, "plan_period")
     as_of = _text(inputs, "effective_date")
+    source_document_id = _text(inputs, "source_document_id")
 
     def load_rows(key: str) -> list[dict[str, Any]]:
         path = Path(_text(files, key))
@@ -115,7 +116,7 @@ def build_quant_workspace(pilot_run_dir: Path) -> dict[str, Any]:
         if (_text(row, "plan_id"), _text(row, "plan_period")) != (plan_id, period):
             raise ValueError("row plan/period differs from pilot input")
         document = _text(row, "source_document_id")
-        if inputs.get("source_document_id") not in (None, document):
+        if document != source_document_id:
             raise ValueError("row source document differs from pilot input")
         confidence = row.get("confidence")
         if confidence is not None and not 0 <= _number(confidence) <= 1:

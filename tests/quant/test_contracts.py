@@ -350,6 +350,58 @@ def test_missing_required_core_input_retains_prior_artifact_and_rejects_empty(
     assert retained["scenarios"][0]["series"][0]["metric_name"] == "funded_gap_usd"
 
 
+@pytest.mark.parametrize("identity", ["missing", None, "", "   "])
+def test_missing_manifest_document_identity_retains_prior_artifact(
+    tmp_path: Path, identity: str | None
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, build_quant_workspace(run_dir))
+    before = out.read_bytes()
+    manifest_path = run_dir / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if identity == "missing":
+        del manifest["input"]["source_document_id"]
+    else:
+        manifest["input"]["source_document_id"] = identity
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(_CLI), "--pilot-run-dir", str(run_dir), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "source_document_id required" in result.stderr
+    assert out.read_bytes() == before
+
+
+@pytest.mark.parametrize("artifact_key", ["staging_core_metrics_json", "financial_flow_rows_json"])
+def test_foreign_document_input_retains_prior_artifact(tmp_path: Path, artifact_key: str) -> None:
+    run_dir = tmp_path / "completed_pilot_run_with_flows"
+    shutil.copytree(_COMPLETED_PILOT_FLOWS, run_dir)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    payload = build_quant_workspace(run_dir)
+    write_quant_workspace(out, payload)
+    before = out.read_bytes()
+    artifact_path = run_dir / payload["input_artifacts"][artifact_key]["path"]
+    rows = json.loads(artifact_path.read_text(encoding="utf-8"))
+    rows[0]["source_document_id"] = "another-document"
+    artifact_path.write_text(json.dumps(rows), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(_CLI), "--pilot-run-dir", str(run_dir), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "row source document differs from pilot input" in result.stderr
+    assert out.read_bytes() == before
+
+
 def test_partial_cash_flow_omits_metric_with_warning_not_zero(tmp_path: Path) -> None:
     run_dir = tmp_path / "completed_pilot_run_with_flows"
     shutil.copytree(_COMPLETED_PILOT_FLOWS, run_dir)

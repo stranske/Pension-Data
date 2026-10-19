@@ -70,6 +70,8 @@ is implied.
 
 Eligibility is deliberately narrow: a `ledger_status=success` manifest, one matching
 plan/period/source document, and one current, unsuperseded `aal_usd` and `ava_usd` fact each.
+The manifest's `input.source_document_id` must be nonempty, and every eligible core
+and cash-flow row must match it. Missing document identity fails before publication.
 Required facts must have persisted fact IDs, finite normalized USD amounts, page evidence,
 positive AAL, nonnegative AVA, and valid confidence or an explicit null. Conflicting or
 duplicate required facts are rejected rather than selected by row order. Artifact paths
