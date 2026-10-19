@@ -299,6 +299,10 @@ def _declared_sql_type(table_body: str, column: str) -> str:
 
 
 # Audit #964: local adapter controls run even when the live PostgreSQL DSN is absent.
+class _VerifiedRestatementRetryConflictError(ValueError):
+    """Only the known retry conflict, after checking transaction integrity, may xfail."""
+
+
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 @pytest.mark.parametrize(
     "retry_overrides",
@@ -310,7 +314,7 @@ def _declared_sql_type(table_body: str, column: str) -> str:
                 id=case,
                 marks=pytest.mark.xfail(
                     strict=True,
-                    raises=ValueError,
+                    raises=_VerifiedRestatementRetryConflictError,
                     reason="Audit #964: raw replacement IDs reject equivalent restatement retries",
                 ),
             )
@@ -345,16 +349,34 @@ def test_audit_restatement_retry_representation_boundary(
         "source_document_id": "doc:restated",
     }
     retry = {**restatement, **retry_overrides}
+    pending = _base_pg_row(fact_id="audit:restatement:pending", plan_id="AUDIT-RESTATEMENT-PENDING")
+    snapshot_sql = (
+        f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
+        "WHERE plan_id IN ('AUDIT-RESTATEMENT', 'AUDIT-RESTATEMENT-PENDING') ORDER BY fact_id"
+    )
     assert _same_assertion(_row_values(restatement), _row_values(retry))
     assert _same_assertion_source(_row_values(restatement), _row_values(retry))
     try:
         if dialect == "postgresql":
-            _reset_plan_rows(connection, "AUDIT-RESTATEMENT")
+            _reset_plan_rows(connection, "AUDIT-RESTATEMENT", "AUDIT-RESTATEMENT-PENDING")
         assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
         assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
         # Exact retries provide a passing control before varying only representation.
         assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
-        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
+        before_retry = connection.execute(snapshot_sql).fetchall()
+        try:
+            # A prior write makes rollback observable if the retry raises the known conflict.
+            inserted = persist_staging_core_metrics(
+                connection, dialect=dialect, rows=[pending, retry]
+            )
+        except ValueError as error:
+            assert str(error) == "conflicting assertion source for 'audit:restatement:1'"
+            assert connection.execute(snapshot_sql).fetchall() == before_retry
+            assert (
+                persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
+            )
+            raise _VerifiedRestatementRetryConflictError(str(error)) from error
+        assert inserted == 1  # Only the pending fact is new when the retry succeeds.
         count = connection.execute(
             "SELECT COUNT(*) FROM staging_core_metrics WHERE plan_id = 'AUDIT-RESTATEMENT'"
         ).fetchone()[0]
