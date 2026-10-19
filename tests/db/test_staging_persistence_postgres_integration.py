@@ -384,6 +384,29 @@ def test_audit_equivalent_assertion_shapes_and_true_conflicts(column: str) -> No
     assert not _same_assertion_source(fetched, candidate)
 
 
+@pytest.mark.parametrize("column", ["valid_from", "asserted_at"])
+@pytest.mark.parametrize("missing_value", [None, ""], ids=["none", "empty"])
+def test_audit_temporal_defaults_match_explicit_instants(
+    column: str, missing_value: object
+) -> None:
+    """Default validity/assertion instants keep their separate content/source roles."""
+    row = _base_pg_row(fact_id="audit:default-time", plan_id="AUDIT")
+    omitted = _row_values(row)
+    candidate = _row_values({**row, column: missing_value})
+    source_column = "effective_date" if column == "valid_from" else "ingestion_date"
+    instant = datetime.fromisoformat(str(row[source_column]).replace("Z", "+00:00"))
+    explicit = _row_values(
+        {**row, column: instant.astimezone(timezone(timedelta(hours=-7))).isoformat()}
+    )
+    assert candidate == omitted
+    assert _same_assertion(explicit, candidate)
+    assert _same_assertion_source(explicit, candidate)
+
+    changed = _row_values({**row, column: (instant + timedelta(microseconds=1)).isoformat()})
+    assert not _same_assertion(changed, candidate)
+    assert _same_assertion_source(changed, candidate) is (column != "asserted_at")
+
+
 @pytest.mark.parametrize(
     "asserted_at",
     [
