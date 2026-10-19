@@ -1728,6 +1728,81 @@ def test_audit_evidence_temporal_restatement_retry_is_idempotent(
         connection.close()
 
 
+@pytest.mark.parametrize(
+    ("wildcard_id", "other_id"),
+    [
+        pytest.param("audit:a_b", "audit:axb", id="underscore"),
+        pytest.param("audit:a%b", "audit:axb", id="percent"),
+    ],
+)
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_audit_wildcard_fact_id_does_not_steal_other_replacement(
+    dialect: DatabaseDialect, wildcard_id: str, other_id: str
+) -> None:
+    """LIKE wildcards in a fact_id must not match another fact's rows (#964).
+
+    The active/replacement lookup keys replacements by ``fact_id LIKE
+    '<fact_id>@%'``; an unescaped ``_``/``%`` in one fact's id matched a
+    different fact's active replacement, so that fact's first insert
+    superseded the stranger's row and was stored only under a replacement
+    id. The pattern is escaped so the prefix is literal in both dialects.
+    """
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    other = _base_pg_row(fact_id=other_id, plan_id="AUDIT-WILDCARD-OTHER")
+    other_restated = {
+        **other,
+        "normalized_value": 0.80,
+        "as_reported_value": 80.0,
+        "evidence_refs": ["p.41"],
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:other-restated",
+    }
+    wildcard = _base_pg_row(fact_id=wildcard_id, plan_id="AUDIT-WILDCARD")
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-WILDCARD-OTHER", "AUDIT-WILDCARD")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[other]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[other_restated]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[wildcard]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[wildcard]) == 0
+        wildcard_restated = {
+            **wildcard,
+            "normalized_value": 0.81,
+            "as_reported_value": 81.0,
+            "evidence_refs": ["p.42"],
+            "ingestion_date": "2026-04-01T00:00:00Z",
+            "source_document_id": "doc:wildcard-restated",
+        }
+        # Its own restatement still finds and supersedes only its own rows.
+        assert (
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[wildcard_restated]) == 1
+        )
+        assert (
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[wildcard_restated]) == 0
+        )
+        rows = connection.execute(
+            "SELECT fact_id, plan_id, superseded_at FROM staging_core_metrics "
+            "WHERE plan_id IN ('AUDIT-WILDCARD-OTHER', 'AUDIT-WILDCARD')"
+        ).fetchall()
+        assert len(rows) == 4
+        # The wildcard fact is stored under its own id plus its one replacement.
+        wildcard_ids = sorted(row[0] for row in rows if row[1] == "AUDIT-WILDCARD")
+        assert wildcard_ids[0] == wildcard_id
+        assert wildcard_ids[1].startswith(f"{wildcard_id}@")
+        # The other fact's active replacement was not superseded by the insert.
+        active_other = [
+            row[0] for row in rows if row[1] == "AUDIT-WILDCARD-OTHER" and row[2] is None
+        ]
+        assert len(active_other) == 1
+        assert active_other[0].startswith(f"{other_id}@")
+    finally:
+        connection.close()
+
+
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 def test_audit_existing_identical_replacement_is_idempotent(
     dialect: DatabaseDialect,

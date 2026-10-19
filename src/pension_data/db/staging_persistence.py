@@ -150,6 +150,16 @@ def _placeholder(dialect: DatabaseDialect) -> str:
     return "%s" if dialect == "postgresql" else "?"
 
 
+def _replacement_id_pattern(fact_id: str) -> str:
+    # The fact_id prefix is literal text, not a LIKE pattern: escape the
+    # wildcard characters (and the escape character itself) so one fact's
+    # ``_``/``%`` cannot match a different fact's replacement rows. Both
+    # dialects are given the same explicit ESCAPE character at the call site
+    # because SQLite LIKE has no default escape.
+    escaped = fact_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"{escaped}@%"
+
+
 def _format_canonical_instant(value: object) -> str:
     canonical = _canonical_instant(value)
     if isinstance(canonical, datetime):
@@ -387,14 +397,16 @@ def persist_staging_core_metrics(
     select_sql = f"SELECT {columns} FROM staging_core_metrics WHERE fact_id = {placeholder}"
     select_active_sql = (
         f"SELECT {columns} FROM staging_core_metrics "
-        f"WHERE (fact_id = {placeholder} OR fact_id LIKE {placeholder}) AND {active_clause} "
+        f"WHERE (fact_id = {placeholder} OR fact_id LIKE {placeholder} ESCAPE '\\') "
+        f"AND {active_clause} "
         f"ORDER BY CASE WHEN fact_id = {placeholder} THEN 0 ELSE 1 END, asserted_at DESC, fact_id DESC "
         "LIMIT 1"
     )
     update_sql = (
         "UPDATE staging_core_metrics "
         f"SET superseded_at = {placeholder}, restated = {placeholder} "
-        f"WHERE (fact_id = {placeholder} OR fact_id LIKE {placeholder}) AND {active_clause}"
+        f"WHERE (fact_id = {placeholder} OR fact_id LIKE {placeholder} ESCAPE '\\') "
+        f"AND {active_clause}"
     )
 
     inserted = 0
@@ -402,7 +414,7 @@ def persist_staging_core_metrics(
         for row in rows:
             candidate_values = _row_values(row)
             fact_id = str(row["fact_id"])
-            fact_id_pattern = f"{fact_id}@%"
+            fact_id_pattern = _replacement_id_pattern(fact_id)
             existing = connection.execute(
                 select_active_sql,
                 (fact_id, fact_id_pattern, fact_id),
