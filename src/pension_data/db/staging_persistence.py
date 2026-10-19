@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -112,7 +113,9 @@ def _json_ready(value: object) -> object:
     # Non-integral Decimals stay Decimal so _dumps_canonical_json emits their
     # exact value instead of rounding through binary float.
     if isinstance(value, Decimal):
-        return _canonical_key_value(value)
+        # Non-finite Decimals keep their JSON token spelling (Infinity/NaN);
+        # identity canonicalization happens later, in _canonical_key_value.
+        return _canonical_key_value(value) if value.is_finite() else value
     if isinstance(value, Mapping):
         return {key: _json_ready(item) for key, item in value.items()}
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
@@ -149,10 +152,22 @@ def _format_canonical_instant(value: object) -> str:
     return "" if canonical is None else str(canonical)
 
 
+def _sign(value: float | Decimal) -> int:
+    return -1 if value < 0 or (isinstance(value, Decimal) and value.is_signed()) else 1
+
+
 def _canonical_key_value(value: object) -> object:
     # Match Python numeric equality (40 == 40.0) inside nested evidence
     # without rounding distinct large integers through float conversion.
     # Booleans are not floats here, so they retain JSON boolean identity.
+    # Non-finite spellings share one identity per kind/sign: float and
+    # Decimal Infinity are the same DOUBLE PRECISION value, and NaN is a
+    # single identity (as in PostgreSQL numeric/float comparisons) even
+    # though Python ``nan != nan``. Distinct kinds/signs stay distinct.
+    if isinstance(value, float) and not math.isfinite(value):
+        return ("nonfinite", "nan") if math.isnan(value) else ("nonfinite", "inf", _sign(value))
+    if isinstance(value, Decimal) and not value.is_finite():
+        return ("nonfinite", "nan") if value.is_nan() else ("nonfinite", "inf", _sign(value))
     if isinstance(value, Decimal) and value.is_finite():
         if value == value.to_integral_value():
             return int(value)
@@ -269,7 +284,7 @@ def _canonical_assertion_value(value: object) -> object:
         # by the float's shortest decimal representation. Typed relational
         # columns outside evidence keep exact Decimal/float distinction.
         converted = Decimal(str(value))
-        return _canonical_key_value(converted) if converted.is_finite() else value
+        return _canonical_key_value(converted if converted.is_finite() else value)
     return _canonical_key_value(value)
 
 

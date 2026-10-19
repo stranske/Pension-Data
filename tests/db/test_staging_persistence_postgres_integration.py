@@ -1367,3 +1367,86 @@ def test_audit_evidence_decimal_precision_restatement_retry_is_idempotent(
         assert count == 2
     finally:
         connection.close()
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "equivalent"),
+    [
+        pytest.param(float("inf"), "decimal-inf", True, id="inf-float-vs-decimal"),
+        pytest.param(float("-inf"), "decimal-minus-inf", True, id="minus-inf-float-vs-decimal"),
+        pytest.param(float("nan"), "decimal-nan", True, id="nan-float-vs-decimal"),
+        pytest.param(float("nan"), float("nan"), True, id="nan-vs-nan"),
+        pytest.param(float("inf"), float("-inf"), False, id="inf-vs-minus-inf"),
+        pytest.param(float("inf"), 79.0, False, id="inf-vs-finite"),
+        pytest.param(float("nan"), float("inf"), False, id="nan-vs-inf"),
+        pytest.param(float("nan"), None, False, id="nan-vs-missing"),
+    ],
+)
+def test_replacement_key_nonfinite_equivalence_preserves_distinct_values(
+    first: object, second: object, equivalent: bool
+) -> None:
+    """Non-finite numeric spellings share one assertion/replacement identity (#964).
+
+    ``normalized_value``/``confidence`` are DOUBLE PRECISION, so float and
+    Decimal spellings of Infinity are one stored value, and NaN is a single
+    identity as in PostgreSQL comparisons, even though Python ``nan != nan``.
+    Opposite signs, finite values, and missing values remain distinct. This
+    is a pure key-contract test; SQLite binds NaN as NULL, so it makes no
+    live-driver claim for NaN storage.
+    """
+    from decimal import Decimal
+
+    from pension_data.db.staging_persistence import _replacement_fact_id
+
+    spellings = {
+        "decimal-inf": Decimal("Infinity"),
+        "decimal-minus-inf": Decimal("-Infinity"),
+        "decimal-nan": Decimal("NaN"),
+    }
+    second_value = spellings.get(second) if isinstance(second, str) else second
+    row = _base_pg_row(fact_id="audit:nonfinite:1", plan_id="AUDIT-NONFINITE")
+    first_row = {**row, "normalized_value": first}
+    second_row = {**row, "normalized_value": second_value}
+    assert _same_assertion(_row_values(first_row), _row_values(second_row)) is equivalent
+    assert (_replacement_fact_id(first_row) == _replacement_fact_id(second_row)) is equivalent
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_audit_nonfinite_restatement_retry_is_idempotent(dialect: DatabaseDialect) -> None:
+    """A Decimal-spelled Infinity restatement retry is not a source conflict (#964)."""
+    from decimal import Decimal
+
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = _base_pg_row(fact_id="audit:nonfinite:2", plan_id="AUDIT-NONFINITE-RETRY")
+    restatement = {
+        **base,
+        "normalized_value": float("inf"),
+        "as_reported_value": float("inf"),
+        "evidence_refs": ["p.41"],
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated",
+    }
+    decimal_retry = {
+        **restatement,
+        "normalized_value": Decimal("Infinity"),
+        "as_reported_value": Decimal("Infinity"),
+    }
+    opposite_retry = {**restatement, "normalized_value": Decimal("-Infinity")}
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-NONFINITE-RETRY")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[decimal_retry]) == 0
+        with pytest.raises(ValueError, match="conflicting assertion source"):
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[opposite_retry])
+        count = connection.execute(
+            "SELECT COUNT(*) FROM staging_core_metrics WHERE plan_id = 'AUDIT-NONFINITE-RETRY'"
+        ).fetchone()[0]
+        assert count == 2
+    finally:
+        connection.close()
