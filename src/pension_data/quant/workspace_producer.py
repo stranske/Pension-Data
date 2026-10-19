@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pension_data.finite_guards import bounded_confidence_or_none
 from pension_data.quant import contracts, metric_engine
 from pension_data.quant.contracts import (
     PILOT_CASH_FLOW_FIELD_MAP,
@@ -268,14 +269,29 @@ def validate_quant_workspace(payload: dict[str, Any]) -> None:
             fact_id not in payload["fact_lineage"] for fact_id in metric["source_fact_ids"]
         ):
             raise ValueError("metric source fact lineage is incomplete")
+        source_confidences = []
+        source_refs: set[str] = set()
         for fact_id in metric["source_fact_ids"]:
             fact = payload["fact_lineage"][fact_id]
             if fact.get("artifact_id") not in artifact_ids:
                 raise ValueError("fact lineage must resolve to a captured input artifact")
             try:
-                _refs(fact.get("evidence_refs"))
+                source_refs.update(
+                    contracts.normalize_provenance_refs(_refs(fact.get("evidence_refs")))
+                )
             except ValueError as exc:
                 raise ValueError("fact lineage requires page evidence") from exc
+            confidence = bounded_confidence_or_none(fact.get("confidence"))
+            if confidence is not None:
+                source_confidences.append(confidence)
+        # Match the engine's minimum known confidence (rounded by its shared
+        # guard) and evidence union for both funded and cash-flow observations.
+        expected_confidence = min(source_confidences) if source_confidences else None
+        if (
+            metric["confidence"] != expected_confidence
+            or set(contracts.normalize_provenance_refs(metric["provenance_refs"])) != source_refs
+        ):
+            raise ValueError("metric lineage differs from source fact evidence")
         metrics[(metric["plan_id"], metric["plan_period"], metric["metric_name"])] = metric
     for scenario in payload["scenarios"]:
         values = scenario.get("reproducibility", {})

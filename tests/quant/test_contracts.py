@@ -575,3 +575,61 @@ def test_failed_publication_preserves_output_and_cleans_temporary_files(
     else:
         assert not out.exists()
         assert list(out.parent.iterdir()) == []
+
+
+@pytest.mark.parametrize("with_flows", [False, True])
+@pytest.mark.parametrize(
+    "corruption", ["fact-confidence", "fact-evidence", "metric-confidence", "metric-evidence"]
+)
+def test_metric_source_evidence_mismatch_retains_prior_artifact(
+    tmp_path: Path, with_flows: bool, corruption: str
+) -> None:
+    payload = build_quant_workspace(_COMPLETED_PILOT_FLOWS if with_flows else _COMPLETED_PILOT)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, payload)
+    before = out.read_bytes()
+    metric_name = "net_cash_flow_usd" if with_flows else "funded_gap_usd"
+    metric = next(row for row in payload["metric_lineage"] if row["metric_name"] == metric_name)
+    fact = payload["fact_lineage"][metric["source_fact_ids"][0]]
+    point = next(
+        row["points"][0]
+        for row in payload["scenarios"][0]["series"]
+        if row["metric_name"] == metric_name
+    )
+    if corruption == "fact-confidence":
+        fact["confidence"] = 0.01
+    elif corruption == "fact-evidence":
+        fact["evidence_refs"] = ["p.999#unrelated"]
+    elif corruption == "metric-confidence":
+        metric["confidence"] = point["confidence"] = 0.01
+    else:
+        metric["provenance_refs"] = point["provenance_refs"] = ["p.999#unrelated"]
+
+    with pytest.raises(ValueError, match="metric lineage differs from source fact evidence"):
+        write_quant_workspace(out, payload)
+
+    assert out.read_bytes() == before
+    assert list(out.parent.iterdir()) == [out]
+
+
+@pytest.mark.parametrize(
+    ("confidences", "expected"),
+    [((None, None), None), ((None, 0.93123456), 0.931235), ((0.0, 0.93123456), 0.0)],
+)
+def test_published_confidence_follows_metric_engine_source_rules(
+    tmp_path: Path, confidences: tuple[float | None, float | None], expected: float | None
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    core = run_dir / "extraction_persistence/staging_core_metrics.json"
+    rows = json.loads(core.read_text(encoding="utf-8"))
+    for row, confidence in zip(rows, confidences, strict=True):
+        row["confidence"] = confidence
+    core.write_text(json.dumps(rows), encoding="utf-8")
+
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, build_quant_workspace(run_dir))
+    published = json.loads(out.read_text(encoding="utf-8"))
+    for metric in published["metric_lineage"]:
+        assert metric["confidence"] == expected
+    assert [fact["confidence"] for fact in published["fact_lineage"].values()] == list(confidences)
