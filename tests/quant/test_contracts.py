@@ -518,6 +518,34 @@ def test_broken_published_lineage_retains_prior_quant_artifact(
     assert list(out.parent.iterdir()) == [out]
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("y_value", 1.0),
+        ("y_unit", "ratio"),
+        ("confidence", None),
+        ("provenance_refs", ["p.999#unrelated"]),
+    ],
+)
+def test_point_lineage_mismatch_retains_prior_quant_artifact(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    payload = build_quant_workspace(_COMPLETED_PILOT)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, payload)
+    before = out.read_bytes()
+    series = next(
+        row for row in payload["scenarios"][0]["series"] if row["metric_name"] == "funded_gap_usd"
+    )
+    series["points"][0][field] = value
+
+    with pytest.raises(ValueError, match="point differs from metric lineage"):
+        write_quant_workspace(out, payload)
+
+    assert out.read_bytes() == before
+    assert list(out.parent.iterdir()) == [out]
+
+
 @pytest.mark.parametrize("existing_output", [False, True])
 def test_failed_publication_preserves_output_and_cleans_temporary_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing_output: bool

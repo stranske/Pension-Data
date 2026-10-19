@@ -262,7 +262,7 @@ def validate_quant_workspace(payload: dict[str, Any]) -> None:
     if payload.get("module") != "metric_engine" or not payload.get("scenarios"):
         raise ValueError("non-empty metric_engine workspace required")
     artifact_ids = {row["id"] for row in payload["input_artifacts"].values()}
-    metric_keys = set()
+    metrics = {}
     for metric in payload["metric_lineage"]:
         if not metric["source_fact_ids"] or any(
             fact_id not in payload["fact_lineage"] for fact_id in metric["source_fact_ids"]
@@ -276,7 +276,7 @@ def validate_quant_workspace(payload: dict[str, Any]) -> None:
                 _refs(fact.get("evidence_refs"))
             except ValueError as exc:
                 raise ValueError("fact lineage requires page evidence") from exc
-        metric_keys.add((metric["plan_id"], metric["plan_period"], metric["metric_name"]))
+        metrics[(metric["plan_id"], metric["plan_period"], metric["metric_name"])] = metric
     for scenario in payload["scenarios"]:
         values = scenario.get("reproducibility", {})
         try:
@@ -301,8 +301,18 @@ def validate_quant_workspace(payload: dict[str, Any]) -> None:
                 raise ValueError("non-empty metric points required")
             for point in series["points"]:
                 _number(point["y_value"])
-                if (payload["plan_id"], point["x_label"], series["metric_name"]) not in metric_keys:
+                key = (payload["plan_id"], point["x_label"], series["metric_name"])
+                if key not in metrics:
                     raise ValueError("published metric point is missing metric lineage")
+                metric = metrics[key]
+                if (
+                    point["y_value"] != metric["value"]
+                    or point.get("y_unit") != metric["unit"]
+                    or point.get("confidence") != metric["confidence"]
+                    or _canonical(point.get("provenance_refs"))
+                    != _canonical(contracts.normalize_provenance_refs(metric["provenance_refs"]))
+                ):
+                    raise ValueError("published metric point differs from metric lineage")
     _canonical(payload)
 
 

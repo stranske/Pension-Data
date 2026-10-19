@@ -167,3 +167,45 @@ combined command (all five files listed above, including `tests/quant/test_contr
 collected and passed 65 tests. Counts are 32 quant-contract and 33 other focused
 cases. The actual superseded-row production mutation/restoration proof remains
 valid because that production file is byte-identical across both native heads.
+
+## Published point and lineage consistency follow-up
+
+Reviewed recent producer and regression commits through `4af10a8` and the live
+PR #986 body. All 11 task and acceptance checkboxes were already checked; no
+checkbox changes were needed. The PR was open with `draft=false`. The attempted
+PR-body reconciliation update was rejected: "MCP tool call requires approval,
+but approval policy is never".
+
+The publication validator previously checked a point's metric identity without
+checking its value, unit, confidence or page references against the associated
+engine observation. Four new regression cases each changed one of those fields;
+all four failed before the fix because publication incorrectly succeeded. The
+validator now rejects these mismatches before writing. Each regression verifies
+byte-for-byte preservation of the previous valid artifact and no temporary file.
+Provenance comparison accepts both in-memory tuples and serialized JSON arrays.
+
+```text
+python -m pytest tests/quant/test_contracts.py -q
+collected 40 items
+40 passed in 1.94s
+
+python -m pytest tests/quant/test_metric_engine.py tests/web/test_workspace_bundle_quant_contract.py tests/web/test_build_workspace_bundle.py tests/export/test_workspace_bundle.py -q -m 'not slow'
+collected 33 items
+33 passed in 1.99s
+```
+
+Ruff, producer mypy and `git diff --check` passed. Black formatted both changed
+Python files with line length 100; neither needed reformatting. A serial Black
+check populated the temporary cache after the initial CLI calls stalled, and
+the required repository-wide CLI gate passed with that cache:
+
+```text
+BLACK_CACHE_DIR=/tmp/quant-black-cache BLACK_NUM_WORKERS=1 timeout 30s black --check --line-length 100 --exclude '(\.workflows-lib|node_modules)' .
+461 files would be left unchanged.
+```
+
+Delivery remains producer-only, without scenario execution or UI readiness.
+
+The commit was attempted after validation, but `git add` failed because `.git`
+is read-only and `index.lock` cannot be created. The source, tests and this
+evidence remain as uncommitted working-tree changes.
