@@ -262,6 +262,21 @@ def validate_quant_workspace(payload: dict[str, Any]) -> None:
     if payload.get("module") != "metric_engine" or not payload.get("scenarios"):
         raise ValueError("non-empty metric_engine workspace required")
     artifact_ids = {row["id"] for row in payload["input_artifacts"].values()}
+    metric_keys = set()
+    for metric in payload["metric_lineage"]:
+        if not metric["source_fact_ids"] or any(
+            fact_id not in payload["fact_lineage"] for fact_id in metric["source_fact_ids"]
+        ):
+            raise ValueError("metric source fact lineage is incomplete")
+        for fact_id in metric["source_fact_ids"]:
+            fact = payload["fact_lineage"][fact_id]
+            if fact.get("artifact_id") not in artifact_ids:
+                raise ValueError("fact lineage must resolve to a captured input artifact")
+            try:
+                _refs(fact.get("evidence_refs"))
+            except ValueError as exc:
+                raise ValueError("fact lineage requires page evidence") from exc
+        metric_keys.add((metric["plan_id"], metric["plan_period"], metric["metric_name"]))
     for scenario in payload["scenarios"]:
         values = scenario.get("reproducibility", {})
         try:
@@ -286,11 +301,8 @@ def validate_quant_workspace(payload: dict[str, Any]) -> None:
                 raise ValueError("non-empty metric points required")
             for point in series["points"]:
                 _number(point["y_value"])
-    for metric in payload["metric_lineage"]:
-        if not metric["source_fact_ids"] or any(
-            fact_id not in payload["fact_lineage"] for fact_id in metric["source_fact_ids"]
-        ):
-            raise ValueError("metric source fact lineage is incomplete")
+                if (payload["plan_id"], point["x_label"], series["metric_name"]) not in metric_keys:
+                    raise ValueError("published metric point is missing metric lineage")
     _canonical(payload)
 
 

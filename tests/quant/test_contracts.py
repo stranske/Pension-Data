@@ -488,6 +488,36 @@ def test_reported_zero_cash_flows_publish_zero_net_and_omit_undefined_ratio(
     assert evidence["artifact_id"] == published["input_artifacts"]["financial_flow_rows_json"]["id"]
 
 
+@pytest.mark.parametrize(
+    "corruption",
+    ["empty-metric-lineage", "missing-metric-lineage", "unknown-artifact", "missing-evidence"],
+)
+def test_broken_published_lineage_retains_prior_quant_artifact(
+    tmp_path: Path, corruption: str
+) -> None:
+    payload = build_quant_workspace(_COMPLETED_PILOT)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, payload)
+    before = out.read_bytes()
+    if corruption == "empty-metric-lineage":
+        payload["metric_lineage"].clear()
+    elif corruption == "missing-metric-lineage":
+        payload["metric_lineage"].pop()
+    else:
+        fact_id = payload["metric_lineage"][0]["source_fact_ids"][0]
+        fact = payload["fact_lineage"][fact_id]
+        if corruption == "unknown-artifact":
+            fact["artifact_id"] = "unknown-input-artifact"
+        else:
+            fact["evidence_refs"] = []
+
+    with pytest.raises(ValueError, match="lineage"):
+        write_quant_workspace(out, payload)
+
+    assert out.read_bytes() == before
+    assert list(out.parent.iterdir()) == [out]
+
+
 @pytest.mark.parametrize("existing_output", [False, True])
 def test_failed_publication_preserves_output_and_cleans_temporary_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing_output: bool
