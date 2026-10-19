@@ -100,7 +100,12 @@ def _canonical_key_value(value: object) -> object:
         # Strip trailing zeros without context-precision rounding, so
         # Decimal("0.790") and Decimal("0.79") share one key while distinct
         # non-integral decimals (and float spellings) remain distinct.
-        sign, digits, exponent = value.as_tuple()
+        sign, digits, raw_exponent = value.as_tuple()
+        # Finite decimals always have an int exponent; the Literal
+        # exponents ('n'/'N'/'F') only occur for NaN/Infinity, excluded above.
+        if not isinstance(raw_exponent, int):
+            return value
+        exponent = raw_exponent
         trimmed = list(digits)
         while exponent < 0 and trimmed and trimmed[-1] == 0:
             trimmed.pop()
