@@ -604,6 +604,25 @@ def test_audit_schema_preserves_driver_representation_contract() -> None:
 
 
 @pytest.mark.parametrize(
+    ("subject_identity", "peer_identity", "distinct_identity", "expected_security_id"),
+    [
+        pytest.param(
+            ("037833100", "AAPL"),
+            ("037833100", "OTHER"),
+            ("594918104", "AAPL"),
+            "cusip:037833100",
+            id="cusip-precedes-ticker",
+        ),
+        pytest.param(
+            (None, " aapl "),
+            (None, "AAPL"),
+            (None, "MSFT"),
+            "ticker:AAPL",
+            id="ticker-fallback",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
     "subject_names",
     [("APPLE INC",), ("APPLE INC", "Apple Inc.")],
     ids=["single-subject-lot", "renamed-subject-lots"],
@@ -614,7 +633,12 @@ def test_audit_schema_preserves_driver_representation_contract() -> None:
     ids=["single-peer-lot", "renamed-peer-lots"],
 )
 def test_audit_security_identity_survives_names_and_separates_instruments(
-    subject_names: tuple[str, ...], peer_names: tuple[str, ...]
+    subject_names: tuple[str, ...],
+    peer_names: tuple[str, ...],
+    subject_identity: tuple[str | None, str],
+    peer_identity: tuple[str | None, str],
+    distinct_identity: tuple[str | None, str],
+    expected_security_id: str,
 ) -> None:
     from pension_data.extract.investment.security_positions import (
         SecurityPositionInput,
@@ -623,15 +647,15 @@ def test_audit_security_identity_survives_names_and_separates_instruments(
     from pension_data.query.saved_views.holdings_ingest import to_holdings_overlap_inputs
     from pension_data.query.saved_views.service import execute_holdings_overlap_view
 
-    def position(plan: str, cusip: str, name: str, exposure: float = 10):
+    def position(plan: str, identity: tuple[str | None, str], name: str, exposure: float = 10):
         return build_security_positions(
             plan_id=plan,
             plan_period="FY2024",
             rows=[
                 SecurityPositionInput(
                     security_name=name,
-                    cusip=cusip,
-                    ticker=None,
+                    cusip=identity[0],
+                    ticker=identity[1],
                     shares=1,
                     market_value_usd=exposure,
                     asset_class="public_equity",
@@ -642,12 +666,14 @@ def test_audit_security_identity_survives_names_and_separates_instruments(
             ],
         )[0]
 
-    subjects = [position("A", "037833100", name, 10 / len(subject_names)) for name in subject_names]
-    peers = [position("B", "037833100", name, 15 / len(peer_names)) for name in peer_names]
-    distinct = position("C", "594918104", "APPLE INC")
+    subjects = [
+        position("A", subject_identity, name, 10 / len(subject_names)) for name in subject_names
+    ]
+    peers = [position("B", peer_identity, name, 15 / len(peer_names)) for name in peer_names]
+    distinct = position("C", distinct_identity, "APPLE INC")
     adapted = to_holdings_overlap_inputs([*subjects, *peers, distinct])
-    assert {row.manager_name for row in adapted[:-1]} == {"cusip:037833100"}
-    assert {row.fund_name for row in adapted[:-1]} == {"cusip:037833100"}
+    assert {row.manager_name for row in adapted[:-1]} == {expected_security_id}
+    assert {row.fund_name for row in adapted[:-1]} == {expected_security_id}
     assert [row.display_name for row in adapted[:-1]] == [*subject_names, *peer_names]
     assert adapted[-1].manager_name != adapted[0].manager_name
     result = execute_holdings_overlap_view(adapted, subject_plan_id="A", plan_period="FY2024")
