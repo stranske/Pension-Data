@@ -279,7 +279,79 @@ def test_postgres_newer_assertion_creates_one_replacement() -> None:
     assert rows[1][3] is True
 
 
+def _staging_core_metrics_table_body() -> str:
+    schema = (
+        Path(__file__).parents[2]
+        / "src/pension_data/db/migrations/20260303_101_pg_core_fact_staging.sql"
+    ).read_text()
+    return schema.split("CREATE TABLE IF NOT EXISTS staging_core_metrics (", 1)[1].split("\n);", 1)[
+        0
+    ]
+
+
+def _declared_sql_type(table_body: str, column: str) -> str:
+    """Return the complete SQL type token for a column (rejects array-prefix matches)."""
+    for line in table_body.splitlines():
+        stripped = line.strip().rstrip(",")
+        if stripped.startswith(f"{column} "):
+            return stripped[len(column) :].strip().split()[0]
+    raise AssertionError(f"column {column!r} missing from staging_core_metrics")
+
+
 # Audit #964: pure adapter controls run even when the live PostgreSQL DSN is absent.
+def test_audit_inventories_equality_and_key_construction_seams() -> None:
+    """Inventory every equality/key seam in the bounded persistence + holdings adapters."""
+    from pension_data.db import staging_persistence as persistence
+    from pension_data.extract.investment import security_positions as positions
+    from pension_data.query.saved_views import holdings_ingest, service
+
+    # producer → consumer seams that participate in semantic identity (#964 scope).
+    seams: tuple[tuple[str, object], ...] = (
+        ("persistence._serialize_evidence_refs", persistence._serialize_evidence_refs),
+        ("persistence._row_values", persistence._row_values),
+        ("persistence._canonical_evidence", persistence._canonical_evidence),
+        ("persistence._canonical_instant", persistence._canonical_instant),
+        ("persistence._canonical_column_value", persistence._canonical_column_value),
+        ("persistence._same_assertion", persistence._same_assertion),
+        ("persistence._same_assertion_source", persistence._same_assertion_source),
+        ("persistence._replacement_fact_id", persistence._replacement_fact_id),
+        ("persistence.persist_staging_core_metrics", persistence.persist_staging_core_metrics),
+        ("positions._normalize_cusip", positions._normalize_cusip),
+        ("positions._security_id", positions._security_id),
+        ("positions.build_security_positions", positions.build_security_positions),
+        ("holdings_ingest.to_holdings_overlap_inputs", holdings_ingest.to_holdings_overlap_inputs),
+        ("service._aggregate_holdings_positions", service._aggregate_holdings_positions),
+        ("service.execute_holdings_overlap_view", service.execute_holdings_overlap_view),
+    )
+    for name, fn in seams:
+        assert callable(fn), name
+
+    # Content equality is representation-tolerant; replacement key construction is not.
+    # Disposition: review candidate — do not file an issue or repair in this audit PR.
+    row_z = {
+        **_base_pg_row(fact_id="audit:key:1", plan_id="AUDIT-KEY"),
+        "asserted_at": "2026-03-03T00:00:00Z",
+        "ingestion_date": "2026-03-03T00:00:00Z",
+    }
+    row_offset = {
+        **row_z,
+        "asserted_at": "2026-03-03T00:00:00+00:00",
+        "ingestion_date": "2026-03-03T00:00:00+00:00",
+    }
+    values_z = _row_values(row_z)
+    values_offset = _row_values(row_offset)
+    assert values_z != values_offset
+    assert _same_assertion(values_z, values_offset)
+    assert persistence._replacement_fact_id(row_z) != persistence._replacement_fact_id(row_offset)
+
+    # Direct builder callers may skip parser CUSIP normalization (unknown; human decision).
+    punctuated = positions._normalize_cusip("037-833-100")
+    assert punctuated == "037833100"
+    assert positions._security_id(cusip="037-833-100", ticker=None, security_name=None) == (
+        "cusip:037-833-100"
+    )
+
+
 @pytest.mark.parametrize(
     "column", ["effective_date", "ingestion_date", "valid_from", "asserted_at"]
 )
@@ -303,14 +375,8 @@ def test_audit_equivalent_assertion_shapes_and_true_conflicts(column: str) -> No
 
 def test_audit_schema_preserves_driver_representation_contract() -> None:
     """Static schema contract; this does not substitute for a live PG roundtrip."""
-    schema = (
-        Path(__file__).parents[2]
-        / "src/pension_data/db/migrations/20260303_101_pg_core_fact_staging.sql"
-    ).read_text()
-    core_table = schema.split("CREATE TABLE IF NOT EXISTS staging_core_metrics (", 1)[1].split(
-        "\n);", 1
-    )[0]
-    assert "evidence_refs JSONB," in core_table
+    core_table = _staging_core_metrics_table_body()
+    assert _declared_sql_type(core_table, "evidence_refs") == "JSONB"
     for column in (
         "effective_date",
         "ingestion_date",
@@ -319,7 +385,7 @@ def test_audit_schema_preserves_driver_representation_contract() -> None:
         "asserted_at",
         "superseded_at",
     ):
-        assert f"  {column} TIMESTAMPTZ" in core_table
+        assert _declared_sql_type(core_table, column) == "TIMESTAMPTZ"
 
 
 def test_audit_security_identity_survives_names_and_separates_instruments() -> None:
