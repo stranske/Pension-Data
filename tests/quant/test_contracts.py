@@ -456,14 +456,23 @@ def test_invalid_required_fact_fails_cli_and_preserves_published_artifact(
     assert out.read_bytes() == before
 
 
-def test_reported_zero_cash_flows_publish_zero_net_and_omit_undefined_ratio(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("employer", "employee", "refunds", "expected_net"),
+    [(0.0, 0.0, 0.0, 0.0), (100_000_000.0, 20_000_000.0, -5_000_000.0, 115_000_000.0)],
+)
+def test_zero_benefits_publish_net_cash_flow_and_explain_undefined_ratio(
+    tmp_path: Path, employer: float, employee: float, refunds: float, expected_net: float
 ) -> None:
     run_dir = tmp_path / "completed_pilot_run_with_flows"
     shutil.copytree(_COMPLETED_PILOT_FLOWS, run_dir)
     flow_path = run_dir / "document_orchestration/quant-fixture/financial_flow_rows.json"
     rows = json.loads(flow_path.read_text(encoding="utf-8"))
-    rows[0].update(dict.fromkeys(PILOT_CASH_FLOW_FIELD_MAP, 0.0))
+    rows[0].update(
+        employer_contributions_usd=employer,
+        employee_contributions_usd=employee,
+        benefit_payments_usd=0.0,
+        refunds_usd=refunds,
+    )
     flow_path.write_text(json.dumps(rows), encoding="utf-8")
 
     payload = build_quant_workspace(run_dir)
@@ -471,10 +480,10 @@ def test_reported_zero_cash_flows_publish_zero_net_and_omit_undefined_ratio(
     write_quant_workspace(out, payload)
     published = json.loads(out.read_text(encoding="utf-8"))
     values = _metric_values(published)
-    assert values["net_cash_flow_usd"] == 0.0
+    assert values["net_cash_flow_usd"] == expected_net
     assert "contribution_to_benefit_ratio" not in values
     assert published["scenarios"][0]["warnings"] == [
-        "contribution_to_benefit_ratio omitted: optional cash-flow inputs absent or incomplete"
+        "contribution_to_benefit_ratio omitted: benefit payments are zero; ratio is undefined"
     ]
     cash_metric = next(
         metric

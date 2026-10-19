@@ -83,6 +83,8 @@ The optional `financial_flow_rows_json` artifact is read when declared. Its norm
 and signed `refunds_usd` map to the metric engine's corresponding `*_normalized` inputs.
 There may be at most one flow row for the selected plan/period. Missing optional amounts
 remain absent; omitted cash-flow metrics have explicit warnings, never fabricated zeros.
+Disclosed zero benefit payments omit the undefined contribution-to-benefit ratio with
+an explicit zero-denominator warning; a fully disclosed net cash flow is still published.
 An undeclared or empty cash-flow artifact still permits the required funded metrics.
 
 The top-level contract carries declared lineage extensions:

@@ -211,7 +211,14 @@ def build_quant_workspace(pilot_run_dir: Path) -> dict[str, Any]:
     names = {row.metric_name for row in observations}
     for name in ("net_cash_flow_usd", "contribution_to_benefit_ratio"):
         if name not in names:
-            warnings.append(f"{name} omitted: optional cash-flow inputs absent or incomplete")
+            reason = "optional cash-flow inputs absent or incomplete"
+            if (
+                name == "contribution_to_benefit_ratio"
+                and flows
+                and flows[0]["benefit_payments_normalized"] == 0
+            ):
+                reason = "benefit payments are zero; ratio is undefined"
+            warnings.append(f"{name} omitted: {reason}")
     config = {
         "producer_schema": 1,
         "eligibility": "successful-pilot/current-single-plan-period/normalized-USD/v1",
