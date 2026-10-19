@@ -190,10 +190,18 @@ sys.exit(cli.main(['--pilot-run-dir', sys.argv[2], '--out', sys.argv[3]]))
         "nonfinite",
         "unsafe-path",
         "missing-flow",
+        "positive-benefit",
+        "positive-refund",
+        "multiple-flow",
+        "superseded-aal",
     ],
 )
 def test_invalid_input_never_replaces_previous_artifact(tmp_path, monkeypatch, failure):
-    run = _pilot(tmp_path, monkeypatch)
+    run = _pilot(
+        tmp_path,
+        monkeypatch,
+        cash=failure in {"positive-benefit", "positive-refund", "multiple-flow"},
+    )
     out = tmp_path / "quant.json"
     write_quant_workspace(out, build_quant_workspace(run))
     before = out.read_bytes()
@@ -234,6 +242,27 @@ def test_invalid_input_never_replaces_previous_artifact(tmp_path, monkeypatch, f
             manifest,
             lambda value: value["artifact_files"].update(staging_core_metrics_json=str(out)),
         )
+    elif failure in {"positive-benefit", "positive-refund", "multiple-flow"}:
+        flow = Path(
+            json.loads((run / "run_manifest.json").read_text())["artifact_files"][
+                "financial_flow_rows_json"
+            ]
+        )
+        if failure == "multiple-flow":
+            _rewrite(flow, lambda rows: rows.append(copy.deepcopy(rows[0])))
+        else:
+            field = "benefit_payments_usd" if failure == "positive-benefit" else "refunds_usd"
+            _rewrite(flow, lambda rows: rows[0].update({field: 1}))
+    elif failure in {"superseded-aal"}:
+        change = {
+            "superseded-aal": {"superseded_at": "2026-10-19T00:00:00Z"},
+        }[failure]
+        _rewrite(
+            core,
+            lambda rows: next(row for row in rows if row["metric_name"] == "aal_usd").update(
+                change
+            ),
+        )
     else:
         _rewrite(
             manifest,
@@ -245,6 +274,14 @@ def test_invalid_input_never_replaces_previous_artifact(tmp_path, monkeypatch, f
         text=True,
     )
     assert result.returncode == 1, result.stdout + result.stderr
+    expected = {
+        "positive-benefit": "normalized outflow signs",
+        "positive-refund": "normalized outflow signs",
+        "multiple-flow": "multiple cash-flow rows",
+        "superseded-aal": "eligible AAL and AVA facts are required",
+    }.get(failure)
+    if expected:
+        assert expected in result.stderr
     assert out.read_bytes() == before
 
 
@@ -260,3 +297,41 @@ def test_cli_default_output_is_nonempty_producer_only_contract(tmp_path, monkeyp
     payload = json.loads((tmp_path / "outputs/web/quant-workspace.generated.json").read_text())
     assert _values(payload)["funded_gap_usd"] == 138_200_000
     assert "producer-only" in result.stdout
+
+
+def test_explicit_undisclosed_flow_publishes_funded_metrics_only(tmp_path, monkeypatch):
+    run = _pilot(tmp_path, monkeypatch, cash=True)
+    flow = Path(
+        json.loads((run / "run_manifest.json").read_text())["artifact_files"][
+            "financial_flow_rows_json"
+        ]
+    )
+    _rewrite(
+        flow,
+        lambda rows: rows[0].update(
+            employer_contributions_usd=None,
+            employee_contributions_usd=None,
+            benefit_payments_usd=None,
+            refunds_usd=None,
+            evidence_refs=[],
+        ),
+    )
+    out = tmp_path / "quant.json"
+    result = subprocess.run(
+        [sys.executable, str(CLI), "--pilot-run-dir", str(run), "--out", str(out)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(out.read_text())
+    assert _values(payload) == pytest.approx(
+        {"funded_gap_usd": 138_200_000, "unfunded_ratio": 0.2159375}
+    )
+    assert payload["scenarios"][0]["warnings"] == [
+        "net_cash_flow_usd omitted: optional cash-flow inputs absent or incomplete",
+        "contribution_to_benefit_ratio omitted: optional cash-flow inputs absent or incomplete",
+    ]
+    assert "financial_flow_rows_json" in payload["input_artifacts"]
+    assert all(
+        row["identity_kind"] == "persisted fact_id" for row in payload["fact_lineage"].values()
+    )

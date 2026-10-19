@@ -115,3 +115,55 @@ After validation, `git add` for the test and evidence files failed because
 `.git/index.lock` cannot be created on the read-only filesystem, so no commit
 could be made. The changes remain in the working tree. A final live PR read
 confirmed #986 is still open with `draft=false`.
+
+
+## Opener review recovery, 2026-10-19
+
+The historical checkbox and test counts above describe their recorded heads,
+not completed review reconciliation. At incoming head
+`7c1054e788f7c7260d4368abafb2f9359b88b6d4`, these full active findings remained:
+
+- [Producer contract cases](https://github.com/stranske/Pension-Data/pull/986#discussion_r4317339691):
+  added distinct positive benefit/refund, multiple disclosed rows and superseded
+  AAL cases. Native commit `add52a4c` independently added confidence and evidence
+  refusal cases in the quant suite; these are retained without duplicate web
+  mutations. Each new failure case uses
+  the real CLI and checks both the intended refusal reason and byte preservation.
+  A separate explicit undisclosed-row success publishes funded gap and unfunded
+  ratio, with both optional-flow omission warnings and no fabricated flow facts.
+- [Reconciliation evidence](https://github.com/stranske/Pension-Data/pull/986#discussion_r4317638944):
+  this section records the pending findings and their implemented checks. Reviewer
+  disposition is requested on the recovery head; no self-resolution is claimed.
+- [Unfiltered required command](https://github.com/stranske/Pension-Data/pull/986#discussion_r4317638958):
+  `python -m pytest tests/quant/test_contracts.py -q` collected 23 and passed 23
+  without a marker exclusion (98.10 seconds via the canonical repository venv).
+
+The initial focused command
+`python -m pytest tests/quant/test_metric_engine.py tests/web/test_workspace_bundle_quant_contract.py tests/web/test_build_workspace_bundle.py tests/export/test_workspace_bundle.py -q`
+collected and passed 36 before reconciliation (2.99 seconds using the owner-selected Anaconda runtime
+in this worktree; no local venv is selected here). `PYTHONPATH=src` and
+`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` were set for both suites. Existing optional
+NumExpr/Bottleneck version warnings are retained. The initial new fixtures used
+an incorrect guessed flow path: 4 failed/32 passed; reading the actual manifest's
+flow artifact path corrected them. Those failures are not the deliberate proof.
+
+Actual mutation proof: disabling the production superseded-row eligibility
+guard made the `superseded-aal` CLI case fail because publication returned 0
+instead of 1. Exact source-byte restoration made the case pass. Black (100),
+Ruff and diff whitespace checks pass. No production file, prior test assertion,
+workflow, UI, scenario engine, or eligibility policy is changed by this recovery.
+
+All recorded native reservations across all heads and their actual
+implementation/push jobs were terminal before the serialized source/PR claims.
+Current-head CI, reviewer disposition, the seven-minute review floor and normal
+merge/source-acceptance checks remain required after publication.
+
+
+Before push, native commit `add52a4cd970432d9e7a335e7250ba5d21f00e60`
+arrived with nine quant cases. Its actual native implementation/push jobs were
+proven terminal; its entire payload was preserved. The recovery was rebased on
+that head and duplicate confidence/evidence web cases removed. Final unfiltered
+combined command (all five files listed above, including `tests/quant/test_contracts.py`)
+collected and passed 65 tests. Counts are 32 quant-contract and 33 other focused
+cases. The actual superseded-row production mutation/restoration proof remains
+valid because that production file is byte-identical across both native heads.
