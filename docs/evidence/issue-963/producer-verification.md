@@ -45,3 +45,34 @@ Delivery remains producer-only, without scenario execution or UI readiness.
 The requested commit was attempted after validation, but staging failed because
 `.git` is read-only (`Unable to create .../.git/index.lock: Read-only file system`).
 The implementation and evidence remain as working-tree changes.
+
+## Publication failure follow-up
+
+Reviewed the subsequent history through `dffb701`. PR #986 remains open with
+`draft=false`, and all 11 task and acceptance checkboxes were already checked.
+No checkbox changes were needed. A PR-body update recording this reconciliation
+was rejected again because the connector requires approval and the approval
+policy is `never`.
+
+Added two regression cases that fail final artifact replacement after the new
+file is fully written. They verify byte-for-byte retention of an existing valid
+artifact, no published artifact on a failed initial write, and removal of
+temporary files in both cases.
+
+```text
+python -m pytest tests/quant/test_contracts.py -q -m 'not slow'
+collected 23 items
+23 passed in 1.62s
+
+python -m pytest tests/quant/test_metric_engine.py tests/web/test_workspace_bundle_quant_contract.py tests/web/test_build_workspace_bundle.py tests/export/test_workspace_bundle.py -q -m 'not slow'
+collected 28 items
+28 passed in 1.74s
+```
+
+Ruff and `git diff --check` also passed. The repository-wide Black CLI gate
+documented above passed after populating the temporary cache with a serial
+check: 461 files would be left unchanged. Delivery remains producer-only.
+
+The follow-up commit was attempted after this gate, but `git add` again failed
+because `.git/index.lock` cannot be created on the read-only filesystem. These
+test and evidence changes remain uncommitted.

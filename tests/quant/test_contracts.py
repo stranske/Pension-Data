@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from pension_data.quant import workspace_producer
 from pension_data.quant.contracts import (
     PILOT_CASH_FLOW_FIELD_MAP,
     PILOT_CORE_METRIC_NAMES,
@@ -416,3 +417,34 @@ def test_partial_cash_flow_omits_metric_with_warning_not_zero(tmp_path: Path) ->
     assert payload["scenarios"][0]["warnings"] == (
         "net_cash_flow_usd omitted: optional cash-flow inputs absent or incomplete",
     )
+
+
+@pytest.mark.parametrize("existing_output", [False, True])
+def test_failed_publication_preserves_output_and_cleans_temporary_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing_output: bool
+) -> None:
+    payload = build_quant_workspace(_COMPLETED_PILOT)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    before = None
+    if existing_output:
+        write_quant_workspace(out, payload)
+        before = out.read_bytes()
+
+    def fail_replace(source: Path, destination: Path) -> None:
+        # Fail at the publication boundary, after the new file is fully written.
+        assert destination == out
+        assert _metric_values(json.loads(source.read_text(encoding="utf-8"))) == (
+            _metric_values(payload)
+        )
+        raise OSError("publication unavailable")
+
+    monkeypatch.setattr(workspace_producer.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="publication unavailable"):
+        write_quant_workspace(out, payload)
+
+    if existing_output:
+        assert out.read_bytes() == before
+        assert list(out.parent.iterdir()) == [out]
+    else:
+        assert not out.exists()
+        assert list(out.parent.iterdir()) == []
