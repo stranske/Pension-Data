@@ -335,6 +335,54 @@ def test_audit_document_identity_controls_conflict_or_restatement(
         connection.close()
 
 
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize(
+    ("evidence_refs", "equivalent"),
+    [
+        pytest.param('[ "p.40", "p.41" ]', True, id="json-whitespace"),
+        pytest.param('["p.41", "p.40"]', False, id="reordered"),
+        pytest.param('["p.40", "p.42"]', False, id="changed-reference"),
+        pytest.param('["p.40", "p.41", "p.41"]', False, id="duplicate-reference"),
+    ],
+)
+def test_audit_evidence_only_retry_preserves_content_contract(
+    dialect: DatabaseDialect, evidence_refs: str, equivalent: bool
+) -> None:
+    """Exercise ordered evidence equality at the persistence/conflict boundary."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = {
+        **_base_pg_row(fact_id="audit:evidence-retry:1", plan_id="AUDIT-EVIDENCE-RETRY"),
+        "evidence_refs": ["p.40", "p.41"],
+    }
+    retry = {**base, "evidence_refs": evidence_refs}
+    snapshot_sql = (
+        f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
+        "WHERE plan_id = 'AUDIT-EVIDENCE-RETRY' ORDER BY fact_id"
+    )
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-EVIDENCE-RETRY")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        before = connection.execute(snapshot_sql).fetchall()
+        if equivalent:
+            assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
+        else:
+            with pytest.raises(
+                ValueError, match="^conflicting assertion source for 'audit:evidence-retry:1'$"
+            ):
+                persist_staging_core_metrics(connection, dialect=dialect, rows=[retry])
+        assert connection.execute(snapshot_sql).fetchall() == before
+        # A conflict must leave the original assertion available for an exact retry.
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 0
+        assert connection.execute(snapshot_sql).fetchall() == before
+    finally:
+        connection.close()
+
+
 def _staging_core_metrics_table_body() -> str:
     schema = (
         Path(__file__).parents[2]
