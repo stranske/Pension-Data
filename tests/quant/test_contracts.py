@@ -267,8 +267,20 @@ def test_nonempty_workspace_preserves_lineage_and_truthful_reproducibility(
     )
 
 
-@pytest.mark.parametrize("field", ["config_hash", "source_artifact_ids"])
-def test_missing_reproducibility_retains_prior_quant_artifact(tmp_path: Path, field: str) -> None:
+@pytest.mark.parametrize(
+    ("field", "corruption"),
+    [
+        ("config_hash", "missing"),
+        ("source_artifact_ids", "missing"),
+        ("config_hash", "mismatched-hash"),
+        ("input_snapshot_id", "mismatched-hash"),
+        ("config_hash", "changed-config"),
+        ("input_snapshot_id", "changed-artifacts"),
+    ],
+)
+def test_invalid_reproducibility_retains_prior_quant_artifact(
+    tmp_path: Path, field: str, corruption: str
+) -> None:
     run_dir = tmp_path / "completed_pilot_run"
     shutil.copytree(_COMPLETED_PILOT, run_dir)
     out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
@@ -281,19 +293,31 @@ cli = importlib.util.module_from_spec(spec); spec.loader.exec_module(cli)
 original = cli.build_quant_workspace
 def broken(run):
     payload = original(run)
-    del payload['scenarios'][0]['reproducibility'][sys.argv[4]]
+    field, corruption = sys.argv[4:6]
+    envelope = payload['scenarios'][0]['reproducibility']
+    if corruption == 'missing':
+        del envelope[field]
+    elif corruption == 'mismatched-hash':
+        envelope[field] = 'sha256:' + '0' * 64 if field == 'input_snapshot_id' else '0' * 64
+    elif corruption == 'changed-config':
+        payload['producer_config']['producer_schema'] += 1
+    else:
+        payload['input_artifacts']['staging_core_metrics_json']['sha256'] = '0' * 64
     return payload
 cli.build_quant_workspace = broken
 sys.exit(cli.main(['--pilot-run-dir', sys.argv[2], '--out', sys.argv[3]]))
 """
     result = subprocess.run(
-        [sys.executable, "-c", code, str(_CLI), str(run_dir), str(out), field],
+        [sys.executable, "-c", code, str(_CLI), str(run_dir), str(out), field, corruption],
         capture_output=True,
         text=True,
         check=False,
     )
     assert result.returncode == 1
     assert "reproducibility" in result.stderr
+    if corruption != "missing":
+        assert field in result.stderr
+        assert "mismatch" in result.stderr
     assert out.read_bytes() == before
 
 

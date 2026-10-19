@@ -272,6 +272,12 @@ def validate_quant_workspace(payload: dict[str, Any]) -> None:
             requires_seed=False,
             expected_source_artifact_ids=tuple(sorted(artifact_ids)),
         )
+        if envelope.config_hash != _digest(_canonical(payload["producer_config"])):
+            raise ValueError("invalid reproducibility fields: config_hash mismatch")
+        if envelope.input_snapshot_id != "sha256:" + _digest(
+            _canonical(payload["input_artifacts"])
+        ):
+            raise ValueError("invalid reproducibility fields: input_snapshot_id mismatch")
         if not scenario.get("series"):
             raise ValueError("non-empty metric series required")
         for series in scenario["series"]:
