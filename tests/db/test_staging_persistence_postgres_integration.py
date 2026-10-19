@@ -434,40 +434,23 @@ def _declared_sql_type(table_body: str, column: str) -> str:
 
 
 # Audit #964: local adapter controls run even when the live PostgreSQL DSN is absent.
-class _VerifiedRestatementRetryConflictError(ValueError):
-    """Only the known retry conflict, after checking transaction integrity, may xfail."""
-
-
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 @pytest.mark.parametrize(
     "retry_overrides",
     [
         pytest.param({}, id="identical"),
-        *[
-            pytest.param(
-                overrides,
-                id=case,
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    raises=_VerifiedRestatementRetryConflictError,
-                    reason="Audit #964: raw replacement IDs reject equivalent restatement retries",
-                ),
-            )
-            for case, overrides in (
-                ("timezone", {"ingestion_date": "2026-04-01T02:00:00+02:00"}),
-                ("json-text", {"evidence_refs": '["p.41"]'}),
-                ("explicit-default", {"asserted_at": "2026-04-01T00:00:00Z"}),
-            )
-        ],
+        pytest.param({"ingestion_date": "2026-04-01T02:00:00+02:00"}, id="timezone"),
+        pytest.param({"evidence_refs": '["p.41"]'}, id="json-text"),
+        pytest.param({"asserted_at": "2026-04-01T00:00:00Z"}, id="explicit-default"),
     ],
 )
 def test_audit_restatement_retry_representation_boundary(
     dialect: DatabaseDialect, retry_overrides: dict[str, object]
 ) -> None:
-    """Desired retry contract; strict xfails return the observed gap for human review.
+    """Representation-equivalent restatement retries are idempotent (#964).
 
     SQLite exercises the real persistence path locally. PostgreSQL remains an
-    independent live check; neither the local result nor an xfail proves PG parity.
+    independent live check; a local pass does not prove PG parity.
     """
     if dialect == "postgresql":
         connection = _postgres_connection()
@@ -499,19 +482,14 @@ def test_audit_restatement_retry_representation_boundary(
         # Exact retries provide a passing control before varying only representation.
         assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
         before_retry = connection.execute(snapshot_sql).fetchall()
-        try:
-            # A prior write makes rollback observable if the retry raises the known conflict.
-            inserted = persist_staging_core_metrics(
-                connection, dialect=dialect, rows=[pending, retry]
-            )
-        except ValueError as error:
-            assert str(error) == "conflicting assertion source for 'audit:restatement:1'"
-            assert connection.execute(snapshot_sql).fetchall() == before_retry
-            assert (
-                persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
-            )
-            raise _VerifiedRestatementRetryConflictError(str(error)) from error
+        # A prior write in the same batch proves the equivalent retry does not
+        # create a duplicate replacement or disturb the stored assertions.
+        inserted = persist_staging_core_metrics(connection, dialect=dialect, rows=[pending, retry])
         assert inserted == 1  # Only the pending fact is new when the retry succeeds.
+        after_retry = connection.execute(snapshot_sql).fetchall()
+        assert [row for row in after_retry if row[1] == "AUDIT-RESTATEMENT"] == [
+            row for row in before_retry if row[1] == "AUDIT-RESTATEMENT"
+        ]
         count = connection.execute(
             "SELECT COUNT(*) FROM staging_core_metrics WHERE plan_id = 'AUDIT-RESTATEMENT'"
         ).fetchone()[0]
@@ -547,8 +525,9 @@ def test_audit_inventories_equality_and_key_construction_seams() -> None:
     for name, fn in seams:
         assert callable(fn), name
 
-    # Content equality is representation-tolerant; replacement key construction is not.
-    # Disposition: review candidate — do not file an issue or repair in this audit PR.
+    # Content equality and replacement key construction share the assertion
+    # contract: representation-equivalent rows derive one replacement key,
+    # while a genuine content change derives a different key (#964).
     row_z = {
         **_base_pg_row(fact_id="audit:key:1", plan_id="AUDIT-KEY"),
         "asserted_at": "2026-03-03T00:00:00Z",
@@ -563,7 +542,13 @@ def test_audit_inventories_equality_and_key_construction_seams() -> None:
     values_offset = _row_values(row_offset)
     assert values_z != values_offset
     assert _same_assertion(values_z, values_offset)
-    assert persistence._replacement_fact_id(row_z) != persistence._replacement_fact_id(row_offset)
+    assert persistence._replacement_fact_id(row_z) == persistence._replacement_fact_id(row_offset)
+    assert persistence._replacement_fact_id(
+        {**row_z, "evidence_refs": '["p.40"]'}
+    ) == persistence._replacement_fact_id(row_z)
+    assert persistence._replacement_fact_id(
+        {**row_z, "normalized_value": 0.785}
+    ) != persistence._replacement_fact_id(row_z)
 
     # Direct builder callers may skip parser CUSIP normalization (unknown; human decision).
     punctuated = positions._normalize_cusip("037-833-100")

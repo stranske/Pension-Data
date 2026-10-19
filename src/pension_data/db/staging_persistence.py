@@ -81,13 +81,32 @@ def _placeholder(dialect: DatabaseDialect) -> str:
     return "%s" if dialect == "postgresql" else "?"
 
 
+def _format_canonical_instant(value: object) -> str:
+    canonical = _canonical_instant(value)
+    if isinstance(canonical, datetime):
+        text = canonical.isoformat()
+        return f"{text[:-6]}Z" if text.endswith("+00:00") else text
+    return "" if canonical is None else str(canonical)
+
+
 def _replacement_fact_id(row: Mapping[str, object]) -> str:
-    asserted_at = row.get("asserted_at") or row.get("ingestion_date") or ""
-    digest_payload = json.dumps(
-        {key: row.get(key) for key in _STAGING_CORE_METRIC_COLUMNS if key != "fact_id"},
-        default=str,
-        sort_keys=True,
+    # Replacement identity uses the same canonical contract as _same_assertion:
+    # decoded JSON and serialized JSON, Z/offset/naive instants, and omitted
+    # valid_from/asserted_at defaults must derive one key, while genuine
+    # content changes still derive a different key.
+    candidate_values = _row_values(row)
+    canonical_values: dict[str, object] = {}
+    for column, value in zip(_STAGING_CORE_METRIC_COLUMNS, candidate_values, strict=True):
+        if column == "fact_id":
+            continue
+        canonical = _canonical_column_value(column, value)
+        canonical_values[column] = (
+            _format_canonical_instant(canonical) if isinstance(canonical, datetime) else canonical
+        )
+    asserted_at = _format_canonical_instant(
+        candidate_values[_STAGING_CORE_METRIC_COLUMNS.index("asserted_at")]
     )
+    digest_payload = json.dumps(canonical_values, default=str, sort_keys=True)
     digest = sha1(digest_payload.encode("utf-8")).hexdigest()[:12]
     return f"{row['fact_id']}@{asserted_at}:{digest}"
 
