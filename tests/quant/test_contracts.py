@@ -163,7 +163,7 @@ def test_cli_writes_default_quant_workspace_path_from_completed_pilot(tmp_path: 
 
 def test_pilot_identifier_mapping_feeds_compute_derived_metrics(tmp_path: Path) -> None:
     """Explicit contracts.py maps pilot fields into metric-engine inputs."""
-    assert PILOT_CORE_METRIC_NAMES == frozenset({"aal_usd", "ava_usd"})
+    assert frozenset({"aal_usd", "ava_usd"}) == PILOT_CORE_METRIC_NAMES
     assert PILOT_CASH_FLOW_FIELD_MAP["employer_contributions_usd"] == (
         "employer_contributions_normalized"
     )
