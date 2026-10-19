@@ -135,7 +135,10 @@ def build_quant_workspace(pilot_run_dir: Path) -> dict[str, Any]:
         if row.get("valid_to") is not None or row.get("superseded_at") is not None:
             continue
         row = check_row(row)
-        fact_id = _text(row, "fact_id")
+        _text(row, "fact_id")
+        # Validate nonblank identity without rewriting the persisted ID that
+        # compute_derived_metrics retains in its source_fact_ids.
+        fact_id = row["fact_id"]
         if name in metric_names or fact_id in lineage:
             raise ValueError("ambiguous duplicate required metric/fact identity")
         if _text(row, "normalized_unit").casefold() != "usd":

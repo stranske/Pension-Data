@@ -142,6 +142,32 @@ def test_completed_pilot_fixture_emits_default_quant_workspace_artifact(tmp_path
     assert _metric_values(changed)["unfunded_ratio"] == 0.375
 
 
+def test_persisted_fact_ids_remain_exact_through_publication(tmp_path: Path) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    core = run_dir / "extraction_persistence/staging_core_metrics.json"
+    rows = json.loads(core.read_text(encoding="utf-8"))
+    for row in rows:
+        row["fact_id"] = f" {row['fact_id']} "
+    core.write_text(json.dumps(rows), encoding="utf-8")
+
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, build_quant_workspace(run_dir))
+    published = json.loads(out.read_text(encoding="utf-8"))
+    fact_ids = {row["fact_id"] for row in rows}
+    assert set(published["fact_lineage"]) == fact_ids
+    for metric in published["metric_lineage"]:
+        assert set(metric["source_fact_ids"]) == fact_ids
+    for index, row in enumerate(rows):
+        fact = published["fact_lineage"][row["fact_id"]]
+        assert fact["row_index"] == index
+        assert fact["evidence_refs"] == row["evidence_refs"]
+        assert fact["confidence"] == row["confidence"]
+    assert _metric_values(published) == pytest.approx(
+        {"funded_gap_usd": 138_200_000.0, "unfunded_ratio": 138_200_000 / 640_000_000}
+    )
+
+
 def test_cli_writes_default_quant_workspace_path_from_completed_pilot(tmp_path: Path) -> None:
     run_dir = tmp_path / "completed_pilot_run"
     shutil.copytree(_COMPLETED_PILOT, run_dir)
