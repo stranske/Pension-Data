@@ -425,7 +425,19 @@ def test_audit_schema_preserves_driver_representation_contract() -> None:
         assert _declared_sql_type(core_table, column) == "TIMESTAMPTZ"
 
 
-def test_audit_security_identity_survives_names_and_separates_instruments() -> None:
+@pytest.mark.parametrize(
+    "subject_names",
+    [("APPLE INC",), ("APPLE INC", "Apple Inc.")],
+    ids=["single-subject-lot", "renamed-subject-lots"],
+)
+@pytest.mark.parametrize(
+    "peer_names",
+    [("Apple Incorporated",), ("Apple Incorporated", "Apple Corporation")],
+    ids=["single-peer-lot", "renamed-peer-lots"],
+)
+def test_audit_security_identity_survives_names_and_separates_instruments(
+    subject_names: tuple[str, ...], peer_names: tuple[str, ...]
+) -> None:
     from pension_data.extract.investment.security_positions import (
         SecurityPositionInput,
         build_security_positions,
@@ -433,7 +445,7 @@ def test_audit_security_identity_survives_names_and_separates_instruments() -> N
     from pension_data.query.saved_views.holdings_ingest import to_holdings_overlap_inputs
     from pension_data.query.saved_views.service import execute_holdings_overlap_view
 
-    def position(plan: str, cusip: str, name: str):
+    def position(plan: str, cusip: str, name: str, exposure: float = 10):
         return build_security_positions(
             plan_id=plan,
             plan_period="FY2024",
@@ -443,7 +455,7 @@ def test_audit_security_identity_survives_names_and_separates_instruments() -> N
                     cusip=cusip,
                     ticker=None,
                     shares=1,
-                    market_value_usd=10,
+                    market_value_usd=exposure,
                     asset_class="public_equity",
                     source="manual",
                     as_of="2024-06-30",
@@ -452,16 +464,17 @@ def test_audit_security_identity_survives_names_and_separates_instruments() -> N
             ],
         )[0]
 
-    subject = position("A", "037833100", "APPLE INC")
-    equivalent = position("B", "037833100", "Apple Incorporated")
+    subjects = [position("A", "037833100", name, 10 / len(subject_names)) for name in subject_names]
+    peers = [position("B", "037833100", name, 15 / len(peer_names)) for name in peer_names]
     distinct = position("C", "594918104", "APPLE INC")
-    adapted = to_holdings_overlap_inputs([subject, equivalent, distinct])
-    assert adapted[0].manager_name == adapted[1].manager_name == "cusip:037833100"
-    assert adapted[0].fund_name == adapted[1].fund_name
-    assert adapted[0].display_name != adapted[1].display_name
-    assert adapted[2].manager_name != adapted[0].manager_name
+    adapted = to_holdings_overlap_inputs([*subjects, *peers, distinct])
+    assert {row.manager_name for row in adapted[:-1]} == {"cusip:037833100"}
+    assert {row.fund_name for row in adapted[:-1]} == {"cusip:037833100"}
+    assert [row.display_name for row in adapted[:-1]] == [*subject_names, *peer_names]
+    assert adapted[-1].manager_name != adapted[0].manager_name
     result = execute_holdings_overlap_view(adapted, subject_plan_id="A", plan_period="FY2024")
     shared = [row for row in result if row.counterparty_plan_id == "B"]
+    # Both plans' renamed lots must aggregate before taking min(10, 15).
     assert len(shared) == 1 and shared[0].overlap_usd == 10
     separate = [row for row in result if row.counterparty_plan_id == "C"]
     assert len(separate) == 2
