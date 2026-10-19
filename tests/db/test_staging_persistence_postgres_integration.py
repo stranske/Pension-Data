@@ -900,6 +900,97 @@ def test_audit_name_only_security_identity_uses_its_own_contract(
 
 
 @pytest.mark.parametrize(
+    ("subject_cusip", "peer_cusip", "equivalent"),
+    [
+        pytest.param("037833100", "037833100", True, id="exact-cusip"),
+        pytest.param("037833100", "037-833-100", False, id="punctuated-cusip"),
+        pytest.param("03783310X", "03783310x", False, id="lowercase-cusip"),
+    ],
+)
+def test_audit_direct_caller_unnormalized_cusip_remains_unknown_boundary(
+    subject_cusip: str, peer_cusip: str, equivalent: bool
+) -> None:
+    """Pin the unknown direct-caller CUSIP contract for human decision (#964).
+
+    Parsers normalize CUSIPs, but ``build_security_positions`` itself does not:
+    a direct caller supplying punctuated/lowercase CUSIPs currently derives a
+    different ``security_id`` than the canonical form, even under a different
+    issuer display name. This characterizes current behavior through the real
+    builder -> adapter -> overlap view; it does not decide that direct callers
+    should (or should not) be normalized, and no repair is bundled here.
+    """
+    from pension_data.extract.investment.security_positions import (
+        SecurityPositionInput,
+        build_security_positions,
+        load_own_holdings_csv,
+    )
+    from pension_data.query.saved_views.holdings_ingest import to_holdings_overlap_inputs
+    from pension_data.query.saved_views.service import execute_holdings_overlap_view
+
+    def direct(plan: str, cusip: str, name: str, exposure: float):
+        return build_security_positions(
+            plan_id=plan,
+            plan_period="FY2024",
+            rows=[
+                SecurityPositionInput(
+                    security_name=name,
+                    cusip=cusip,
+                    ticker=None,
+                    shares=1,
+                    market_value_usd=exposure,
+                    asset_class="public_equity",
+                    source="manual",
+                    as_of="2024-06-30",
+                    provenance_ref=f"doc:{plan}",
+                )
+            ],
+        )[0]
+
+    subject = direct("A", subject_cusip, "APPLE INC", 10)
+    peer = direct("B", peer_cusip, "Apple Incorporated", 15)
+    # The builder preserves the raw direct-caller CUSIP in identity and field.
+    assert subject.security_id == f"cusip:{subject_cusip}"
+    assert peer.security_id == f"cusip:{peer_cusip}"
+    assert peer.cusip == peer_cusip
+
+    adapted = to_holdings_overlap_inputs([subject, peer])
+    assert (adapted[0].manager_name == adapted[1].manager_name) is equivalent
+    assert (adapted[0].fund_name == adapted[1].fund_name) is equivalent
+    assert [row.display_name for row in adapted] == ["APPLE INC", "Apple Incorporated"]
+
+    result = execute_holdings_overlap_view(adapted, subject_plan_id="A", plan_period="FY2024")
+    assert {row.counterparty_plan_id for row in result} == {"B"}
+    if equivalent:
+        assert len(result) == 1
+        assert result[0].overlap_usd == 10
+    else:
+        assert len(result) == 2
+        assert all(row.overlap_usd is None for row in result)
+        assert all(row.overlap_status == "unknown_due_to_non_disclosure" for row in result)
+
+    # Contrast: the parser producer normalizes the same peer CUSIP, so the
+    # parsed path lands on the subject's canonical identity.
+    parsed_peer = build_security_positions(
+        plan_id="B",
+        plan_period="FY2024",
+        rows=load_own_holdings_csv(
+            "security_name,cusip,ticker,shares,market_value_usd,asset_class\n"
+            f"Apple Incorporated,{peer_cusip},,1,15,public_equity\n",
+            as_of="2024-06-30",
+            provenance_ref="doc:B",
+        ),
+    )[0]
+    assert parsed_peer.security_id == subject.security_id
+    parsed_result = execute_holdings_overlap_view(
+        to_holdings_overlap_inputs([subject, parsed_peer]),
+        subject_plan_id="A",
+        plan_period="FY2024",
+    )
+    assert len(parsed_result) == 1
+    assert parsed_result[0].overlap_usd == 10
+
+
+@pytest.mark.parametrize(
     "declaration", ["TIMESTAMPTZ ARRAY", "TIMESTAMPTZ ARRAY[3]", "TIMESTAMPTZ []"]
 )
 def test_audit_schema_rejects_array_type_suffixes(declaration: str) -> None:
