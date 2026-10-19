@@ -15,6 +15,9 @@ from pension_data.quant.attribution_optimization import (
     reconcile_attribution,
 )
 from pension_data.quant.contracts import (
+    PILOT_CASH_FLOW_FIELD_MAP,
+    PILOT_CASH_FLOW_OUTFLOW_FIELDS,
+    PILOT_CORE_METRIC_NAMES,
     QuantDataPoint,
     QuantModule,
     QuantScenarioContract,
@@ -23,6 +26,7 @@ from pension_data.quant.contracts import (
     ReproducibilityEnvelope,
     missing_reproducibility_fields,
     normalize_provenance_refs,
+    require_reproducibility,
 )
 from pension_data.quant.metric_engine import (
     AggregatedMetric,
@@ -60,12 +64,22 @@ from pension_data.quant.scenarios import (
     run_deterministic_scenario,
     run_monte_carlo_scenario,
 )
+from pension_data.quant.workspace_producer import (
+    DEFAULT_QUANT_WORKSPACE_PATH,
+    build_quant_workspace,
+    validate_quant_workspace,
+    write_quant_workspace,
+)
 
 __all__ = [
     "AttributionReconciliation",
     "AggregatedMetric",
     "AttributionRow",
     "ConstraintDiagnostics",
+    "DEFAULT_QUANT_WORKSPACE_PATH",
+    "PILOT_CASH_FLOW_FIELD_MAP",
+    "PILOT_CASH_FLOW_OUTFLOW_FIELDS",
+    "PILOT_CORE_METRIC_NAMES",
     "DerivedMetricDefinition",
     "DerivedMetricObservation",
     "DimensionScore",
@@ -94,6 +108,7 @@ __all__ = [
     "aggregate_metric_series",
     "benchmark_metric",
     "build_metric_series_contracts",
+    "build_quant_workspace",
     "compute_attribution",
     "compute_derived_metrics",
     "default_metric_catalog",
@@ -104,10 +119,13 @@ __all__ = [
     "optimize_allocation",
     "percentile_rank",
     "reconcile_attribution",
+    "require_reproducibility",
     "run_deterministic_scenario",
     "run_monte_carlo_scenario",
     "score_plan_health",
     "tread_water_gap_usd",
     "trend_change",
+    "validate_quant_workspace",
+    "write_quant_workspace",
     "z_score",
 ]

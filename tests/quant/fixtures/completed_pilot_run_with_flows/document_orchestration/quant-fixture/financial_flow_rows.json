@@ -1,0 +1,15 @@
+[
+  {
+    "plan_id": "PLAN",
+    "plan_period": "FY2024",
+    "source_document_id": "pilot:PLAN:FY2024:4fb28854e1ee8b45",
+    "confidence": 0.9,
+    "evidence_refs": [
+      "p.1#flows"
+    ],
+    "employer_contributions_usd": 100000000.0,
+    "employee_contributions_usd": 20000000.0,
+    "benefit_payments_usd": -30000000.0,
+    "refunds_usd": -5000000.0
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "run_id": "quant-fixture",
+  "ledger_status": "success",
+  "input": {
+    "plan_id": "PLAN",
+    "plan_period": "FY2024",
+    "effective_date": "2024-06-30",
+    "source_document_id": "pilot:PLAN:FY2024:4fb28854e1ee8b45"
+  },
+  "artifact_files": {
+    "staging_core_metrics_json": "extraction_persistence/staging_core_metrics.json"
+  }
+}
