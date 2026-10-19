@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -382,6 +382,75 @@ def test_audit_equivalent_assertion_shapes_and_true_conflicts(column: str) -> No
     assert _same_assertion_source(fetched, candidate)
     fetched[_STAGING_CORE_METRIC_COLUMNS.index("source_document_id")] = "doc:other"
     assert not _same_assertion_source(fetched, candidate)
+
+
+@pytest.mark.parametrize(
+    "asserted_at",
+    [
+        date(2026, 3, 3),
+        "2026-03-03",
+        datetime(2026, 3, 3),
+        "2026-03-03T00:00:00",
+        " 2026-03-03T00:00:00z ",
+    ],
+    ids=["date", "date-text", "naive-datetime", "naive-text", "padded-lowercase-z"],
+)
+def test_audit_date_and_naive_assertions_use_utc(asserted_at: object) -> None:
+    """The comparison contract interprets date-only and naive assertions as UTC."""
+    candidate = _row_values(
+        {
+            **_base_pg_row(fact_id="audit:date", plan_id="AUDIT"),
+            "asserted_at": asserted_at,
+        }
+    )
+    fetched = list(candidate)
+    index = _STAGING_CORE_METRIC_COLUMNS.index("asserted_at")
+    fetched[index] = datetime(2026, 3, 3, tzinfo=UTC)
+    assert _same_assertion(fetched, candidate)
+    assert _same_assertion_source(fetched, candidate)
+
+    # A genuinely different instant changes both content and source identity.
+    fetched[index] = datetime(2026, 3, 3, tzinfo=UTC) + timedelta(microseconds=1)
+    assert not _same_assertion(fetched, candidate)
+    assert not _same_assertion_source(fetched, candidate)
+
+
+@pytest.mark.parametrize(
+    ("candidate_time", "stored_time", "equivalent"),
+    [
+        (None, None, True),
+        ("", None, True),
+        ("   ", None, True),
+        (None, datetime(2025, 6, 30, tzinfo=UTC), False),
+        (" invalid-instant ", "invalid-instant", True),
+        ("invalid-instant", None, False),
+        ("invalid-instant", "other-invalid-instant", False),
+    ],
+    ids=[
+        "missing",
+        "empty",
+        "blank",
+        "present",
+        "invalid-trimmed",
+        "invalid-missing",
+        "invalid-distinct",
+    ],
+)
+def test_audit_optional_instants_preserve_missing_and_invalid_values(
+    candidate_time: object, stored_time: object, equivalent: bool
+) -> None:
+    """Pure equality controls; invalid text is not claimed to be valid PostgreSQL input."""
+    candidate = _row_values(
+        {
+            **_base_pg_row(fact_id="audit:optional-time", plan_id="AUDIT"),
+            "valid_to": candidate_time,
+        }
+    )
+    fetched = list(candidate)
+    fetched[_STAGING_CORE_METRIC_COLUMNS.index("valid_to")] = stored_time
+    assert _same_assertion(fetched, candidate) is equivalent
+    # Validity changes content without changing the document/assertion source.
+    assert _same_assertion_source(fetched, candidate)
 
 
 @pytest.mark.parametrize(
