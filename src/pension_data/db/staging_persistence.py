@@ -89,6 +89,19 @@ def _format_canonical_instant(value: object) -> str:
     return "" if canonical is None else str(canonical)
 
 
+def _canonical_key_value(value: object) -> object:
+    # Match Python numeric equality (40 == 40.0) inside nested evidence
+    # without rounding distinct large integers through float conversion.
+    # Booleans are not floats here, so they retain JSON boolean identity.
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, Mapping):
+        return {key: _canonical_key_value(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_canonical_key_value(item) for item in value]
+    return value
+
+
 def _replacement_fact_id(row: Mapping[str, object]) -> str:
     # Replacement identity uses the same canonical contract as _same_assertion:
     # decoded JSON and serialized JSON, Z/offset/naive instants, and omitted
@@ -102,10 +115,8 @@ def _replacement_fact_id(row: Mapping[str, object]) -> str:
         canonical = _canonical_column_value(column, value)
         if isinstance(canonical, datetime):
             canonical = _format_canonical_instant(canonical)
-        elif isinstance(canonical, float) and canonical.is_integer():
-            # Match Python numeric equality without rounding distinct large integers
-            # through float conversion. Booleans retain their JSON boolean identity.
-            canonical = int(canonical)
+        else:
+            canonical = _canonical_key_value(canonical)
         canonical_values[column] = canonical
     asserted_at = _format_canonical_instant(
         candidate_values[_STAGING_CORE_METRIC_COLUMNS.index("asserted_at")]

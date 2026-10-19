@@ -517,6 +517,77 @@ def test_replacement_key_numeric_equivalence_preserves_distinct_values(
     )
 
 
+@pytest.mark.parametrize(
+    ("first", "equivalent", "distinct"),
+    [
+        pytest.param({"page": 40}, {"page": 40.0}, {"page": 41}, id="object-value"),
+        pytest.param(
+            {"refs": [40, 41]}, {"refs": [40.0, 41.0]}, {"refs": [40, 42]}, id="nested-list"
+        ),
+        pytest.param(
+            {"page": 40, "items": [{"n": 2}]},
+            '{"items": [{"n": 2.0}], "page": 40.0}',
+            {"page": 40, "items": [{"n": 3}]},
+            id="json-text-nested",
+        ),
+    ],
+)
+def test_replacement_key_evidence_numeric_equivalence_preserves_distinct_values(
+    first: object, equivalent: object, distinct: object
+) -> None:
+    from pension_data.db.staging_persistence import _replacement_fact_id
+
+    row = _base_pg_row(fact_id="audit:evidence-numeric-key:1", plan_id="AUDIT-EVIDENCE-KEY")
+    key = _replacement_fact_id({**row, "evidence_refs": first})
+    assert _same_assertion(
+        _row_values({**row, "evidence_refs": first}),
+        _row_values({**row, "evidence_refs": equivalent}),
+    )
+    assert key == _replacement_fact_id({**row, "evidence_refs": equivalent})
+    assert key != _replacement_fact_id({**row, "evidence_refs": distinct})
+    # JSON booleans retain a distinct identity from numbers, as at the top level.
+    assert _replacement_fact_id({**row, "evidence_refs": {"flag": True}}) != _replacement_fact_id(
+        {**row, "evidence_refs": {"flag": 1}}
+    )
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_audit_evidence_numeric_restatement_retry_is_idempotent(
+    dialect: DatabaseDialect,
+) -> None:
+    """A 40 vs 40.0 evidence-object retry must not raise a same-source conflict."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = {
+        **_base_pg_row(fact_id="audit:evidence-numeric:1", plan_id="AUDIT-EVIDENCE-NUMERIC"),
+        "evidence_refs": {"page": 39},
+    }
+    restatement = {
+        **base,
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+        "evidence_refs": {"page": 40},
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated",
+    }
+    retry = {**restatement, "evidence_refs": {"page": 40.0}}
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-EVIDENCE-NUMERIC")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
+        count = connection.execute(
+            "SELECT COUNT(*) FROM staging_core_metrics WHERE plan_id = 'AUDIT-EVIDENCE-NUMERIC'"
+        ).fetchone()[0]
+        assert count == 2
+    finally:
+        connection.close()
+
+
 def test_audit_inventories_equality_and_key_construction_seams() -> None:
     """Inventory every equality/key seam in the bounded persistence + holdings adapters."""
     from pension_data.db import staging_persistence as persistence
@@ -532,6 +603,7 @@ def test_audit_inventories_equality_and_key_construction_seams() -> None:
         ("persistence._canonical_column_value", persistence._canonical_column_value),
         ("persistence._same_assertion", persistence._same_assertion),
         ("persistence._same_assertion_source", persistence._same_assertion_source),
+        ("persistence._canonical_key_value", persistence._canonical_key_value),
         ("persistence._replacement_fact_id", persistence._replacement_fact_id),
         ("persistence.persist_staging_core_metrics", persistence.persist_staging_core_metrics),
         ("positions._normalize_cusip", positions._normalize_cusip),
