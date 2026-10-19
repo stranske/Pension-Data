@@ -15,6 +15,9 @@ from pension_data.quant.attribution_optimization import (
     reconcile_attribution,
 )
 from pension_data.quant.contracts import (
+    PILOT_CASH_FLOW_FIELD_MAP,
+    PILOT_CASH_FLOW_OUTFLOW_FIELDS,
+    PILOT_CORE_METRIC_NAMES,
     QuantDataPoint,
     QuantModule,
     QuantScenarioContract,
@@ -73,6 +76,9 @@ __all__ = [
     "AttributionRow",
     "ConstraintDiagnostics",
     "DEFAULT_QUANT_WORKSPACE_PATH",
+    "PILOT_CASH_FLOW_FIELD_MAP",
+    "PILOT_CASH_FLOW_OUTFLOW_FIELDS",
+    "PILOT_CORE_METRIC_NAMES",
     "DerivedMetricDefinition",
     "DerivedMetricObservation",
     "DimensionScore",

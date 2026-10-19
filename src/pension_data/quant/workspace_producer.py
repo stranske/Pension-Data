@@ -14,6 +14,9 @@ from typing import Any
 
 from pension_data.quant import contracts, metric_engine
 from pension_data.quant.contracts import (
+    PILOT_CASH_FLOW_FIELD_MAP,
+    PILOT_CASH_FLOW_OUTFLOW_FIELDS,
+    PILOT_CORE_METRIC_NAMES,
     QuantScenarioContract,
     QuantWorkspaceContract,
     ReproducibilityEnvelope,
@@ -125,7 +128,7 @@ def build_quant_workspace(pilot_run_dir: Path) -> dict[str, Any]:
     metric_names: set[str] = set()
     for index, row in enumerate(load_rows("staging_core_metrics_json")):
         name = row.get("metric_name")
-        if name not in {"aal_usd", "ava_usd"}:
+        if name not in PILOT_CORE_METRIC_NAMES:
             continue
         if row.get("valid_to") is not None or row.get("superseded_at") is not None:
             continue
@@ -149,8 +152,10 @@ def build_quant_workspace(pilot_run_dir: Path) -> dict[str, Any]:
             "evidence_refs": row["evidence_refs"],
             "confidence": row.get("confidence"),
             "identity_kind": "persisted fact_id",
+            "pilot_metric_name": name,
+            "metric_engine_input": name,
         }
-    if metric_names != {"aal_usd", "ava_usd"}:
+    if metric_names != set(PILOT_CORE_METRIC_NAMES):
         raise ValueError(
             "eligible AAL and AVA facts are required; empty results are not publishable"
         )
@@ -161,13 +166,7 @@ def build_quant_workspace(pilot_run_dir: Path) -> dict[str, Any]:
     if flow_key in files:
         for index, row in enumerate(load_rows(flow_key)):
             disclosed = any(
-                row.get(field + "_usd") is not None
-                for field in (
-                    "employer_contributions",
-                    "employee_contributions",
-                    "benefit_payments",
-                    "refunds",
-                )
+                row.get(pilot_field) is not None for pilot_field in PILOT_CASH_FLOW_FIELD_MAP
             )
             row = check_row(row, require_evidence=disclosed)
             if not disclosed:
@@ -177,24 +176,21 @@ def build_quant_workspace(pilot_run_dir: Path) -> dict[str, Any]:
             # The pilot flow artifact has no persisted cash_flow_id. Bind its
             # synthetic row identity to its exact artifact bytes and row offset.
             fact_id = f"{artifacts[flow_key]['id']}:row:{index}"
-            flow = {
+            flow: dict[str, Any] = {
                 **row,
                 "cash_flow_id": fact_id,
             }
-            for field in (
-                "employer_contributions",
-                "employee_contributions",
-                "benefit_payments",
-                "refunds",
-            ):
-                flow_value = row.get(field + "_usd")
+            mapped_fields: dict[str, str] = {}
+            for pilot_field, engine_field in PILOT_CASH_FLOW_FIELD_MAP.items():
+                flow_value = row.get(pilot_field)
                 if flow_value is not None:
                     flow_value = _number(flow_value)
-                    if field in {"benefit_payments", "refunds"} and flow_value > 0:
+                    if pilot_field in PILOT_CASH_FLOW_OUTFLOW_FIELDS and flow_value > 0:
                         raise ValueError(
                             "pilot benefit/refund values must have normalized outflow signs"
                         )
-                flow[field + "_normalized"] = flow_value
+                flow[engine_field] = flow_value
+                mapped_fields[pilot_field] = engine_field
             flows.append(flow)
             lineage[fact_id] = {
                 "artifact_id": artifacts[flow_key]["id"],
@@ -203,6 +199,7 @@ def build_quant_workspace(pilot_run_dir: Path) -> dict[str, Any]:
                 "evidence_refs": row["evidence_refs"],
                 "confidence": row.get("confidence"),
                 "identity_kind": "artifact digest plus row index; not a persisted fact_id",
+                "pilot_to_metric_engine_fields": mapped_fields,
             }
         if len(flows) > 1:
             raise ValueError("ambiguous multiple cash-flow rows for one pilot plan/period")

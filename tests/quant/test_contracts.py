@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 
 from pension_data.quant.contracts import (
+    PILOT_CASH_FLOW_FIELD_MAP,
+    PILOT_CORE_METRIC_NAMES,
     QuantDataPoint,
     QuantScenarioContract,
     QuantSeriesContract,
@@ -26,7 +28,9 @@ from pension_data.quant.workspace_producer import (
 )
 
 _ROOT = Path(__file__).resolve().parents[2]
-_COMPLETED_PILOT = Path(__file__).resolve().parent / "fixtures" / "completed_pilot_run"
+_FIXTURES = Path(__file__).resolve().parent / "fixtures"
+_COMPLETED_PILOT = _FIXTURES / "completed_pilot_run"
+_COMPLETED_PILOT_FLOWS = _FIXTURES / "completed_pilot_run_with_flows"
 _CLI = _ROOT / "scripts" / "web" / "build_quant_workspace.py"
 
 
@@ -154,3 +158,33 @@ def test_cli_writes_default_quant_workspace_path_from_completed_pilot(tmp_path: 
     assert payload["module"] == "metric_engine"
     assert _metric_values(payload)["funded_gap_usd"] == 138_200_000.0
     assert payload["scenarios"][0]["series"]
+
+
+def test_pilot_identifier_mapping_feeds_compute_derived_metrics(tmp_path: Path) -> None:
+    """Explicit contracts.py maps pilot fields into metric-engine inputs."""
+    assert PILOT_CORE_METRIC_NAMES == frozenset({"aal_usd", "ava_usd"})
+    assert PILOT_CASH_FLOW_FIELD_MAP["employer_contributions_usd"] == (
+        "employer_contributions_normalized"
+    )
+    run_dir = tmp_path / "completed_pilot_run_with_flows"
+    shutil.copytree(_COMPLETED_PILOT_FLOWS, run_dir)
+    payload = build_quant_workspace(run_dir)
+    values = _metric_values(payload)
+    assert values["funded_gap_usd"] == 138_200_000.0
+    assert values["net_cash_flow_usd"] == 85_000_000.0
+    assert values["contribution_to_benefit_ratio"] == 4.0
+    for fact_id, lineage in payload["fact_lineage"].items():
+        if lineage["identity_kind"] == "persisted fact_id":
+            assert lineage["pilot_metric_name"] in PILOT_CORE_METRIC_NAMES
+            assert lineage["metric_engine_input"] == lineage["pilot_metric_name"]
+        else:
+            assert lineage["pilot_to_metric_engine_fields"] == dict(PILOT_CASH_FLOW_FIELD_MAP)
+            assert fact_id.startswith(lineage["artifact_id"])
+    # Changing a mapped pilot cash-flow field changes the derived metric.
+    flow_path = run_dir / "document_orchestration/quant-fixture/financial_flow_rows.json"
+    rows = json.loads(flow_path.read_text(encoding="utf-8"))
+    rows[0]["employer_contributions_usd"] = 200_000_000.0
+    flow_path.write_text(json.dumps(rows), encoding="utf-8")
+    changed = build_quant_workspace(run_dir)
+    assert _metric_values(changed)["net_cash_flow_usd"] == 185_000_000.0
+    assert _metric_values(changed)["contribution_to_benefit_ratio"] == pytest.approx(220 / 30)
