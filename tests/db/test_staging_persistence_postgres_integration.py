@@ -1450,3 +1450,80 @@ def test_audit_nonfinite_restatement_retry_is_idempotent(dialect: DatabaseDialec
         assert count == 2
     finally:
         connection.close()
+
+
+@pytest.mark.parametrize(
+    ("decimal_spelling", "other", "equivalent"),
+    [
+        pytest.param("2.50", 2.5, True, id="exact-binary-fraction"),
+        pytest.param("0.5", 0.5, True, id="exact-half"),
+        pytest.param("-2.75", -2.75, True, id="exact-negative"),
+        pytest.param("0.79", 0.79, False, id="inexact-remains-distinct"),
+        pytest.param("0.10", 0.1, False, id="inexact-tenth-remains-distinct"),
+        pytest.param("2.5", 2.6, False, id="distinct-value"),
+    ],
+)
+def test_replacement_key_decimal_float_exact_equivalence(
+    decimal_spelling: str, other: float, equivalent: bool
+) -> None:
+    """Exactly representable Decimals share the float assertion identity (#964).
+
+    ``Decimal("2.50") == 2.5`` in Python (and as DOUBLE PRECISION), so
+    ``_same_assertion`` already treated them as one value, but the
+    replacement key serialized the Decimal as text and diverged, raising a
+    false same-source conflict on retry. Inexact spellings such as
+    ``Decimal("0.79")`` versus ``0.79`` stay distinct in both contracts.
+    """
+    from decimal import Decimal
+
+    from pension_data.db.staging_persistence import _replacement_fact_id
+
+    row = _base_pg_row(fact_id="audit:decimal-float:1", plan_id="AUDIT-DECIMAL-FLOAT")
+    first_row = {**row, "normalized_value": Decimal(decimal_spelling)}
+    second_row = {**row, "normalized_value": other}
+    assert _same_assertion(_row_values(first_row), _row_values(second_row)) is equivalent
+    assert (_replacement_fact_id(first_row) == _replacement_fact_id(second_row)) is equivalent
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_audit_decimal_float_restatement_retry_is_idempotent(
+    dialect: DatabaseDialect,
+) -> None:
+    """A Decimal-spelled exact-float restatement retry is not a conflict (#964)."""
+    from decimal import Decimal
+
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = _base_pg_row(fact_id="audit:decimal-float:2", plan_id="AUDIT-DECIMAL-FLOAT-RETRY")
+    restatement = {
+        **base,
+        "normalized_value": 2.5,
+        "as_reported_value": 2.5,
+        "evidence_refs": ["p.41"],
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated",
+    }
+    decimal_retry = {
+        **restatement,
+        "normalized_value": Decimal("2.50"),
+        "as_reported_value": Decimal("2.50"),
+    }
+    distinct_retry = {**restatement, "normalized_value": Decimal("2.75")}
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-DECIMAL-FLOAT-RETRY")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[decimal_retry]) == 0
+        with pytest.raises(ValueError, match="conflicting assertion source"):
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[distinct_retry])
+        count = connection.execute(
+            "SELECT COUNT(*) FROM staging_core_metrics "
+            "WHERE plan_id = 'AUDIT-DECIMAL-FLOAT-RETRY'"
+        ).fetchone()[0]
+        assert count == 2
+    finally:
+        connection.close()

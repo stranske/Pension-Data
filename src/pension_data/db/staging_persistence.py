@@ -184,7 +184,18 @@ def _canonical_key_value(value: object) -> object:
         while exponent < 0 and trimmed and trimmed[-1] == 0:
             trimmed.pop()
             exponent += 1
-        return Decimal((sign, tuple(trimmed), exponent)) if trimmed else 0
+        if not trimmed:
+            return 0
+        trimmed_decimal = Decimal((sign, tuple(trimmed), exponent))
+        # A Decimal exactly representable as a float (2.50, 0.5) is the
+        # same DOUBLE PRECISION value as that float, so _same_assertion
+        # already treats them as equal; share the float identity or the
+        # replacement key (where Decimal serializes as text) diverges.
+        # Inexact spellings (0.79) stay Decimal and remain distinct.
+        as_float = float(trimmed_decimal)
+        if math.isfinite(as_float) and Decimal.from_float(as_float) == trimmed_decimal:
+            return as_float
+        return trimmed_decimal
     if isinstance(value, float) and value.is_integer():
         return int(value)
     if isinstance(value, Mapping):
