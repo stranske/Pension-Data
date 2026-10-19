@@ -76,3 +76,42 @@ check: 461 files would be left unchanged. Delivery remains producer-only.
 The follow-up commit was attempted after this gate, but `git add` again failed
 because `.git/index.lock` cannot be created on the read-only filesystem. These
 test and evidence changes remain uncommitted.
+
+## Required-fact and reported-zero regression follow-up
+
+Reviewed recent commits through `7c1054e` and the live PR #986 body. All 11 task
+and acceptance checkboxes were already checked; no checkbox changes were needed.
+The PR was open with `draft=false`. The attempted PR-body reconciliation update
+was blocked because the connector requires approval and this run's approval
+policy is `never`.
+
+Added eight CLI regression cases for zero/negative AAL, negative/boolean AVA,
+non-USD amounts, out-of-range/boolean confidence, and missing page evidence.
+Each checks the specific validation failure, exit status 1, and byte-for-byte
+preservation of the existing published artifact. A ninth case publishes explicitly
+reported zero cash flows, verifies zero net cash flow with its source confidence
+and page evidence, and confirms that a ratio with zero benefits is omitted.
+These tests verify existing producer behavior; no production logic changed.
+
+```text
+python -m pytest tests/quant/test_contracts.py -q -m 'not slow'
+collected 32 items
+32 passed in 2.59s
+
+python -m pytest tests/quant/test_metric_engine.py tests/web/test_workspace_bundle_quant_contract.py tests/web/test_build_workspace_bundle.py tests/export/test_workspace_bundle.py -q -m 'not slow'
+collected 28 items
+28 passed in 1.79s
+```
+
+Ruff and `git diff --check` passed. The repository-wide Black CLI gate passed:
+461 files would be left unchanged. As in the earlier runs, a serial Black
+library check first populated `/tmp/quant-black-cache`, then the required CLI
+command ran successfully with `BLACK_CACHE_DIR=/tmp/quant-black-cache` and
+`BLACK_NUM_WORKERS=1`.
+
+Delivery remains producer-only, without scenario execution or UI readiness.
+
+After validation, `git add` for the test and evidence files failed because
+`.git/index.lock` cannot be created on the read-only filesystem, so no commit
+could be made. The changes remain in the working tree. A final live PR read
+confirmed #986 is still open with `draft=false`.

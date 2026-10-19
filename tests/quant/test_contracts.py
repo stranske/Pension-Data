@@ -419,6 +419,75 @@ def test_partial_cash_flow_omits_metric_with_warning_not_zero(tmp_path: Path) ->
     )
 
 
+@pytest.mark.parametrize(
+    ("metric_name", "field", "value", "error"),
+    [
+        ("aal_usd", "normalized_value", 0, "positive AAL required"),
+        ("aal_usd", "normalized_value", -1, "positive AAL required"),
+        ("ava_usd", "normalized_value", -1, "nonnegative AVA required"),
+        ("ava_usd", "normalized_value", True, "finite numeric normalized value required"),
+        ("ava_usd", "normalized_unit", "eur", "normalized USD"),
+        ("aal_usd", "confidence", 1.1, "confidence must be in [0, 1] or null"),
+        ("aal_usd", "confidence", True, "finite numeric normalized value required"),
+        ("aal_usd", "evidence_refs", [], "non-empty page evidence_refs required"),
+    ],
+)
+def test_invalid_required_fact_fails_cli_and_preserves_published_artifact(
+    tmp_path: Path, metric_name: str, field: str, value: object, error: str
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, build_quant_workspace(run_dir))
+    before = out.read_bytes()
+    core = run_dir / "extraction_persistence/staging_core_metrics.json"
+    rows = json.loads(core.read_text(encoding="utf-8"))
+    next(row for row in rows if row["metric_name"] == metric_name)[field] = value
+    core.write_text(json.dumps(rows), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(_CLI), "--pilot-run-dir", str(run_dir), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert error in result.stderr
+    assert out.read_bytes() == before
+
+
+def test_reported_zero_cash_flows_publish_zero_net_and_omit_undefined_ratio(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run_with_flows"
+    shutil.copytree(_COMPLETED_PILOT_FLOWS, run_dir)
+    flow_path = run_dir / "document_orchestration/quant-fixture/financial_flow_rows.json"
+    rows = json.loads(flow_path.read_text(encoding="utf-8"))
+    rows[0].update(dict.fromkeys(PILOT_CASH_FLOW_FIELD_MAP, 0.0))
+    flow_path.write_text(json.dumps(rows), encoding="utf-8")
+
+    payload = build_quant_workspace(run_dir)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, payload)
+    published = json.loads(out.read_text(encoding="utf-8"))
+    values = _metric_values(published)
+    assert values["net_cash_flow_usd"] == 0.0
+    assert "contribution_to_benefit_ratio" not in values
+    assert published["scenarios"][0]["warnings"] == [
+        "contribution_to_benefit_ratio omitted: optional cash-flow inputs absent or incomplete"
+    ]
+    cash_metric = next(
+        metric
+        for metric in published["metric_lineage"]
+        if metric["metric_name"] == "net_cash_flow_usd"
+    )
+    (fact_id,) = cash_metric["source_fact_ids"]
+    evidence = published["fact_lineage"][fact_id]
+    assert evidence["confidence"] == rows[0]["confidence"]
+    assert evidence["evidence_refs"] == rows[0]["evidence_refs"]
+    assert evidence["artifact_id"] == published["input_artifacts"]["financial_flow_rows_json"]["id"]
+
+
 @pytest.mark.parametrize("existing_output", [False, True])
 def test_failed_publication_preserves_output_and_cleans_temporary_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing_output: bool
