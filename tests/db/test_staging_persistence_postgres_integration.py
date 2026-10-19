@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ from pension_data.db.staging_persistence import (
     _STAGING_CORE_METRIC_COLUMNS,
     _row_values,
     _same_assertion,
+    _same_assertion_source,
     persist_staging_core_metrics,
 )
 from pension_data.db.strategy import connect_database, resolve_database_config
@@ -275,3 +277,89 @@ def test_postgres_newer_assertion_creates_one_replacement() -> None:
     assert rows[1][1] == 0.79
     assert rows[1][2] is None
     assert rows[1][3] is True
+
+
+# Audit #964: pure adapter controls run even when the live PostgreSQL DSN is absent.
+@pytest.mark.parametrize(
+    "column", ["effective_date", "ingestion_date", "valid_from", "asserted_at"]
+)
+def test_audit_equivalent_assertion_shapes_and_true_conflicts(column: str) -> None:
+    row = _base_pg_row(fact_id="audit:1", plan_id="AUDIT")
+    candidate = _row_values(row)
+    fetched = list(candidate)
+    index = _STAGING_CORE_METRIC_COLUMNS.index(column)
+    instant = str(candidate[index])
+    fetched[index] = datetime.fromisoformat(instant.replace("Z", "+00:00")).astimezone(UTC)
+    fetched[_STAGING_CORE_METRIC_COLUMNS.index("evidence_refs")] = ["p.40"]
+    assert _same_assertion(fetched, candidate)
+    fetched[_STAGING_CORE_METRIC_COLUMNS.index("normalized_value")] = 0.785
+    assert not _same_assertion(fetched, candidate)
+    # Content disagreement from the same document/assertion instant is a conflict,
+    # not a new source. A different document is a distinct assertion source.
+    assert _same_assertion_source(fetched, candidate)
+    fetched[_STAGING_CORE_METRIC_COLUMNS.index("source_document_id")] = "doc:other"
+    assert not _same_assertion_source(fetched, candidate)
+
+
+def test_audit_schema_preserves_driver_representation_contract() -> None:
+    """Static schema contract; this does not substitute for a live PG roundtrip."""
+    schema = (
+        Path(__file__).parents[2]
+        / "src/pension_data/db/migrations/20260303_101_pg_core_fact_staging.sql"
+    ).read_text()
+    core_table = schema.split("CREATE TABLE IF NOT EXISTS staging_core_metrics (", 1)[1].split(
+        "\n);", 1
+    )[0]
+    assert "evidence_refs JSONB," in core_table
+    for column in (
+        "effective_date",
+        "ingestion_date",
+        "valid_from",
+        "valid_to",
+        "asserted_at",
+        "superseded_at",
+    ):
+        assert f"  {column} TIMESTAMPTZ" in core_table
+
+
+def test_audit_security_identity_survives_names_and_separates_instruments() -> None:
+    from pension_data.extract.investment.security_positions import (
+        SecurityPositionInput,
+        build_security_positions,
+    )
+    from pension_data.query.saved_views.holdings_ingest import to_holdings_overlap_inputs
+    from pension_data.query.saved_views.service import execute_holdings_overlap_view
+
+    def position(plan: str, cusip: str, name: str):
+        return build_security_positions(
+            plan_id=plan,
+            plan_period="FY2024",
+            rows=[
+                SecurityPositionInput(
+                    security_name=name,
+                    cusip=cusip,
+                    ticker=None,
+                    shares=1,
+                    market_value_usd=10,
+                    asset_class="public_equity",
+                    source="manual",
+                    as_of="2024-06-30",
+                    provenance_ref=f"doc:{plan}",
+                )
+            ],
+        )[0]
+
+    subject = position("A", "037833100", "APPLE INC")
+    equivalent = position("B", "037833100", "Apple Incorporated")
+    distinct = position("C", "594918104", "APPLE INC")
+    adapted = to_holdings_overlap_inputs([subject, equivalent, distinct])
+    assert adapted[0].manager_name == adapted[1].manager_name == "cusip:037833100"
+    assert adapted[0].fund_name == adapted[1].fund_name
+    assert adapted[0].display_name != adapted[1].display_name
+    assert adapted[2].manager_name != adapted[0].manager_name
+    result = execute_holdings_overlap_view(adapted, subject_plan_id="A", plan_period="FY2024")
+    shared = [row for row in result if row.counterparty_plan_id == "B"]
+    assert len(shared) == 1 and shared[0].overlap_usd == 10
+    separate = [row for row in result if row.counterparty_plan_id == "C"]
+    assert len(separate) == 2
+    assert all(row.overlap_status == "unknown_due_to_non_disclosure" for row in separate)
