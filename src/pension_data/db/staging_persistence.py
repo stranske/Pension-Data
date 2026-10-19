@@ -205,6 +205,32 @@ def _canonical_key_value(value: object) -> object:
     return value
 
 
+def _digest_value(value: object) -> object:
+    # Uniformly typed encoding: every scalar carries its type, so a Decimal,
+    # a float, an int and a string with the same spelling can never collide
+    # in the digest the way ``default=str`` (quoted Decimal) or a raw JSON
+    # number (Decimal versus float) would let them.
+    if value is None:
+        return ["null", None]
+    if isinstance(value, bool):
+        return ["bool", value]
+    if isinstance(value, Decimal):
+        return ["decimal", str(value)]
+    if isinstance(value, int):
+        return ["int", str(value)]
+    if isinstance(value, float):
+        return ["float", value]
+    if isinstance(value, str):
+        return ["str", value]
+    if isinstance(value, Mapping):
+        items = [[_digest_value(key), _digest_value(item)] for key, item in value.items()]
+        items.sort(key=lambda pair: json.dumps(pair[0], sort_keys=True))
+        return ["dict", items]
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        return ["list", [_digest_value(item) for item in value]]
+    raise TypeError(f"no digest encoding for {type(value).__name__}")
+
+
 def _replacement_fact_id(row: Mapping[str, object]) -> str:
     # Replacement identity uses the same canonical contract as _same_assertion:
     # decoded JSON and serialized JSON, Z/offset/naive instants, and omitted
@@ -226,7 +252,16 @@ def _replacement_fact_id(row: Mapping[str, object]) -> str:
     asserted_at = _format_canonical_instant(
         candidate_values[_STAGING_CORE_METRIC_COLUMNS.index("asserted_at")]
     )
-    digest_payload = json.dumps(canonical_values, default=str, sort_keys=True)
+    # Serialize the digest with the uniformly typed encoding: ``default=str``
+    # would quote Decimal("0.79") as "0.79", colliding with a genuine string
+    # of the same spelling, while a raw JSON number would collide with the
+    # float _same_assertion keeps distinct from an inexact Decimal in typed
+    # columns. Exact Decimals already canonicalize to int/float above, so
+    # only inexact spellings reach the tag.
+    try:
+        digest_payload = json.dumps(_digest_value(canonical_values), sort_keys=True)
+    except (TypeError, ValueError):
+        digest_payload = json.dumps(canonical_values, default=str, sort_keys=True)
     digest = sha1(digest_payload.encode("utf-8")).hexdigest()[:12]
     return f"{row['fact_id']}@{asserted_at}:{digest}"
 

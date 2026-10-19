@@ -583,6 +583,47 @@ def test_replacement_key_evidence_numeric_equivalence_preserves_distinct_values(
     )
 
 
+def test_replacement_key_decimal_spelling_never_collides_with_string_or_float() -> None:
+    """A Decimal must not share a replacement key with a string/float spelling (#964).
+
+    ``_same_assertion`` treats a JSON number, its float spelling in a typed
+    column, and a genuine string as three distinct values where the canonical
+    contract says so; the digest previously serialized Decimal via
+    ``default=str``, collapsing the Decimal and string spellings into one key.
+    """
+    from decimal import Decimal
+
+    from pension_data.db.staging_persistence import _replacement_fact_id
+
+    row = _base_pg_row(fact_id="audit:decimal-string-key:1", plan_id="AUDIT-DECIMAL-STRING-KEY")
+
+    def key(**overrides: object) -> str:
+        return _replacement_fact_id({**row, **overrides})
+
+    def same(first: dict[str, object], other: dict[str, object]) -> bool:
+        return _same_assertion(_row_values({**row, **first}), _row_values({**row, **other}))
+
+    # Evidence: Decimal/JSON-number spellings are equivalent, the string is not.
+    assert key(evidence_refs={"page": Decimal("0.79")}) == key(evidence_refs='{"page": 0.79}')
+    assert same({"evidence_refs": {"page": Decimal("0.79")}}, {"evidence_refs": '{"page": 0.79}'})
+    assert key(evidence_refs={"page": Decimal("0.79")}) != key(evidence_refs={"page": "0.79"})
+    assert key(evidence_refs='{"page": 0.79}') != key(evidence_refs='{"page": "0.79"}')
+    assert not same(
+        {"evidence_refs": {"page": Decimal("0.79")}}, {"evidence_refs": {"page": "0.79"}}
+    )
+    # A Decimal scalar must not collide with the literal two-element list
+    # that a naive ("decimal", spelling) tag would serialize identically.
+    assert key(evidence_refs={"page": Decimal("0.79")}) != key(
+        evidence_refs={"page": ["decimal", "0.79"]}
+    )
+    # Typed columns: inexact Decimal stays distinct from both float and string,
+    # while an exactly representable Decimal still shares the float key.
+    assert key(normalized_value=Decimal("0.79")) != key(normalized_value=0.79)
+    assert key(normalized_value=Decimal("0.79")) != key(normalized_value="0.79")
+    assert not same({"normalized_value": Decimal("0.79")}, {"normalized_value": "0.79"})
+    assert key(normalized_value=Decimal("2.50")) == key(normalized_value=2.5)
+
+
 @pytest.mark.parametrize(
     ("first", "other", "equivalent"),
     [
