@@ -73,6 +73,22 @@ def missing_reproducibility_fields(
     return tuple(missing)
 
 
+def require_reproducibility(
+    envelope: ReproducibilityEnvelope,
+    *,
+    requires_seed: bool,
+    expected_source_artifact_ids: Sequence[str] | None = None,
+) -> None:
+    """Raise ValueError when required reproducibility fields are missing or mismatched."""
+    missing = missing_reproducibility_fields(envelope, requires_seed=requires_seed)
+    if missing:
+        raise ValueError(f"invalid reproducibility fields: {missing}")
+    if expected_source_artifact_ids is not None and set(envelope.source_artifact_ids) != set(
+        expected_source_artifact_ids
+    ):
+        raise ValueError("invalid reproducibility fields: source_artifact_ids mismatch")
+
+
 @dataclass(frozen=True, slots=True)
 class QuantDataPoint:
     """One quant datapoint with provenance and confidence context."""

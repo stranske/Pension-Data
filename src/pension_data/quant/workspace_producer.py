@@ -20,7 +20,7 @@ from pension_data.quant.contracts import (
     QuantScenarioContract,
     QuantWorkspaceContract,
     ReproducibilityEnvelope,
-    missing_reproducibility_fields,
+    require_reproducibility,
 )
 
 # Default publication path used by scripts/web/build_quant_workspace.py.
@@ -267,9 +267,11 @@ def validate_quant_workspace(payload: dict[str, Any]) -> None:
             envelope = ReproducibilityEnvelope(**values)
         except TypeError as exc:
             raise ValueError("missing reproducibility fields") from exc
-        missing = missing_reproducibility_fields(envelope, requires_seed=False)
-        if missing or set(envelope.source_artifact_ids) != artifact_ids:
-            raise ValueError(f"invalid reproducibility fields: {missing}")
+        require_reproducibility(
+            envelope,
+            requires_seed=False,
+            expected_source_artifact_ids=tuple(sorted(artifact_ids)),
+        )
         if not scenario.get("series"):
             raise ValueError("non-empty metric series required")
         for series in scenario["series"]:

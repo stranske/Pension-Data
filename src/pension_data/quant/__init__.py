@@ -26,6 +26,7 @@ from pension_data.quant.contracts import (
     ReproducibilityEnvelope,
     missing_reproducibility_fields,
     normalize_provenance_refs,
+    require_reproducibility,
 )
 from pension_data.quant.metric_engine import (
     AggregatedMetric,
@@ -118,6 +119,7 @@ __all__ = [
     "optimize_allocation",
     "percentile_rank",
     "reconcile_attribution",
+    "require_reproducibility",
     "run_deterministic_scenario",
     "run_monte_carlo_scenario",
     "score_plan_health",

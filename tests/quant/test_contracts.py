@@ -20,6 +20,7 @@ from pension_data.quant.contracts import (
     ReproducibilityEnvelope,
     missing_reproducibility_fields,
     normalize_provenance_refs,
+    require_reproducibility,
 )
 from pension_data.quant.workspace_producer import (
     DEFAULT_QUANT_WORKSPACE_PATH,
@@ -188,3 +189,154 @@ def test_pilot_identifier_mapping_feeds_compute_derived_metrics(tmp_path: Path) 
     changed = build_quant_workspace(run_dir)
     assert _metric_values(changed)["net_cash_flow_usd"] == 185_000_000.0
     assert _metric_values(changed)["contribution_to_benefit_ratio"] == pytest.approx(220 / 30)
+
+
+def test_nonempty_workspace_preserves_lineage_and_truthful_reproducibility(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    payload = build_quant_workspace(run_dir)
+    workspace = QuantWorkspaceContract(
+        plan_id=payload["plan_id"],
+        plan_period=payload["plan_period"],
+        as_of_date=payload["as_of_date"],
+        module=payload["module"],
+        scenarios=tuple(
+            QuantScenarioContract(
+                scenario_id=scenario["scenario_id"],
+                scenario_label=scenario["scenario_label"],
+                module=scenario["module"],
+                baseline_scenario_id=scenario["baseline_scenario_id"],
+                reproducibility=ReproducibilityEnvelope(**scenario["reproducibility"]),
+                series=tuple(
+                    QuantSeriesContract(
+                        series_id=series["series_id"],
+                        metric_name=series["metric_name"],
+                        label=series["label"],
+                        chart_kind=series["chart_kind"],
+                        points=tuple(QuantDataPoint(**point) for point in series["points"]),
+                    )
+                    for series in scenario["series"]
+                ),
+                warnings=tuple(scenario["warnings"]),
+            )
+            for scenario in payload["scenarios"]
+        ),
+    )
+    assert workspace.module == "metric_engine"
+    assert workspace.scenarios
+    assert workspace.scenarios[0].series
+    envelope = workspace.scenarios[0].reproducibility
+    require_reproducibility(
+        envelope,
+        requires_seed=False,
+        expected_source_artifact_ids=envelope.source_artifact_ids,
+    )
+    assert set(envelope.source_artifact_ids) == {
+        row["id"] for row in payload["input_artifacts"].values()
+    }
+    assert envelope.config_hash == payload["scenarios"][0]["reproducibility"]["config_hash"]
+    assert envelope.input_snapshot_id.startswith("sha256:")
+    assert envelope.code_version.startswith("sha256:")
+
+    core_rows = {
+        row["fact_id"]: row
+        for row in json.loads(
+            (run_dir / "extraction_persistence/staging_core_metrics.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    }
+    for metric in payload["metric_lineage"]:
+        assert metric["source_fact_ids"]
+        assert metric["confidence"] == min(
+            core_rows[fact_id]["confidence"] for fact_id in metric["source_fact_ids"]
+        )
+        for fact_id in metric["source_fact_ids"]:
+            evidence = payload["fact_lineage"][fact_id]
+            assert evidence["evidence_refs"] == core_rows[fact_id]["evidence_refs"]
+            assert evidence["confidence"] == core_rows[fact_id]["confidence"]
+            assert (
+                evidence["artifact_id"]
+                == payload["input_artifacts"]["staging_core_metrics_json"]["id"]
+            )
+    assert payload["scenarios"][0]["warnings"] == (
+        "net_cash_flow_usd omitted: optional cash-flow inputs absent or incomplete",
+        "contribution_to_benefit_ratio omitted: optional cash-flow inputs absent or incomplete",
+    )
+
+
+@pytest.mark.parametrize("field", ["config_hash", "source_artifact_ids"])
+def test_missing_reproducibility_retains_prior_quant_artifact(tmp_path: Path, field: str) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, build_quant_workspace(run_dir))
+    before = out.read_bytes()
+    code = """
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('quant_cli', sys.argv[1])
+cli = importlib.util.module_from_spec(spec); spec.loader.exec_module(cli)
+original = cli.build_quant_workspace
+def broken(run):
+    payload = original(run)
+    del payload['scenarios'][0]['reproducibility'][sys.argv[4]]
+    return payload
+cli.build_quant_workspace = broken
+sys.exit(cli.main(['--pilot-run-dir', sys.argv[2], '--out', sys.argv[3]]))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(_CLI), str(run_dir), str(out), field],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "reproducibility" in result.stderr
+    assert out.read_bytes() == before
+
+
+def test_missing_required_core_input_retains_prior_artifact_and_rejects_empty(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    out = tmp_path / "quant-workspace.generated.json"
+    write_quant_workspace(out, build_quant_workspace(run_dir))
+    before = out.read_bytes()
+    core = run_dir / "extraction_persistence/staging_core_metrics.json"
+    rows = [
+        row
+        for row in json.loads(core.read_text(encoding="utf-8"))
+        if row["metric_name"] != "aal_usd"
+    ]
+    core.write_text(json.dumps(rows), encoding="utf-8")
+    with pytest.raises(ValueError, match="eligible AAL and AVA"):
+        build_quant_workspace(run_dir)
+    result = subprocess.run(
+        [sys.executable, str(_CLI), "--pilot-run-dir", str(run_dir), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert out.read_bytes() == before
+    retained = json.loads(before.decode())
+    assert retained["scenarios"][0]["series"][0]["metric_name"] == "funded_gap_usd"
+
+
+def test_partial_cash_flow_omits_metric_with_warning_not_zero(tmp_path: Path) -> None:
+    run_dir = tmp_path / "completed_pilot_run_with_flows"
+    shutil.copytree(_COMPLETED_PILOT_FLOWS, run_dir)
+    flow_path = run_dir / "document_orchestration/quant-fixture/financial_flow_rows.json"
+    rows = json.loads(flow_path.read_text(encoding="utf-8"))
+    rows[0]["refunds_usd"] = None
+    flow_path.write_text(json.dumps(rows), encoding="utf-8")
+    payload = build_quant_workspace(run_dir)
+    values = _metric_values(payload)
+    assert "net_cash_flow_usd" not in values
+    assert values["contribution_to_benefit_ratio"] == pytest.approx(120 / 30)
+    assert payload["scenarios"][0]["warnings"] == (
+        "net_cash_flow_usd omitted: optional cash-flow inputs absent or incomplete",
+    )
