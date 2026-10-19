@@ -414,7 +414,22 @@ def _declared_sql_type(table_body: str, column: str) -> str:
     for line in table_body.splitlines():
         stripped = line.strip().rstrip(",")
         if stripped.startswith(f"{column} "):
-            return stripped[len(column) :].strip().split()[0]
+            tokens = stripped[len(column) :].strip().split()
+            constraint_words = {
+                "NOT",
+                "NULL",
+                "DEFAULT",
+                "PRIMARY",
+                "UNIQUE",
+                "CHECK",
+                "REFERENCES",
+                "COLLATE",
+            }
+            boundary = next(
+                (i for i, token in enumerate(tokens) if token.upper() in constraint_words),
+                len(tokens),
+            )
+            return " ".join(tokens[:boundary])
     raise AssertionError(f"column {column!r} missing from staging_core_metrics")
 
 
@@ -710,6 +725,42 @@ def test_audit_evidence_content_and_order_define_assertion_equality(
 
 def test_audit_schema_preserves_driver_representation_contract() -> None:
     """Static schema contract; this does not substitute for a live PG roundtrip."""
+    from pension_data.db.strategy import migration_file_paths
+
+    migration = (
+        Path(__file__).parents[2]
+        / "src/pension_data/db/migrations/20260303_101_pg_core_fact_staging.sql"
+    )
+    assert migration in migration_file_paths(dialect="postgresql")
+
+    class RecordingConnection:
+        """Observe actual migration dispatch; no database semantics are simulated."""
+
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+            self.committed = False
+
+        def execute(self, sql: str, params: tuple[object, ...] = ()) -> RecordingConnection:
+            self.statements.append(sql)
+            return self
+
+        def fetchall(self) -> list[tuple[str]]:
+            return []
+
+        def commit(self) -> None:
+            self.committed = True
+
+        def rollback(self) -> None:
+            raise AssertionError("migration dispatch unexpectedly rolled back")
+
+    connection = RecordingConnection()
+    report = apply_migrations(connection, dialect="postgresql")
+    assert migration.stem in report.applied_versions
+    assert connection.committed
+    for statement in migration.read_text(encoding="utf-8").split(";"):
+        if statement.strip():
+            assert statement.strip() in connection.statements
+
     core_table = _staging_core_metrics_table_body()
     assert _declared_sql_type(core_table, "evidence_refs") == "JSONB"
     for column in (
@@ -861,3 +912,10 @@ def test_audit_name_only_security_identity_uses_its_own_contract(
         assert len(result) == 2
         assert all(row.overlap_usd is None for row in result)
         assert all(row.overlap_status == "unknown_due_to_non_disclosure" for row in result)
+
+
+@pytest.mark.parametrize(
+    "declaration", ["TIMESTAMPTZ ARRAY", "TIMESTAMPTZ ARRAY[3]", "TIMESTAMPTZ []"]
+)
+def test_audit_schema_rejects_array_type_suffixes(declaration: str) -> None:
+    assert _declared_sql_type(f"  valid_to {declaration},", "valid_to") != "TIMESTAMPTZ"

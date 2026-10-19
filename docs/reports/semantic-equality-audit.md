@@ -130,3 +130,15 @@ Evidence absence/object persistence follow-up (2026-10-19):
 - `python -m pytest tests/db/test_staging_persistence_postgres_integration.py -q -m 'not slow'` → 56 passed, 22 skipped, 3 xfailed (81 collected). Expanded verification including `tests/db/test_staging_persistence.py`, `tests/ingest/test_holdings_pipeline.py`, and `tests/query/test_saved_views.py` → 114 passed, 24 skipped, 3 xfailed. PostgreSQL cases lack a test DSN; two XLS cases lack openpyxl. The three existing expected failures still return the replacement-key gap for human review.
 - Black formatted the changed test at line length 100. After sequential checks warmed the writable cache, `BLACK_NUM_WORKERS=1 BLACK_CACHE_DIR=/tmp/pension-black-cache black --check --line-length 100 --exclude '(\.workflows-lib|node_modules)' .` passed (458 unchanged). Ruff and `git diff --check` passed.
 - Commit staging failed because Git cannot create `.git/index.lock` on the read-only repository metadata mount. The verified test/report edits remain uncommitted for automation handoff.
+
+
+Serial review reconciliation (2026-10-19):
+- Retain all native retry/transaction integrity cases and their explicit expected failures. Validate complete declared SQL types including ARRAY suffixes.
+- The named schema contract checks actual migration_file_paths selection and actual apply_migrations dispatch with a recording-only connection, then verifies each core migration SQL statement reaches execute. This is wiring evidence, not PostgreSQL schema semantics.
+- Prior unique local review repair and native headd0a8f5b1 are reconciled without production or migration changes. Current focused results and source-disconnect proof are retained in opener run-20261019T1100. Live PostgreSQL remains an independent hosted gate.
+
+Current serial recovery validation (opener run-20261019T1100):
+- Reconciled native d0a8f5b1 and every added name-only identity, retry and PostgreSQL integrity case; no production or migration edit. Initial local append-conflict resolution left one missing decorator and failed collection; corrected before all valid results below.
+- Complete-declaration regression with pre-fix first-token extraction: 3 FAILED; restored parser passes. Actual core migration removal from migration_file_paths: named schema gate FAILED. Actual runner core dispatch disconnected: the same gate FAILED. Both production sources restored byte-identically.
+- Restored named PostgreSQL integration plus adjacent staging/migration runner tests: 66 PASSED, 22 SKIPPED (PENSION_DATA_TEST_POSTGRES_URL absent), 3 existing XFAIL, 91 collected. These skips are not live PostgreSQL acceptance. Recording transport proves actual dispatch only.
+- Black (line length100), Ruff and diff checks pass. Full source-specific outputs/restoration hashes are retained in the run directory.
