@@ -112,6 +112,12 @@ def _json_ready(value: object) -> object:
     # instead of crashing json.dumps or being stored as a quoted string.
     # Non-integral Decimals stay Decimal so _dumps_canonical_json emits their
     # exact value instead of rounding through binary float.
+    if isinstance(value, datetime):
+        # Datetimes reach the contract as their canonical UTC instant text,
+        # matching the temporal-column contract in _canonical_instant.
+        return _format_canonical_instant(value)
+    if isinstance(value, date):
+        return value.isoformat()
     if isinstance(value, Decimal):
         # Non-finite Decimals keep their JSON token spelling (Infinity/NaN);
         # identity canonicalization happens later, in _canonical_key_value.

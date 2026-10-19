@@ -1638,6 +1638,96 @@ def test_audit_existing_replacement_with_different_content_conflicts(
         connection.close()
 
 
+def test_replacement_key_evidence_temporal_equivalence_preserves_distinct_values() -> None:
+    """Date/datetime evidence reaches the identity contract as ISO text (#964).
+
+    Evidence objects carrying ``date``/``datetime`` values crashed with
+    ``TypeError`` during serialization, before either ``_same_assertion``
+    or ``_replacement_fact_id`` could see them, while their stored ISO-text
+    spellings are ordinary JSON strings. Offset-aware and naive datetimes
+    use the same canonical UTC instant as the temporal columns; a
+    different instant or date remains a genuine change.
+    """
+    from pension_data.db.staging_persistence import _replacement_fact_id
+
+    row = _base_pg_row(fact_id="audit:evidence-temporal-key:1", plan_id="AUDIT-EVIDENCE-TEMPORAL")
+    equivalents: list[tuple[object, object]] = [
+        ({"as_of": date(2026, 3, 1)}, {"as_of": "2026-03-01"}),
+        (
+            {"at": datetime(2026, 3, 1, 5, 30, tzinfo=timezone(timedelta(hours=5, minutes=30)))},
+            {"at": "2026-03-01T00:00:00Z"},
+        ),
+        ({"at": datetime(2026, 3, 1)}, {"at": "2026-03-01T00:00:00Z"}),
+        ({"stamps": [date(2026, 3, 1)]}, {"stamps": ["2026-03-01"]}),
+    ]
+    for first, equivalent in equivalents:
+        assert _same_assertion(
+            _row_values({**row, "evidence_refs": first}),
+            _row_values({**row, "evidence_refs": equivalent}),
+        )
+        assert _replacement_fact_id({**row, "evidence_refs": first}) == _replacement_fact_id(
+            {**row, "evidence_refs": equivalent}
+        )
+    distinct: list[tuple[object, object]] = [
+        ({"as_of": date(2026, 3, 1)}, {"as_of": "2026-03-02"}),
+        ({"at": datetime(2026, 3, 1)}, {"at": "2026-03-01T00:00:01Z"}),
+    ]
+    for first, other in distinct:
+        assert not _same_assertion(
+            _row_values({**row, "evidence_refs": first}),
+            _row_values({**row, "evidence_refs": other}),
+        )
+        assert _replacement_fact_id({**row, "evidence_refs": first}) != _replacement_fact_id(
+            {**row, "evidence_refs": other}
+        )
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_audit_evidence_temporal_restatement_retry_is_idempotent(
+    dialect: DatabaseDialect,
+) -> None:
+    """A datetime-object vs ISO-text evidence retry must not conflict (#964)."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = {
+        **_base_pg_row(fact_id="audit:evidence-temporal:1", plan_id="AUDIT-EVIDENCE-TEMPORAL"),
+        "evidence_refs": {"as_of": date(2026, 2, 1)},
+    }
+    restatement = {
+        **base,
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+        "evidence_refs": {
+            "as_of": date(2026, 3, 1),
+            "at": datetime(2026, 3, 1, 5, 30, tzinfo=timezone(timedelta(hours=5, minutes=30))),
+        },
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated",
+    }
+    retry = {
+        **restatement,
+        "evidence_refs": {"as_of": "2026-03-01", "at": "2026-03-01T00:00:00Z"},
+    }
+    distinct_retry = {**restatement, "evidence_refs": {"as_of": "2026-03-02", "at": "2026-03-01"}}
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-EVIDENCE-TEMPORAL")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
+        with pytest.raises(ValueError, match="conflicting assertion source"):
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[distinct_retry])
+        count = connection.execute(
+            "SELECT COUNT(*) FROM staging_core_metrics " "WHERE plan_id = 'AUDIT-EVIDENCE-TEMPORAL'"
+        ).fetchone()[0]
+        assert count == 2
+    finally:
+        connection.close()
+
+
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 def test_audit_existing_identical_replacement_is_idempotent(
     dialect: DatabaseDialect,
