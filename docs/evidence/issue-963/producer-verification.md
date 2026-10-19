@@ -209,3 +209,47 @@ Delivery remains producer-only, without scenario execution or UI readiness.
 The commit was attempted after validation, but `git add` failed because `.git`
 is read-only and `index.lock` cannot be created. The source, tests and this
 evidence remain as uncommitted working-tree changes.
+
+## Required funded-series publication follow-up
+
+Reviewed recent commits through `4b7cb38` and the live PR #986 body. All 11 task
+and acceptance checkboxes were already checked; none needed changing. The PR
+was open with `draft=false`. The attempted PR-body reconciliation update was
+rejected: "MCP tool call requires approval, but approval policy is never".
+
+Publication previously accepted a payload with either or both required funded
+series removed, provided another numeric series remained. Three new cases
+reproduced this failure before the fix: removing funded gap, unfunded ratio, or
+both did not raise. Validation now requires both funded series before replacing
+the artifact. Each regression starts with a completed cash-flow pilot fixture,
+retains optional numeric series, and verifies byte-for-byte preservation of the
+previous artifact and absence of temporary files after rejection.
+
+An exploratory extreme-AAL case already failed the existing finite-value gate;
+it did not demonstrate a production bug and was removed from the final change.
+
+```text
+python -m pytest tests/quant/test_contracts.py -q
+collected 54 items
+54 passed in 2.56s
+
+python -m pytest tests/quant/test_metric_engine.py tests/web/test_workspace_bundle_quant_contract.py tests/web/test_build_workspace_bundle.py tests/export/test_workspace_bundle.py -q -m 'not slow'
+collected 33 items
+33 passed in 2.28s
+```
+
+Ruff, producer mypy and `git diff --check` passed. Delivery remains producer-only,
+without scenario execution or UI readiness.
+
+Black formatted the changed Python files with line length 100. After a serial
+check populated the temporary cache, the required repository-wide CLI gate passed:
+
+```text
+BLACK_CACHE_DIR=/tmp/quant-black-cache BLACK_NUM_WORKERS=1 black --check --line-length 100 --exclude '(\.workflows-lib|node_modules)' .
+461 files would be left unchanged.
+```
+
+Staging the follow-up for the requested commit failed because `.git/index.lock`
+cannot be created on the read-only filesystem. The source, tests and evidence
+remain as working-tree changes. A final live PR read confirmed #986 is open
+with `draft=false`.

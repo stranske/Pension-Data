@@ -312,6 +312,11 @@ def validate_quant_workspace(payload: dict[str, Any]) -> None:
             raise ValueError("invalid reproducibility fields: input_snapshot_id mismatch")
         if not scenario.get("series"):
             raise ValueError("non-empty metric series required")
+        missing_funded = {"funded_gap_usd", "unfunded_ratio"} - {
+            series["metric_name"] for series in scenario["series"]
+        }
+        if missing_funded:
+            raise ValueError(f"required funded metric series missing: {sorted(missing_funded)}")
         for series in scenario["series"]:
             if not series.get("points"):
                 raise ValueError("non-empty metric points required")

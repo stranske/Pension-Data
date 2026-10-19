@@ -633,3 +633,28 @@ def test_published_confidence_follows_metric_engine_source_rules(
     for metric in published["metric_lineage"]:
         assert metric["confidence"] == expected
     assert [fact["confidence"] for fact in published["fact_lineage"].values()] == list(confidences)
+
+
+@pytest.mark.parametrize(
+    "removed_metrics",
+    [("funded_gap_usd",), ("unfunded_ratio",), ("funded_gap_usd", "unfunded_ratio")],
+)
+def test_missing_required_funded_series_retains_prior_artifact(
+    tmp_path: Path, removed_metrics: tuple[str, ...]
+) -> None:
+    payload = build_quant_workspace(_COMPLETED_PILOT_FLOWS)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, payload)
+    before = out.read_bytes()
+    scenario = payload["scenarios"][0]
+    scenario["series"] = tuple(
+        series for series in scenario["series"] if series["metric_name"] not in removed_metrics
+    )
+    # Optional cash metrics remain numeric; nonempty alone cannot prove completion.
+    assert "net_cash_flow_usd" in _metric_values(payload)
+
+    with pytest.raises(ValueError, match="required funded metric series missing"):
+        write_quant_workspace(out, payload)
+
+    assert out.read_bytes() == before
+    assert list(out.parent.iterdir()) == [out]
