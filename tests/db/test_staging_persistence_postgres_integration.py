@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import UTC, date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,9 +15,10 @@ from pension_data.db.staging_persistence import (
     _STAGING_CORE_METRIC_COLUMNS,
     _row_values,
     _same_assertion,
+    _same_assertion_source,
     persist_staging_core_metrics,
 )
-from pension_data.db.strategy import connect_database, resolve_database_config
+from pension_data.db.strategy import DatabaseDialect, connect_database, resolve_database_config
 
 POSTGRES_TEST_URL_ENV = "PENSION_DATA_TEST_POSTGRES_URL"
 
@@ -275,3 +277,645 @@ def test_postgres_newer_assertion_creates_one_replacement() -> None:
     assert rows[1][1] == 0.79
     assert rows[1][2] is None
     assert rows[1][3] is True
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize(
+    ("document_id", "same_source"),
+    [
+        pytest.param("doc:ca:2024", True, id="same-document"),
+        pytest.param("doc:CA:2024", False, id="case-distinct-document"),
+        pytest.param(" doc:ca:2024 ", False, id="space-distinct-document"),
+    ],
+)
+def test_audit_document_identity_controls_conflict_or_restatement(
+    dialect: DatabaseDialect, document_id: str, same_source: bool
+) -> None:
+    """Source IDs compare exactly even when assertion instants compare canonically."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = _base_pg_row(fact_id="audit:document:1", plan_id="AUDIT-DOCUMENT")
+    changed = {
+        **base,
+        "source_document_id": document_id,
+        "asserted_at": "2026-03-03T02:00:00+02:00",
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+    }
+    snapshot_sql = (
+        f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
+        "WHERE plan_id = 'AUDIT-DOCUMENT' ORDER BY fact_id"
+    )
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-DOCUMENT")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        before = connection.execute(snapshot_sql).fetchall()
+        assert not _same_assertion(before[0], _row_values(changed))
+        assert _same_assertion_source(before[0], _row_values(changed)) is same_source
+        if same_source:
+            with pytest.raises(ValueError, match="conflicting assertion source"):
+                persist_staging_core_metrics(connection, dialect=dialect, rows=[changed])
+            assert connection.execute(snapshot_sql).fetchall() == before
+        else:
+            assert persist_staging_core_metrics(connection, dialect=dialect, rows=[changed]) == 1
+            after = connection.execute(snapshot_sql).fetchall()
+            assert len(after) == 2
+            historical, active = after
+            assert historical[_STAGING_CORE_METRIC_COLUMNS.index("superseded_at")] is not None
+            assert active[_STAGING_CORE_METRIC_COLUMNS.index("superseded_at")] is None
+            assert active[_STAGING_CORE_METRIC_COLUMNS.index("source_document_id")] == document_id
+            assert active[_STAGING_CORE_METRIC_COLUMNS.index("normalized_value")] == 0.79
+            assert persist_staging_core_metrics(connection, dialect=dialect, rows=[changed]) == 0
+            assert connection.execute(snapshot_sql).fetchall() == after
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize(
+    ("base_evidence", "evidence_refs", "equivalent"),
+    [
+        pytest.param(["p.40", "p.41"], '[ "p.40", "p.41" ]', True, id="json-whitespace"),
+        pytest.param(["p.40", "p.41"], '["p.41", "p.40"]', False, id="reordered"),
+        pytest.param(["p.40", "p.41"], '["p.40", "p.42"]', False, id="changed-reference"),
+        pytest.param(["p.40", "p.41"], '["p.40", "p.41", "p.41"]', False, id="duplicate-reference"),
+        pytest.param(None, None, True, id="missing-retry"),
+        pytest.param([], "[ ]", True, id="empty-list-retry"),
+        pytest.param(None, "[]", False, id="missing-to-empty"),
+        pytest.param([], None, False, id="empty-to-missing"),
+        pytest.param(
+            {"page": 40, "document": "annual"},
+            '{"document": "annual", "page": 40}',
+            True,
+            id="object-key-order",
+        ),
+        pytest.param(
+            {"page": 40, "document": "annual"},
+            '{"document": "annual", "page": 41}',
+            False,
+            id="object-value",
+        ),
+    ],
+)
+def test_audit_evidence_only_retry_preserves_content_contract(
+    dialect: DatabaseDialect, base_evidence: object, evidence_refs: object, equivalent: bool
+) -> None:
+    """Preserve evidence order, object contents, and absence across persistence retries."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = {
+        **_base_pg_row(fact_id="audit:evidence-retry:1", plan_id="AUDIT-EVIDENCE-RETRY"),
+        "evidence_refs": base_evidence,
+    }
+    retry = {**base, "evidence_refs": evidence_refs}
+    snapshot_sql = (
+        f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
+        "WHERE plan_id = 'AUDIT-EVIDENCE-RETRY' ORDER BY fact_id"
+    )
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-EVIDENCE-RETRY")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        before = connection.execute(snapshot_sql).fetchall()
+        if equivalent:
+            assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
+        else:
+            with pytest.raises(
+                ValueError, match="^conflicting assertion source for 'audit:evidence-retry:1'$"
+            ):
+                persist_staging_core_metrics(connection, dialect=dialect, rows=[retry])
+        assert connection.execute(snapshot_sql).fetchall() == before
+        # A conflict must leave the original assertion available for an exact retry.
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 0
+        assert connection.execute(snapshot_sql).fetchall() == before
+    finally:
+        connection.close()
+
+
+def _staging_core_metrics_table_body() -> str:
+    schema = (
+        Path(__file__).parents[2]
+        / "src/pension_data/db/migrations/20260303_101_pg_core_fact_staging.sql"
+    ).read_text()
+    return schema.split("CREATE TABLE IF NOT EXISTS staging_core_metrics (", 1)[1].split("\n);", 1)[
+        0
+    ]
+
+
+def _declared_sql_type(table_body: str, column: str) -> str:
+    """Return the complete SQL type token for a column (rejects array-prefix matches)."""
+    for line in table_body.splitlines():
+        stripped = line.strip().rstrip(",")
+        if stripped.startswith(f"{column} "):
+            tokens = stripped[len(column) :].strip().split()
+            constraint_words = {
+                "NOT",
+                "NULL",
+                "DEFAULT",
+                "PRIMARY",
+                "UNIQUE",
+                "CHECK",
+                "REFERENCES",
+                "COLLATE",
+            }
+            boundary = next(
+                (i for i, token in enumerate(tokens) if token.upper() in constraint_words),
+                len(tokens),
+            )
+            return " ".join(tokens[:boundary])
+    raise AssertionError(f"column {column!r} missing from staging_core_metrics")
+
+
+# Audit #964: local adapter controls run even when the live PostgreSQL DSN is absent.
+class _VerifiedRestatementRetryConflictError(ValueError):
+    """Only the known retry conflict, after checking transaction integrity, may xfail."""
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize(
+    "retry_overrides",
+    [
+        pytest.param({}, id="identical"),
+        *[
+            pytest.param(
+                overrides,
+                id=case,
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    raises=_VerifiedRestatementRetryConflictError,
+                    reason="Audit #964: raw replacement IDs reject equivalent restatement retries",
+                ),
+            )
+            for case, overrides in (
+                ("timezone", {"ingestion_date": "2026-04-01T02:00:00+02:00"}),
+                ("json-text", {"evidence_refs": '["p.41"]'}),
+                ("explicit-default", {"asserted_at": "2026-04-01T00:00:00Z"}),
+            )
+        ],
+    ],
+)
+def test_audit_restatement_retry_representation_boundary(
+    dialect: DatabaseDialect, retry_overrides: dict[str, object]
+) -> None:
+    """Desired retry contract; strict xfails return the observed gap for human review.
+
+    SQLite exercises the real persistence path locally. PostgreSQL remains an
+    independent live check; neither the local result nor an xfail proves PG parity.
+    """
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = _base_pg_row(fact_id="audit:restatement:1", plan_id="AUDIT-RESTATEMENT")
+    restatement = {
+        **base,
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+        "evidence_refs": ["p.41"],
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated",
+    }
+    retry = {**restatement, **retry_overrides}
+    pending = _base_pg_row(fact_id="audit:restatement:pending", plan_id="AUDIT-RESTATEMENT-PENDING")
+    snapshot_sql = (
+        f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
+        "WHERE plan_id IN ('AUDIT-RESTATEMENT', 'AUDIT-RESTATEMENT-PENDING') ORDER BY fact_id"
+    )
+    assert _same_assertion(_row_values(restatement), _row_values(retry))
+    assert _same_assertion_source(_row_values(restatement), _row_values(retry))
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-RESTATEMENT", "AUDIT-RESTATEMENT-PENDING")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
+        # Exact retries provide a passing control before varying only representation.
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
+        before_retry = connection.execute(snapshot_sql).fetchall()
+        try:
+            # A prior write makes rollback observable if the retry raises the known conflict.
+            inserted = persist_staging_core_metrics(
+                connection, dialect=dialect, rows=[pending, retry]
+            )
+        except ValueError as error:
+            assert str(error) == "conflicting assertion source for 'audit:restatement:1'"
+            assert connection.execute(snapshot_sql).fetchall() == before_retry
+            assert (
+                persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
+            )
+            raise _VerifiedRestatementRetryConflictError(str(error)) from error
+        assert inserted == 1  # Only the pending fact is new when the retry succeeds.
+        count = connection.execute(
+            "SELECT COUNT(*) FROM staging_core_metrics WHERE plan_id = 'AUDIT-RESTATEMENT'"
+        ).fetchone()[0]
+        assert count == 2
+    finally:
+        connection.close()
+
+
+def test_audit_inventories_equality_and_key_construction_seams() -> None:
+    """Inventory every equality/key seam in the bounded persistence + holdings adapters."""
+    from pension_data.db import staging_persistence as persistence
+    from pension_data.extract.investment import security_positions as positions
+    from pension_data.query.saved_views import holdings_ingest, service
+
+    # producer → consumer seams that participate in semantic identity (#964 scope).
+    seams: tuple[tuple[str, object], ...] = (
+        ("persistence._serialize_evidence_refs", persistence._serialize_evidence_refs),
+        ("persistence._row_values", persistence._row_values),
+        ("persistence._canonical_evidence", persistence._canonical_evidence),
+        ("persistence._canonical_instant", persistence._canonical_instant),
+        ("persistence._canonical_column_value", persistence._canonical_column_value),
+        ("persistence._same_assertion", persistence._same_assertion),
+        ("persistence._same_assertion_source", persistence._same_assertion_source),
+        ("persistence._replacement_fact_id", persistence._replacement_fact_id),
+        ("persistence.persist_staging_core_metrics", persistence.persist_staging_core_metrics),
+        ("positions._normalize_cusip", positions._normalize_cusip),
+        ("positions._security_id", positions._security_id),
+        ("positions.build_security_positions", positions.build_security_positions),
+        ("holdings_ingest.to_holdings_overlap_inputs", holdings_ingest.to_holdings_overlap_inputs),
+        ("service._aggregate_holdings_positions", service._aggregate_holdings_positions),
+        ("service.execute_holdings_overlap_view", service.execute_holdings_overlap_view),
+    )
+    for name, fn in seams:
+        assert callable(fn), name
+
+    # Content equality is representation-tolerant; replacement key construction is not.
+    # Disposition: review candidate — do not file an issue or repair in this audit PR.
+    row_z = {
+        **_base_pg_row(fact_id="audit:key:1", plan_id="AUDIT-KEY"),
+        "asserted_at": "2026-03-03T00:00:00Z",
+        "ingestion_date": "2026-03-03T00:00:00Z",
+    }
+    row_offset = {
+        **row_z,
+        "asserted_at": "2026-03-03T00:00:00+00:00",
+        "ingestion_date": "2026-03-03T00:00:00+00:00",
+    }
+    values_z = _row_values(row_z)
+    values_offset = _row_values(row_offset)
+    assert values_z != values_offset
+    assert _same_assertion(values_z, values_offset)
+    assert persistence._replacement_fact_id(row_z) != persistence._replacement_fact_id(row_offset)
+
+    # Direct builder callers may skip parser CUSIP normalization (unknown; human decision).
+    punctuated = positions._normalize_cusip("037-833-100")
+    assert punctuated == "037833100"
+    assert positions._security_id(cusip="037-833-100", ticker=None, security_name=None) == (
+        "cusip:037-833-100"
+    )
+
+
+@pytest.mark.parametrize(
+    "column",
+    ["effective_date", "ingestion_date", "valid_from", "valid_to", "asserted_at", "superseded_at"],
+)
+def test_audit_equivalent_assertion_shapes_and_true_conflicts(column: str) -> None:
+    row = {
+        **_base_pg_row(fact_id="audit:1", plan_id="AUDIT"),
+        "valid_to": "2025-06-30T00:00:00Z",
+        "superseded_at": "2026-04-01T00:00:00Z",
+    }
+    candidate = _row_values(row)
+    fetched = list(candidate)
+    index = _STAGING_CORE_METRIC_COLUMNS.index(column)
+    instant = str(candidate[index])
+    utc_instant = datetime.fromisoformat(instant.replace("Z", "+00:00")).astimezone(UTC)
+    fetched[index] = utc_instant.astimezone(timezone(timedelta(hours=5, minutes=30)))
+    fetched[_STAGING_CORE_METRIC_COLUMNS.index("evidence_refs")] = ["p.40"]
+    assert _same_assertion(fetched, candidate)
+    assert _same_assertion_source(fetched, candidate)
+    fetched[index] = utc_instant + timedelta(seconds=1)
+    assert not _same_assertion(fetched, candidate)
+    assert _same_assertion_source(fetched, candidate) is (column != "asserted_at")
+    fetched[index] = utc_instant
+    fetched[_STAGING_CORE_METRIC_COLUMNS.index("normalized_value")] = 0.785
+    assert not _same_assertion(fetched, candidate)
+    # Content disagreement from the same document/assertion instant is a conflict,
+    # not a new source. A different document is a distinct assertion source.
+    assert _same_assertion_source(fetched, candidate)
+    fetched[_STAGING_CORE_METRIC_COLUMNS.index("source_document_id")] = "doc:other"
+    assert not _same_assertion_source(fetched, candidate)
+
+
+@pytest.mark.parametrize("column", ["valid_from", "asserted_at"])
+@pytest.mark.parametrize("missing_value", [None, ""], ids=["none", "empty"])
+def test_audit_temporal_defaults_match_explicit_instants(
+    column: str, missing_value: object
+) -> None:
+    """Default validity/assertion instants keep their separate content/source roles."""
+    row = _base_pg_row(fact_id="audit:default-time", plan_id="AUDIT")
+    omitted = _row_values(row)
+    candidate = _row_values({**row, column: missing_value})
+    source_column = "effective_date" if column == "valid_from" else "ingestion_date"
+    instant = datetime.fromisoformat(str(row[source_column]).replace("Z", "+00:00"))
+    explicit = _row_values(
+        {**row, column: instant.astimezone(timezone(timedelta(hours=-7))).isoformat()}
+    )
+    assert candidate == omitted
+    assert _same_assertion(explicit, candidate)
+    assert _same_assertion_source(explicit, candidate)
+
+    changed = _row_values({**row, column: (instant + timedelta(microseconds=1)).isoformat()})
+    assert not _same_assertion(changed, candidate)
+    assert _same_assertion_source(changed, candidate) is (column != "asserted_at")
+
+
+@pytest.mark.parametrize(
+    "asserted_at",
+    [
+        date(2026, 3, 3),
+        "2026-03-03",
+        datetime(2026, 3, 3),
+        "2026-03-03T00:00:00",
+        " 2026-03-03T00:00:00z ",
+    ],
+    ids=["date", "date-text", "naive-datetime", "naive-text", "padded-lowercase-z"],
+)
+def test_audit_date_and_naive_assertions_use_utc(asserted_at: object) -> None:
+    """The comparison contract interprets date-only and naive assertions as UTC."""
+    candidate = _row_values(
+        {
+            **_base_pg_row(fact_id="audit:date", plan_id="AUDIT"),
+            "asserted_at": asserted_at,
+        }
+    )
+    fetched = list(candidate)
+    index = _STAGING_CORE_METRIC_COLUMNS.index("asserted_at")
+    fetched[index] = datetime(2026, 3, 3, tzinfo=UTC)
+    assert _same_assertion(fetched, candidate)
+    assert _same_assertion_source(fetched, candidate)
+
+    # A genuinely different instant changes both content and source identity.
+    fetched[index] = datetime(2026, 3, 3, tzinfo=UTC) + timedelta(microseconds=1)
+    assert not _same_assertion(fetched, candidate)
+    assert not _same_assertion_source(fetched, candidate)
+
+
+@pytest.mark.parametrize(
+    ("candidate_time", "stored_time", "equivalent"),
+    [
+        (None, None, True),
+        ("", None, True),
+        ("   ", None, True),
+        (None, datetime(2025, 6, 30, tzinfo=UTC), False),
+        (" invalid-instant ", "invalid-instant", True),
+        ("invalid-instant", None, False),
+        ("invalid-instant", "other-invalid-instant", False),
+    ],
+    ids=[
+        "missing",
+        "empty",
+        "blank",
+        "present",
+        "invalid-trimmed",
+        "invalid-missing",
+        "invalid-distinct",
+    ],
+)
+def test_audit_optional_instants_preserve_missing_and_invalid_values(
+    candidate_time: object, stored_time: object, equivalent: bool
+) -> None:
+    """Pure equality controls; invalid text is not claimed to be valid PostgreSQL input."""
+    candidate = _row_values(
+        {
+            **_base_pg_row(fact_id="audit:optional-time", plan_id="AUDIT"),
+            "valid_to": candidate_time,
+        }
+    )
+    fetched = list(candidate)
+    fetched[_STAGING_CORE_METRIC_COLUMNS.index("valid_to")] = stored_time
+    assert _same_assertion(fetched, candidate) is equivalent
+    # Validity changes content without changing the document/assertion source.
+    assert _same_assertion_source(fetched, candidate)
+
+
+@pytest.mark.parametrize(
+    ("serialized", "decoded", "equivalent"),
+    [
+        ('["p.40", "p.41"]', ["p.40", "p.41"], True),
+        ('["p.40", "p.41"]', ["p.41", "p.40"], False),
+        ('["p.40", "p.41"]', ["p.40", "p.42"], False),
+        ('["p.40", "p.40"]', ["p.40"], False),
+        ('{"page": 40, "document": "annual"}', {"document": "annual", "page": 40}, True),
+        ('{"page": 40, "document": "annual"}', {"document": "annual", "page": 41}, False),
+        (None, [], False),
+    ],
+    ids=["ordered", "reordered", "changed", "duplicate", "object-order", "object-value", "missing"],
+)
+def test_audit_evidence_content_and_order_define_assertion_equality(
+    serialized: str | None, decoded: object, equivalent: bool
+) -> None:
+    candidate = _row_values(
+        {**_base_pg_row(fact_id="audit:evidence", plan_id="AUDIT"), "evidence_refs": serialized}
+    )
+    fetched = list(candidate)
+    fetched[_STAGING_CORE_METRIC_COLUMNS.index("evidence_refs")] = decoded
+    assert _same_assertion(fetched, candidate) is equivalent
+    # Evidence disagreement affects content, never the assertion's source identity.
+    assert _same_assertion_source(fetched, candidate)
+
+
+def test_audit_schema_preserves_driver_representation_contract() -> None:
+    """Static schema contract; this does not substitute for a live PG roundtrip."""
+    from pension_data.db.strategy import migration_file_paths
+
+    migration = (
+        Path(__file__).parents[2]
+        / "src/pension_data/db/migrations/20260303_101_pg_core_fact_staging.sql"
+    )
+    assert migration in migration_file_paths(dialect="postgresql")
+
+    class RecordingConnection:
+        """Observe actual migration dispatch; no database semantics are simulated."""
+
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+            self.committed = False
+
+        def execute(self, sql: str, params: tuple[object, ...] = ()) -> RecordingConnection:
+            self.statements.append(sql)
+            return self
+
+        def fetchall(self) -> list[tuple[str]]:
+            return []
+
+        def commit(self) -> None:
+            self.committed = True
+
+        def rollback(self) -> None:
+            raise AssertionError("migration dispatch unexpectedly rolled back")
+
+    connection = RecordingConnection()
+    report = apply_migrations(connection, dialect="postgresql")
+    assert migration.stem in report.applied_versions
+    assert connection.committed
+    for statement in migration.read_text(encoding="utf-8").split(";"):
+        if statement.strip():
+            assert statement.strip() in connection.statements
+
+    core_table = _staging_core_metrics_table_body()
+    assert _declared_sql_type(core_table, "evidence_refs") == "JSONB"
+    for column in (
+        "effective_date",
+        "ingestion_date",
+        "valid_from",
+        "valid_to",
+        "asserted_at",
+        "superseded_at",
+    ):
+        assert _declared_sql_type(core_table, column) == "TIMESTAMPTZ"
+
+
+@pytest.mark.parametrize(
+    ("subject_identity", "peer_identity", "distinct_identity", "expected_security_id"),
+    [
+        pytest.param(
+            ("037833100", "AAPL"),
+            ("037833100", "OTHER"),
+            ("594918104", "AAPL"),
+            "cusip:037833100",
+            id="cusip-precedes-ticker",
+        ),
+        pytest.param(
+            (None, " aapl "),
+            (None, "AAPL"),
+            (None, "MSFT"),
+            "ticker:AAPL",
+            id="ticker-fallback",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "subject_names",
+    [("APPLE INC",), ("APPLE INC", "Apple Inc.")],
+    ids=["single-subject-lot", "renamed-subject-lots"],
+)
+@pytest.mark.parametrize(
+    "peer_names",
+    [("Apple Incorporated",), ("Apple Incorporated", "Apple Corporation")],
+    ids=["single-peer-lot", "renamed-peer-lots"],
+)
+def test_audit_security_identity_survives_names_and_separates_instruments(
+    subject_names: tuple[str, ...],
+    peer_names: tuple[str, ...],
+    subject_identity: tuple[str | None, str],
+    peer_identity: tuple[str | None, str],
+    distinct_identity: tuple[str | None, str],
+    expected_security_id: str,
+) -> None:
+    from pension_data.extract.investment.security_positions import (
+        SecurityPositionInput,
+        build_security_positions,
+    )
+    from pension_data.query.saved_views.holdings_ingest import to_holdings_overlap_inputs
+    from pension_data.query.saved_views.service import execute_holdings_overlap_view
+
+    def position(plan: str, identity: tuple[str | None, str], name: str, exposure: float = 10):
+        return build_security_positions(
+            plan_id=plan,
+            plan_period="FY2024",
+            rows=[
+                SecurityPositionInput(
+                    security_name=name,
+                    cusip=identity[0],
+                    ticker=identity[1],
+                    shares=1,
+                    market_value_usd=exposure,
+                    asset_class="public_equity",
+                    source="manual",
+                    as_of="2024-06-30",
+                    provenance_ref=f"doc:{plan}",
+                )
+            ],
+        )[0]
+
+    subjects = [
+        position("A", subject_identity, name, 10 / len(subject_names)) for name in subject_names
+    ]
+    peers = [position("B", peer_identity, name, 15 / len(peer_names)) for name in peer_names]
+    distinct = position("C", distinct_identity, "APPLE INC")
+    adapted = to_holdings_overlap_inputs([*subjects, *peers, distinct])
+    assert {row.manager_name for row in adapted[:-1]} == {expected_security_id}
+    assert {row.fund_name for row in adapted[:-1]} == {expected_security_id}
+    assert [row.display_name for row in adapted[:-1]] == [*subject_names, *peer_names]
+    assert adapted[-1].manager_name != adapted[0].manager_name
+    result = execute_holdings_overlap_view(adapted, subject_plan_id="A", plan_period="FY2024")
+    shared = [row for row in result if row.counterparty_plan_id == "B"]
+    # Both plans' renamed lots must aggregate before taking min(10, 15).
+    assert len(shared) == 1 and shared[0].overlap_usd == 10
+    separate = [row for row in result if row.counterparty_plan_id == "C"]
+    assert len(separate) == 2
+    assert all(row.overlap_status == "unknown_due_to_non_disclosure" for row in separate)
+
+
+@pytest.mark.parametrize(
+    ("peer_name", "equivalent"),
+    [
+        pytest.param("  apple\tINC  ", True, id="case-and-whitespace"),
+        pytest.param("Apple Inc.", False, id="punctuation-distinct"),
+        pytest.param("Apple Incorporated", False, id="spelling-distinct"),
+    ],
+)
+def test_audit_name_only_security_identity_uses_its_own_contract(
+    peer_name: str, equivalent: bool
+) -> None:
+    """Without CUSIP/ticker, names carry identity as well as display text."""
+    from pension_data.extract.investment.security_positions import (
+        SecurityPositionInput,
+        build_security_positions,
+    )
+    from pension_data.query.saved_views.holdings_ingest import to_holdings_overlap_inputs
+    from pension_data.query.saved_views.service import execute_holdings_overlap_view
+
+    positions = []
+    for plan, name, exposure in (("A", "APPLE INC", 10), ("B", peer_name, 15)):
+        positions.extend(
+            build_security_positions(
+                plan_id=plan,
+                plan_period="FY2024",
+                rows=[
+                    SecurityPositionInput(
+                        security_name=name,
+                        cusip=None,
+                        ticker=None,
+                        shares=1,
+                        market_value_usd=exposure,
+                        asset_class="public_equity",
+                        source="manual",
+                        as_of="2024-06-30",
+                        provenance_ref=f"doc:{plan}",
+                    )
+                ],
+            )
+        )
+    adapted = to_holdings_overlap_inputs(positions)
+    assert adapted[0].manager_name == adapted[0].fund_name == "name:apple inc"
+    assert (adapted[0].manager_name == adapted[1].manager_name) is equivalent
+    assert (adapted[0].fund_name == adapted[1].fund_name) is equivalent
+    # The builder trims display edges; the adapter preserves that producer text.
+    assert [row.display_name for row in adapted] == ["APPLE INC", peer_name.strip()]
+
+    result = execute_holdings_overlap_view(adapted, subject_plan_id="A", plan_period="FY2024")
+    assert {row.counterparty_plan_id for row in result} == {"B"}
+    if equivalent:
+        assert len(result) == 1
+        assert result[0].overlap_usd == 10
+    else:
+        assert len(result) == 2
+        assert all(row.overlap_usd is None for row in result)
+        assert all(row.overlap_status == "unknown_due_to_non_disclosure" for row in result)
+
+
+@pytest.mark.parametrize(
+    "declaration", ["TIMESTAMPTZ ARRAY", "TIMESTAMPTZ ARRAY[3]", "TIMESTAMPTZ []"]
+)
+def test_audit_schema_rejects_array_type_suffixes(declaration: str) -> None:
+    assert _declared_sql_type(f"  valid_to {declaration},", "valid_to") != "TIMESTAMPTZ"
