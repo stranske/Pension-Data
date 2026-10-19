@@ -1277,3 +1277,93 @@ def test_audit_direct_caller_unnormalized_cusip_remains_unknown_boundary(
 )
 def test_audit_schema_rejects_array_type_suffixes(declaration: str) -> None:
     assert _declared_sql_type(f"  valid_to {declaration},", "valid_to") != "TIMESTAMPTZ"
+
+
+def test_replacement_key_evidence_decimal_precision_preserves_distinct_values() -> None:
+    """Exact JSON numbers in evidence keep precision beyond binary float (#964).
+
+    ``evidence_refs`` is a JSON (JSONB) value, so its numeric identity is the
+    JSON number itself: ``0.79`` spelled as text, float, or Decimal is one
+    value, while Decimals differing beyond float precision are distinct.
+    Serializing Decimals through ``float`` (or parsing JSON text to float)
+    collapsed those distinct values into one assertion/replacement key.
+    """
+    from decimal import Decimal
+
+    from pension_data.db.staging_persistence import _replacement_fact_id
+
+    row = _base_pg_row(fact_id="audit:evidence-precision:1", plan_id="AUDIT-EVIDENCE-PRECISION")
+    precise = {"amount": Decimal("0.123456789012345678901")}
+    distinct = {"amount": Decimal("0.123456789012345678902")}
+    assert (
+        _same_assertion(
+            _row_values({**row, "evidence_refs": precise}),
+            _row_values({**row, "evidence_refs": distinct}),
+        )
+        is False
+    )
+    assert _replacement_fact_id({**row, "evidence_refs": precise}) != _replacement_fact_id(
+        {**row, "evidence_refs": distinct}
+    )
+    # The same exact number spelled as JSON text derives the same identity.
+    assert _same_assertion(
+        _row_values({**row, "evidence_refs": precise}),
+        _row_values({**row, "evidence_refs": '{"amount": 0.123456789012345678901}'}),
+    )
+    assert _replacement_fact_id({**row, "evidence_refs": precise}) == _replacement_fact_id(
+        {**row, "evidence_refs": '{"amount": 0.123456789012345678901}'}
+    )
+    # Ordinary JSON numbers keep one identity across float/Decimal/text.
+    for spelling in ({"amount": 0.79}, {"amount": Decimal("0.79")}, '{"amount": 0.79}'):
+        assert _same_assertion(
+            _row_values({**row, "evidence_refs": {"amount": Decimal("0.790")}}),
+            _row_values({**row, "evidence_refs": spelling}),
+        )
+        assert _replacement_fact_id(
+            {**row, "evidence_refs": {"amount": Decimal("0.790")}}
+        ) == _replacement_fact_id({**row, "evidence_refs": spelling})
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_audit_evidence_decimal_precision_restatement_retry_is_idempotent(
+    dialect: DatabaseDialect,
+) -> None:
+    """A precision-distinct evidence change conflicts; an exact retry does not."""
+    from decimal import Decimal
+
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = {
+        **_base_pg_row(fact_id="audit:evidence-precision:2", plan_id="AUDIT-EVIDENCE-PRECISION"),
+        "evidence_refs": {"amount": Decimal("0.123456789012345678900")},
+    }
+    restatement = {
+        **base,
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+        "evidence_refs": {"amount": Decimal("0.123456789012345678901")},
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated",
+    }
+    distinct_retry = {
+        **restatement,
+        "evidence_refs": {"amount": Decimal("0.123456789012345678902")},
+    }
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-EVIDENCE-PRECISION")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
+        with pytest.raises(ValueError, match="conflicting assertion source"):
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[distinct_retry])
+        count = connection.execute(
+            "SELECT COUNT(*) FROM staging_core_metrics "
+            "WHERE plan_id = 'AUDIT-EVIDENCE-PRECISION'"
+        ).fetchone()[0]
+        assert count == 2
+    finally:
+        connection.close()

@@ -58,16 +58,61 @@ def _serialize_evidence_refs(value: object) -> str | None:
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
         refs = [str(item) for item in value]
         return json.dumps(refs, sort_keys=True)
-    return json.dumps(_json_ready(value), sort_keys=True)
+    return _dumps_canonical_json(_json_ready(value))
+
+
+def _json_key(key: object) -> str:
+    if isinstance(key, str):
+        return key
+    if key is True:
+        return "true"
+    if key is False:
+        return "false"
+    if key is None:
+        return "null"
+    return str(key)
+
+
+def _dumps_canonical_json(value: object) -> str:
+    # Emit Decimal as an exact JSON number; float conversion would collapse
+    # distinct high-precision evidence values into one stored value.
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return json.dumps(value)
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, Mapping):
+        items = sorted(value.items(), key=lambda item: _json_key(item[0]))
+        return (
+            "{"
+            + ", ".join(
+                f"{json.dumps(_json_key(key))}: {_dumps_canonical_json(item)}"
+                for key, item in items
+            )
+            + "}"
+        )
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        return "[" + ", ".join(_dumps_canonical_json(item) for item in value) + "]"
+    return json.dumps(value)
 
 
 def _json_ready(value: object) -> object:
     # Serialize Decimal spellings inside evidence objects as JSON numbers so
     # Decimal("40.0") reaches the canonical assertion/key contracts as 40
     # instead of crashing json.dumps or being stored as a quoted string.
+    # Non-integral Decimals stay Decimal so _dumps_canonical_json emits their
+    # exact value instead of rounding through binary float.
     if isinstance(value, Decimal):
-        canonical = _canonical_key_value(value)
-        return float(canonical) if isinstance(canonical, Decimal) else canonical
+        return _canonical_key_value(value)
     if isinstance(value, Mapping):
         return {key: _json_ready(item) for key, item in value.items()}
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
@@ -147,6 +192,8 @@ def _replacement_fact_id(row: Mapping[str, object]) -> str:
         canonical = _canonical_column_value(column, value)
         if isinstance(canonical, datetime):
             canonical = _format_canonical_instant(canonical)
+        elif column == "evidence_refs":
+            canonical = _canonical_assertion_value(canonical)
         else:
             canonical = _canonical_key_value(canonical)
         canonical_values[column] = canonical
@@ -163,7 +210,9 @@ def _canonical_evidence(value: object) -> object:
         return None
     if isinstance(value, str):
         try:
-            parsed = json.loads(value)
+            # JSON numbers are exact decimal text; float parsing would
+            # collapse values that differ only beyond binary precision.
+            parsed = json.loads(value, parse_float=Decimal)
         except json.JSONDecodeError:
             return value
         return _canonical_evidence(parsed)
@@ -214,6 +263,13 @@ def _canonical_assertion_value(value: object) -> object:
         return {key: _canonical_assertion_value(item) for key, item in value.items()}
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [_canonical_assertion_value(item) for item in value]
+    if isinstance(value, float):
+        # Evidence is JSON, so a driver-decoded float and the equivalent
+        # Decimal/JSON-text spelling are one JSON number (0.79), identified
+        # by the float's shortest decimal representation. Typed relational
+        # columns outside evidence keep exact Decimal/float distinction.
+        converted = Decimal(str(value))
+        return _canonical_key_value(converted) if converted.is_finite() else value
     return _canonical_key_value(value)
 
 
