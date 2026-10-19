@@ -583,6 +583,78 @@ def test_replacement_key_evidence_numeric_equivalence_preserves_distinct_values(
     )
 
 
+@pytest.mark.parametrize(
+    ("first", "other", "equivalent"),
+    [
+        pytest.param({"flag": True}, {"flag": 1}, False, id="evidence-true-vs-one"),
+        pytest.param({"flag": False}, {"flag": 0}, False, id="evidence-false-vs-zero"),
+        pytest.param({"flag": True}, {"flag": True}, True, id="evidence-true-control"),
+        pytest.param({"page": 1}, {"page": 1.0}, True, id="evidence-numeric-control"),
+    ],
+)
+def test_same_assertion_bool_identity_matches_replacement_key(
+    first: object, other: object, equivalent: bool
+) -> None:
+    """JSON true/false must not collapse into 1/0 in content equality (#964).
+
+    The replacement key already distinguishes them; ``_same_assertion`` must
+    share that contract or a true->1 evidence change is dropped as a retry.
+    """
+    from pension_data.db.staging_persistence import _replacement_fact_id
+
+    row = _base_pg_row(fact_id="audit:bool-key:1", plan_id="AUDIT-BOOL-KEY")
+    assert (
+        _same_assertion(
+            _row_values({**row, "evidence_refs": first}),
+            _row_values({**row, "evidence_refs": other}),
+        )
+        is equivalent
+    )
+    assert (
+        _replacement_fact_id({**row, "evidence_refs": first})
+        == _replacement_fact_id({**row, "evidence_refs": other})
+    ) is equivalent
+    # Typed relational columns keep driver equivalence: SQLite returns the
+    # restated flag as int 1 where the candidate carries Python True.
+    fetched = list(_row_values({**row, "restated": True}))
+    fetched[_STAGING_CORE_METRIC_COLUMNS.index("restated")] = 1
+    assert _same_assertion(tuple(fetched), _row_values({**row, "restated": True}))
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_audit_bool_evidence_restatement_is_not_dropped_as_retry(
+    dialect: DatabaseDialect,
+) -> None:
+    """A true->1 evidence change from a new source creates one replacement."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = {
+        **_base_pg_row(fact_id="audit:bool-restatement:1", plan_id="AUDIT-BOOL-RESTATEMENT"),
+        "evidence_refs": {"verified": True},
+    }
+    restatement = {
+        **base,
+        "evidence_refs": {"verified": 1},
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated",
+    }
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-BOOL-RESTATEMENT")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
+        count = connection.execute(
+            "SELECT COUNT(*) FROM staging_core_metrics " "WHERE plan_id = 'AUDIT-BOOL-RESTATEMENT'"
+        ).fetchone()[0]
+        assert count == 2
+    finally:
+        connection.close()
+
+
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 def test_audit_evidence_numeric_restatement_retry_is_idempotent(
     dialect: DatabaseDialect,
@@ -636,6 +708,7 @@ def test_audit_inventories_equality_and_key_construction_seams() -> None:
         ("persistence._same_assertion", persistence._same_assertion),
         ("persistence._same_assertion_source", persistence._same_assertion_source),
         ("persistence._canonical_key_value", persistence._canonical_key_value),
+        ("persistence._canonical_assertion_value", persistence._canonical_assertion_value),
         ("persistence._replacement_fact_id", persistence._replacement_fact_id),
         ("persistence.persist_staging_core_metrics", persistence.persist_staging_core_metrics),
         ("positions._normalize_cusip", positions._normalize_cusip),

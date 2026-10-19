@@ -190,10 +190,31 @@ def _canonical_column_value(column: str, value: object) -> object:
     return value
 
 
+def _canonical_assertion_value(value: object) -> object:
+    # JSON booleans are distinct from numbers (true != 1), unlike Python ==.
+    # Tag them so content equality shares the replacement-key contract,
+    # while numeric spellings (79 / 79.0 / Decimal("79.0")) stay equivalent.
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, Mapping):
+        return {key: _canonical_assertion_value(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_canonical_assertion_value(item) for item in value]
+    return _canonical_key_value(value)
+
+
 def _same_assertion(existing: Any, candidate_values: tuple[object, ...]) -> bool:
+    def assertion_value(column: str, value: object) -> object:
+        canonical = _canonical_column_value(column, value)
+        # Only JSON evidence distinguishes booleans from numbers; typed
+        # relational columns keep driver equivalence (e.g. restated 1/True).
+        if column == "evidence_refs":
+            return _canonical_assertion_value(canonical)
+        return _canonical_key_value(canonical)
+
     return all(
-        _canonical_column_value(_STAGING_CORE_METRIC_COLUMNS[index], existing[index])
-        == _canonical_column_value(_STAGING_CORE_METRIC_COLUMNS[index], candidate)
+        assertion_value(_STAGING_CORE_METRIC_COLUMNS[index], existing[index])
+        == assertion_value(_STAGING_CORE_METRIC_COLUMNS[index], candidate)
         for index, candidate in enumerate(candidate_values)
     )
 
