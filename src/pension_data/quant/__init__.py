@@ -60,12 +60,19 @@ from pension_data.quant.scenarios import (
     run_deterministic_scenario,
     run_monte_carlo_scenario,
 )
+from pension_data.quant.workspace_producer import (
+    DEFAULT_QUANT_WORKSPACE_PATH,
+    build_quant_workspace,
+    validate_quant_workspace,
+    write_quant_workspace,
+)
 
 __all__ = [
     "AttributionReconciliation",
     "AggregatedMetric",
     "AttributionRow",
     "ConstraintDiagnostics",
+    "DEFAULT_QUANT_WORKSPACE_PATH",
     "DerivedMetricDefinition",
     "DerivedMetricObservation",
     "DimensionScore",
@@ -94,6 +101,7 @@ __all__ = [
     "aggregate_metric_series",
     "benchmark_metric",
     "build_metric_series_contracts",
+    "build_quant_workspace",
     "compute_attribution",
     "compute_derived_metrics",
     "default_metric_catalog",
@@ -109,5 +117,7 @@ __all__ = [
     "score_plan_health",
     "tread_water_gap_usd",
     "trend_change",
+    "validate_quant_workspace",
+    "write_quant_workspace",
     "z_score",
 ]

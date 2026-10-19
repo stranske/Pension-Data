@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from pension_data.quant.workspace_producer import (  # noqa: E402
+    DEFAULT_QUANT_WORKSPACE_PATH,
     build_quant_workspace,
     write_quant_workspace,
 )
@@ -18,9 +19,7 @@ from pension_data.quant.workspace_producer import (  # noqa: E402
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pilot-run-dir", required=True, type=Path)
-    parser.add_argument(
-        "--out", type=Path, default=Path("outputs/web/quant-workspace.generated.json")
-    )
+    parser.add_argument("--out", type=Path, default=DEFAULT_QUANT_WORKSPACE_PATH)
     args = parser.parse_args(argv)
     try:
         payload = build_quant_workspace(args.pilot_run_dir)

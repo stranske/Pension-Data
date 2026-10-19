@@ -20,6 +20,10 @@ from pension_data.quant.contracts import (
     missing_reproducibility_fields,
 )
 
+# Default publication path used by scripts/web/build_quant_workspace.py.
+# Producer-only: consumers do not yet render this artifact.
+DEFAULT_QUANT_WORKSPACE_PATH = Path("outputs/web/quant-workspace.generated.json")
+
 
 def _text(row: dict[str, Any], key: str) -> str:
     value = row.get(key)

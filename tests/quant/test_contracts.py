@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
 from pension_data.quant.contracts import (
     QuantDataPoint,
     QuantScenarioContract,
@@ -11,6 +19,22 @@ from pension_data.quant.contracts import (
     missing_reproducibility_fields,
     normalize_provenance_refs,
 )
+from pension_data.quant.workspace_producer import (
+    DEFAULT_QUANT_WORKSPACE_PATH,
+    build_quant_workspace,
+    write_quant_workspace,
+)
+
+_ROOT = Path(__file__).resolve().parents[2]
+_COMPLETED_PILOT = Path(__file__).resolve().parent / "fixtures" / "completed_pilot_run"
+_CLI = _ROOT / "scripts" / "web" / "build_quant_workspace.py"
+
+
+def _metric_values(payload: dict) -> dict[str, float]:
+    return {
+        series["metric_name"]: series["points"][0]["y_value"]
+        for series in payload["scenarios"][0]["series"]
+    }
 
 
 def test_normalize_provenance_refs_is_deterministic() -> None:
@@ -75,3 +99,58 @@ def test_workspace_contract_embeds_reproducible_scenario_payload() -> None:
     )
     assert workspace.scenarios[0].reproducibility.seed == 42
     assert workspace.scenarios[0].series[0].points[0].provenance_refs == ("p.40",)
+
+
+def test_completed_pilot_fixture_emits_default_quant_workspace_artifact(tmp_path: Path) -> None:
+    """Producer seam publishes a nonempty metric_engine artifact from a completed pilot."""
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    # AAL 640e6 − AVA 501.8e6 = funded gap 138.2e6; unfunded ratio = gap / AAL.
+    expected_gap = 138_200_000.0
+    expected_ratio = expected_gap / 640_000_000.0
+
+    payload = build_quant_workspace(run_dir)
+    assert payload["module"] == "metric_engine"
+    assert payload["scenarios"]
+    assert _metric_values(payload) == pytest.approx(
+        {"funded_gap_usd": expected_gap, "unfunded_ratio": expected_ratio}
+    )
+    envelope = ReproducibilityEnvelope(**payload["scenarios"][0]["reproducibility"])
+    assert missing_reproducibility_fields(envelope, requires_seed=False) == ()
+    assert set(envelope.source_artifact_ids) == {
+        row["id"] for row in payload["input_artifacts"].values()
+    }
+
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, payload)
+    published = json.loads(out.read_text(encoding="utf-8"))
+    assert published["module"] == "metric_engine"
+    assert _metric_values(published)["funded_gap_usd"] == expected_gap
+
+    core = run_dir / "extraction_persistence" / "staging_core_metrics.json"
+    rows = json.loads(core.read_text(encoding="utf-8"))
+    next(row for row in rows if row["metric_name"] == "ava_usd")["normalized_value"] = 400_000_000.0
+    core.write_text(json.dumps(rows), encoding="utf-8")
+    changed = build_quant_workspace(run_dir)
+    assert _metric_values(changed)["funded_gap_usd"] == 240_000_000.0
+    assert _metric_values(changed)["unfunded_ratio"] == 0.375
+
+
+def test_cli_writes_default_quant_workspace_path_from_completed_pilot(tmp_path: Path) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    result = subprocess.run(
+        [sys.executable, str(_CLI), "--pilot-run-dir", str(run_dir)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "producer-only" in result.stdout
+    artifact = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    assert artifact.is_file()
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    assert payload["module"] == "metric_engine"
+    assert _metric_values(payload)["funded_gap_usd"] == 138_200_000.0
+    assert payload["scenarios"][0]["series"]
