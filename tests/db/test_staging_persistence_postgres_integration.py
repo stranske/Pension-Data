@@ -337,18 +337,34 @@ def test_audit_document_identity_controls_conflict_or_restatement(
 
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 @pytest.mark.parametrize(
-    ("evidence_refs", "equivalent"),
+    ("base_evidence", "evidence_refs", "equivalent"),
     [
-        pytest.param('[ "p.40", "p.41" ]', True, id="json-whitespace"),
-        pytest.param('["p.41", "p.40"]', False, id="reordered"),
-        pytest.param('["p.40", "p.42"]', False, id="changed-reference"),
-        pytest.param('["p.40", "p.41", "p.41"]', False, id="duplicate-reference"),
+        pytest.param(["p.40", "p.41"], '[ "p.40", "p.41" ]', True, id="json-whitespace"),
+        pytest.param(["p.40", "p.41"], '["p.41", "p.40"]', False, id="reordered"),
+        pytest.param(["p.40", "p.41"], '["p.40", "p.42"]', False, id="changed-reference"),
+        pytest.param(["p.40", "p.41"], '["p.40", "p.41", "p.41"]', False, id="duplicate-reference"),
+        pytest.param(None, None, True, id="missing-retry"),
+        pytest.param([], "[ ]", True, id="empty-list-retry"),
+        pytest.param(None, "[]", False, id="missing-to-empty"),
+        pytest.param([], None, False, id="empty-to-missing"),
+        pytest.param(
+            {"page": 40, "document": "annual"},
+            '{"document": "annual", "page": 40}',
+            True,
+            id="object-key-order",
+        ),
+        pytest.param(
+            {"page": 40, "document": "annual"},
+            '{"document": "annual", "page": 41}',
+            False,
+            id="object-value",
+        ),
     ],
 )
 def test_audit_evidence_only_retry_preserves_content_contract(
-    dialect: DatabaseDialect, evidence_refs: str, equivalent: bool
+    dialect: DatabaseDialect, base_evidence: object, evidence_refs: object, equivalent: bool
 ) -> None:
-    """Exercise ordered evidence equality at the persistence/conflict boundary."""
+    """Preserve evidence order, object contents, and absence across persistence retries."""
     if dialect == "postgresql":
         connection = _postgres_connection()
     else:
@@ -356,7 +372,7 @@ def test_audit_evidence_only_retry_preserves_content_contract(
         apply_migrations(connection, dialect=dialect)
     base = {
         **_base_pg_row(fact_id="audit:evidence-retry:1", plan_id="AUDIT-EVIDENCE-RETRY"),
-        "evidence_refs": ["p.40", "p.41"],
+        "evidence_refs": base_evidence,
     }
     retry = {**base, "evidence_refs": evidence_refs}
     snapshot_sql = (
