@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from hashlib import sha1
 from typing import Any
 
@@ -93,6 +94,18 @@ def _canonical_key_value(value: object) -> object:
     # Match Python numeric equality (40 == 40.0) inside nested evidence
     # without rounding distinct large integers through float conversion.
     # Booleans are not floats here, so they retain JSON boolean identity.
+    if isinstance(value, Decimal) and value.is_finite():
+        if value == value.to_integral_value():
+            return int(value)
+        # Strip trailing zeros without context-precision rounding, so
+        # Decimal("0.790") and Decimal("0.79") share one key while distinct
+        # non-integral decimals (and float spellings) remain distinct.
+        sign, digits, exponent = value.as_tuple()
+        trimmed = list(digits)
+        while exponent < 0 and trimmed and trimmed[-1] == 0:
+            trimmed.pop()
+            exponent += 1
+        return Decimal((sign, tuple(trimmed), exponent)) if trimmed else 0
     if isinstance(value, float) and value.is_integer():
         return int(value)
     if isinstance(value, Mapping):

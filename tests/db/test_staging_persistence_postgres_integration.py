@@ -520,6 +520,38 @@ def test_replacement_key_numeric_equivalence_preserves_distinct_values(
 @pytest.mark.parametrize(
     ("first", "equivalent", "distinct"),
     [
+        pytest.param("79.0", 79, 80, id="decimal-integral-vs-int"),
+        pytest.param("79.00", 79.0, 80.0, id="decimal-integral-vs-float"),
+        pytest.param("0.790", "0.79", "0.80", id="decimal-trailing-zero"),
+        pytest.param("9007199254740993", 2**53 + 1, 2**53, id="decimal-large-int-exact"),
+    ],
+)
+def test_replacement_key_decimal_equivalence_preserves_distinct_values(
+    first: str, equivalent: object, distinct: object
+) -> None:
+    from decimal import Decimal
+
+    from pension_data.db.staging_persistence import _replacement_fact_id
+
+    row = _base_pg_row(fact_id="audit:decimal-key:1", plan_id="AUDIT-DECIMAL-KEY")
+    first_value = Decimal(first)
+    equivalent_value = Decimal(equivalent) if isinstance(equivalent, str) else equivalent
+    distinct_value = Decimal(distinct) if isinstance(distinct, str) else distinct
+    assert _same_assertion(
+        _row_values({**row, "as_reported_value": first_value}),
+        _row_values({**row, "as_reported_value": equivalent_value}),
+    )
+    key = _replacement_fact_id({**row, "as_reported_value": first_value})
+    assert key == _replacement_fact_id({**row, "as_reported_value": equivalent_value})
+    assert key != _replacement_fact_id({**row, "as_reported_value": distinct_value})
+    assert _replacement_fact_id({**row, "as_reported_value": Decimal("1")}) != (
+        _replacement_fact_id({**row, "as_reported_value": True})
+    )
+
+
+@pytest.mark.parametrize(
+    ("first", "equivalent", "distinct"),
+    [
         pytest.param({"page": 40}, {"page": 40.0}, {"page": 41}, id="object-value"),
         pytest.param(
             {"refs": [40, 41]}, {"refs": [40.0, 41.0]}, {"refs": [40, 42]}, id="nested-list"
