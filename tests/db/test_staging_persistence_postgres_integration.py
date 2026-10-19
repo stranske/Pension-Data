@@ -442,6 +442,7 @@ def _declared_sql_type(table_body: str, column: str) -> str:
         pytest.param({"ingestion_date": "2026-04-01T02:00:00+02:00"}, id="timezone"),
         pytest.param({"evidence_refs": '["p.41"]'}, id="json-text"),
         pytest.param({"asserted_at": "2026-04-01T00:00:00Z"}, id="explicit-default"),
+        pytest.param({"as_reported_value": 79}, id="numeric-int"),
     ],
 )
 def test_audit_restatement_retry_representation_boundary(
@@ -496,6 +497,24 @@ def test_audit_restatement_retry_representation_boundary(
         assert count == 2
     finally:
         connection.close()
+
+
+@pytest.mark.parametrize(
+    ("first", "equivalent", "distinct"),
+    [(79.0, 79, 80), (-0.0, 0, 1), (float(2**53), 2**53, 2**53 + 1)],
+)
+def test_replacement_key_numeric_equivalence_preserves_distinct_values(
+    first: float, equivalent: int, distinct: int
+) -> None:
+    from pension_data.db.staging_persistence import _replacement_fact_id
+
+    row = _base_pg_row(fact_id="audit:numeric-key:1", plan_id="AUDIT-NUMERIC-KEY")
+    key = _replacement_fact_id({**row, "as_reported_value": first})
+    assert key == _replacement_fact_id({**row, "as_reported_value": equivalent})
+    assert key != _replacement_fact_id({**row, "as_reported_value": distinct})
+    assert _replacement_fact_id({**row, "as_reported_value": True}) != _replacement_fact_id(
+        {**row, "as_reported_value": 1}
+    )
 
 
 def test_audit_inventories_equality_and_key_construction_seams() -> None:

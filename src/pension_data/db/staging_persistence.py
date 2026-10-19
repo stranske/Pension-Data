@@ -100,9 +100,13 @@ def _replacement_fact_id(row: Mapping[str, object]) -> str:
         if column == "fact_id":
             continue
         canonical = _canonical_column_value(column, value)
-        canonical_values[column] = (
-            _format_canonical_instant(canonical) if isinstance(canonical, datetime) else canonical
-        )
+        if isinstance(canonical, datetime):
+            canonical = _format_canonical_instant(canonical)
+        elif isinstance(canonical, float) and canonical.is_integer():
+            # Match Python numeric equality without rounding distinct large integers
+            # through float conversion. Booleans retain their JSON boolean identity.
+            canonical = int(canonical)
+        canonical_values[column] = canonical
     asserted_at = _format_canonical_instant(
         candidate_values[_STAGING_CORE_METRIC_COLUMNS.index("asserted_at")]
     )
