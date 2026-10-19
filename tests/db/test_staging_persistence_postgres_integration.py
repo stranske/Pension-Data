@@ -18,7 +18,7 @@ from pension_data.db.staging_persistence import (
     _same_assertion_source,
     persist_staging_core_metrics,
 )
-from pension_data.db.strategy import connect_database, resolve_database_config
+from pension_data.db.strategy import DatabaseDialect, connect_database, resolve_database_config
 
 POSTGRES_TEST_URL_ENV = "PENSION_DATA_TEST_POSTGRES_URL"
 
@@ -298,7 +298,71 @@ def _declared_sql_type(table_body: str, column: str) -> str:
     raise AssertionError(f"column {column!r} missing from staging_core_metrics")
 
 
-# Audit #964: pure adapter controls run even when the live PostgreSQL DSN is absent.
+# Audit #964: local adapter controls run even when the live PostgreSQL DSN is absent.
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize(
+    "retry_overrides",
+    [
+        pytest.param({}, id="identical"),
+        *[
+            pytest.param(
+                overrides,
+                id=case,
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    raises=ValueError,
+                    reason="Audit #964: raw replacement IDs reject equivalent restatement retries",
+                ),
+            )
+            for case, overrides in (
+                ("timezone", {"ingestion_date": "2026-04-01T02:00:00+02:00"}),
+                ("json-text", {"evidence_refs": '["p.41"]'}),
+                ("explicit-default", {"asserted_at": "2026-04-01T00:00:00Z"}),
+            )
+        ],
+    ],
+)
+def test_audit_restatement_retry_representation_boundary(
+    dialect: DatabaseDialect, retry_overrides: dict[str, object]
+) -> None:
+    """Desired retry contract; strict xfails return the observed gap for human review.
+
+    SQLite exercises the real persistence path locally. PostgreSQL remains an
+    independent live check; neither the local result nor an xfail proves PG parity.
+    """
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = _base_pg_row(fact_id="audit:restatement:1", plan_id="AUDIT-RESTATEMENT")
+    restatement = {
+        **base,
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+        "evidence_refs": ["p.41"],
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated",
+    }
+    retry = {**restatement, **retry_overrides}
+    assert _same_assertion(_row_values(restatement), _row_values(retry))
+    assert _same_assertion_source(_row_values(restatement), _row_values(retry))
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-RESTATEMENT")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
+        # Exact retries provide a passing control before varying only representation.
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
+        count = connection.execute(
+            "SELECT COUNT(*) FROM staging_core_metrics WHERE plan_id = 'AUDIT-RESTATEMENT'"
+        ).fetchone()[0]
+        assert count == 2
+    finally:
+        connection.close()
+
+
 def test_audit_inventories_equality_and_key_construction_seams() -> None:
     """Inventory every equality/key seam in the bounded persistence + holdings adapters."""
     from pension_data.db import staging_persistence as persistence
