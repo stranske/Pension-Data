@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -353,17 +353,28 @@ def test_audit_inventories_equality_and_key_construction_seams() -> None:
 
 
 @pytest.mark.parametrize(
-    "column", ["effective_date", "ingestion_date", "valid_from", "asserted_at"]
+    "column",
+    ["effective_date", "ingestion_date", "valid_from", "valid_to", "asserted_at", "superseded_at"],
 )
 def test_audit_equivalent_assertion_shapes_and_true_conflicts(column: str) -> None:
-    row = _base_pg_row(fact_id="audit:1", plan_id="AUDIT")
+    row = {
+        **_base_pg_row(fact_id="audit:1", plan_id="AUDIT"),
+        "valid_to": "2025-06-30T00:00:00Z",
+        "superseded_at": "2026-04-01T00:00:00Z",
+    }
     candidate = _row_values(row)
     fetched = list(candidate)
     index = _STAGING_CORE_METRIC_COLUMNS.index(column)
     instant = str(candidate[index])
-    fetched[index] = datetime.fromisoformat(instant.replace("Z", "+00:00")).astimezone(UTC)
+    utc_instant = datetime.fromisoformat(instant.replace("Z", "+00:00")).astimezone(UTC)
+    fetched[index] = utc_instant.astimezone(timezone(timedelta(hours=5, minutes=30)))
     fetched[_STAGING_CORE_METRIC_COLUMNS.index("evidence_refs")] = ["p.40"]
     assert _same_assertion(fetched, candidate)
+    assert _same_assertion_source(fetched, candidate)
+    fetched[index] = utc_instant + timedelta(seconds=1)
+    assert not _same_assertion(fetched, candidate)
+    assert _same_assertion_source(fetched, candidate) is (column != "asserted_at")
+    fetched[index] = utc_instant
     fetched[_STAGING_CORE_METRIC_COLUMNS.index("normalized_value")] = 0.785
     assert not _same_assertion(fetched, candidate)
     # Content disagreement from the same document/assertion instant is a conflict,
@@ -371,6 +382,32 @@ def test_audit_equivalent_assertion_shapes_and_true_conflicts(column: str) -> No
     assert _same_assertion_source(fetched, candidate)
     fetched[_STAGING_CORE_METRIC_COLUMNS.index("source_document_id")] = "doc:other"
     assert not _same_assertion_source(fetched, candidate)
+
+
+@pytest.mark.parametrize(
+    ("serialized", "decoded", "equivalent"),
+    [
+        ('["p.40", "p.41"]', ["p.40", "p.41"], True),
+        ('["p.40", "p.41"]', ["p.41", "p.40"], False),
+        ('["p.40", "p.41"]', ["p.40", "p.42"], False),
+        ('["p.40", "p.40"]', ["p.40"], False),
+        ('{"page": 40, "document": "annual"}', {"document": "annual", "page": 40}, True),
+        ('{"page": 40, "document": "annual"}', {"document": "annual", "page": 41}, False),
+        (None, [], False),
+    ],
+    ids=["ordered", "reordered", "changed", "duplicate", "object-order", "object-value", "missing"],
+)
+def test_audit_evidence_content_and_order_define_assertion_equality(
+    serialized: str | None, decoded: object, equivalent: bool
+) -> None:
+    candidate = _row_values(
+        {**_base_pg_row(fact_id="audit:evidence", plan_id="AUDIT"), "evidence_refs": serialized}
+    )
+    fetched = list(candidate)
+    fetched[_STAGING_CORE_METRIC_COLUMNS.index("evidence_refs")] = decoded
+    assert _same_assertion(fetched, candidate) is equivalent
+    # Evidence disagreement affects content, never the assertion's source identity.
+    assert _same_assertion_source(fetched, candidate)
 
 
 def test_audit_schema_preserves_driver_representation_contract() -> None:
