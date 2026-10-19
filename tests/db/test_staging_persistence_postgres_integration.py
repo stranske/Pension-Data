@@ -787,3 +787,61 @@ def test_audit_security_identity_survives_names_and_separates_instruments(
     separate = [row for row in result if row.counterparty_plan_id == "C"]
     assert len(separate) == 2
     assert all(row.overlap_status == "unknown_due_to_non_disclosure" for row in separate)
+
+
+@pytest.mark.parametrize(
+    ("peer_name", "equivalent"),
+    [
+        pytest.param("  apple\tINC  ", True, id="case-and-whitespace"),
+        pytest.param("Apple Inc.", False, id="punctuation-distinct"),
+        pytest.param("Apple Incorporated", False, id="spelling-distinct"),
+    ],
+)
+def test_audit_name_only_security_identity_uses_its_own_contract(
+    peer_name: str, equivalent: bool
+) -> None:
+    """Without CUSIP/ticker, names carry identity as well as display text."""
+    from pension_data.extract.investment.security_positions import (
+        SecurityPositionInput,
+        build_security_positions,
+    )
+    from pension_data.query.saved_views.holdings_ingest import to_holdings_overlap_inputs
+    from pension_data.query.saved_views.service import execute_holdings_overlap_view
+
+    positions = []
+    for plan, name, exposure in (("A", "APPLE INC", 10), ("B", peer_name, 15)):
+        positions.extend(
+            build_security_positions(
+                plan_id=plan,
+                plan_period="FY2024",
+                rows=[
+                    SecurityPositionInput(
+                        security_name=name,
+                        cusip=None,
+                        ticker=None,
+                        shares=1,
+                        market_value_usd=exposure,
+                        asset_class="public_equity",
+                        source="manual",
+                        as_of="2024-06-30",
+                        provenance_ref=f"doc:{plan}",
+                    )
+                ],
+            )
+        )
+    adapted = to_holdings_overlap_inputs(positions)
+    assert adapted[0].manager_name == adapted[0].fund_name == "name:apple inc"
+    assert (adapted[0].manager_name == adapted[1].manager_name) is equivalent
+    assert (adapted[0].fund_name == adapted[1].fund_name) is equivalent
+    # The builder trims display edges; the adapter preserves that producer text.
+    assert [row.display_name for row in adapted] == ["APPLE INC", peer_name.strip()]
+
+    result = execute_holdings_overlap_view(adapted, subject_plan_id="A", plan_period="FY2024")
+    assert {row.counterparty_plan_id for row in result} == {"B"}
+    if equivalent:
+        assert len(result) == 1
+        assert result[0].overlap_usd == 10
+    else:
+        assert len(result) == 2
+        assert all(row.overlap_usd is None for row in result)
+        assert all(row.overlap_status == "unknown_due_to_non_disclosure" for row in result)
