@@ -279,6 +279,62 @@ def test_postgres_newer_assertion_creates_one_replacement() -> None:
     assert rows[1][3] is True
 
 
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize(
+    ("document_id", "same_source"),
+    [
+        pytest.param("doc:ca:2024", True, id="same-document"),
+        pytest.param("doc:CA:2024", False, id="case-distinct-document"),
+        pytest.param(" doc:ca:2024 ", False, id="space-distinct-document"),
+    ],
+)
+def test_audit_document_identity_controls_conflict_or_restatement(
+    dialect: DatabaseDialect, document_id: str, same_source: bool
+) -> None:
+    """Source IDs compare exactly even when assertion instants compare canonically."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = _base_pg_row(fact_id="audit:document:1", plan_id="AUDIT-DOCUMENT")
+    changed = {
+        **base,
+        "source_document_id": document_id,
+        "asserted_at": "2026-03-03T02:00:00+02:00",
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+    }
+    snapshot_sql = (
+        f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
+        "WHERE plan_id = 'AUDIT-DOCUMENT' ORDER BY fact_id"
+    )
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-DOCUMENT")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        before = connection.execute(snapshot_sql).fetchall()
+        assert not _same_assertion(before[0], _row_values(changed))
+        assert _same_assertion_source(before[0], _row_values(changed)) is same_source
+        if same_source:
+            with pytest.raises(ValueError, match="conflicting assertion source"):
+                persist_staging_core_metrics(connection, dialect=dialect, rows=[changed])
+            assert connection.execute(snapshot_sql).fetchall() == before
+        else:
+            assert persist_staging_core_metrics(connection, dialect=dialect, rows=[changed]) == 1
+            after = connection.execute(snapshot_sql).fetchall()
+            assert len(after) == 2
+            historical, active = after
+            assert historical[_STAGING_CORE_METRIC_COLUMNS.index("superseded_at")] is not None
+            assert active[_STAGING_CORE_METRIC_COLUMNS.index("superseded_at")] is None
+            assert active[_STAGING_CORE_METRIC_COLUMNS.index("source_document_id")] == document_id
+            assert active[_STAGING_CORE_METRIC_COLUMNS.index("normalized_value")] == 0.79
+            assert persist_staging_core_metrics(connection, dialect=dialect, rows=[changed]) == 0
+            assert connection.execute(snapshot_sql).fetchall() == after
+    finally:
+        connection.close()
+
+
 def _staging_core_metrics_table_body() -> str:
     schema = (
         Path(__file__).parents[2]
