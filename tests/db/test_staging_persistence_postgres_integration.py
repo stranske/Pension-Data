@@ -1568,3 +1568,105 @@ def test_audit_decimal_float_restatement_retry_is_idempotent(
         assert count == 2
     finally:
         connection.close()
+
+
+def _seed_existing_replacement(
+    connection: Any, dialect: DatabaseDialect, row: dict[str, object]
+) -> str:
+    """Insert a superseded replacement-shaped row, bypassing the persist flow."""
+    from pension_data.db.staging_persistence import _replacement_fact_id
+
+    replacement_id = _replacement_fact_id(row)
+    seeded = {**row, "fact_id": replacement_id, "restated": True}
+    placeholder = "%s" if dialect == "postgresql" else "?"
+    placeholders = ", ".join(placeholder for _ in _STAGING_CORE_METRIC_COLUMNS)
+    columns = ", ".join(_STAGING_CORE_METRIC_COLUMNS)
+    connection.execute(
+        f"INSERT INTO staging_core_metrics ({columns}) VALUES ({placeholders})",
+        _row_values(seeded),
+    )
+    connection.commit()
+    return replacement_id
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_audit_existing_replacement_with_different_content_conflicts(
+    dialect: DatabaseDialect,
+) -> None:
+    """Retrying a superseded restatement raises, not resurrects it (#964)."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = _base_pg_row(fact_id="audit:existing-replacement:1", plan_id="AUDIT-EXISTING-REPL")
+    first = {
+        **base,
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+        "evidence_refs": ["p.41"],
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated-1",
+    }
+    second = {
+        **base,
+        "normalized_value": 0.80,
+        "as_reported_value": 80.0,
+        "evidence_refs": ["p.42"],
+        "ingestion_date": "2026-05-01T00:00:00Z",
+        "source_document_id": "doc:restated-2",
+    }
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-EXISTING-REPL")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[first]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[second]) == 1
+        with pytest.raises(
+            ValueError,
+            match="^conflicting assertion already exists for 'audit:existing-replacement:1'$",
+        ):
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[first])
+        rows = connection.execute(
+            "SELECT normalized_value, superseded_at FROM staging_core_metrics "
+            "WHERE plan_id = 'AUDIT-EXISTING-REPL'"
+        ).fetchall()
+        # The conflict rolls back: the newest assertion stays the only active row.
+        assert len(rows) == 3
+        assert [row[0] for row in rows if row[1] is None] == [0.80]
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_audit_existing_identical_replacement_is_idempotent(
+    dialect: DatabaseDialect,
+) -> None:
+    """A pre-existing identical replacement is a retry, not a duplicate (#964)."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = _base_pg_row(fact_id="audit:existing-replacement:2", plan_id="AUDIT-EXISTING-SAME")
+    restatement = {
+        **base,
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+        "evidence_refs": ["p.41"],
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated",
+        "superseded_at": "2026-05-01T00:00:00Z",
+    }
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-EXISTING-SAME")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        _seed_existing_replacement(connection, dialect, restatement)
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
+        count = connection.execute(
+            "SELECT COUNT(*) FROM staging_core_metrics WHERE plan_id = 'AUDIT-EXISTING-SAME'"
+        ).fetchone()[0]
+        assert count == 2
+    finally:
+        connection.close()
