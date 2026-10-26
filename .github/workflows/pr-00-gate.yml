@@ -126,7 +126,9 @@ jobs:
       }}
     uses: stranske/Workflows/.github/workflows/reusable-10-ci-python.yml@main
     with:
-      python-versions: '["3.12", "3.13"]'
+      python-versions: '["3.13", "3.14"]'
+      primary-python-version: '3.14'
+      coverage-python-version: '3.14'
       coverage-min: "80"
       format_check: true  # Black is the repo formatter (pyproject [tool.black]); enforce on PRs so unformatted code can't merge and redden main (issue #635)
       working-directory: "."
