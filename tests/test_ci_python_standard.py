@@ -21,7 +21,10 @@ RUNTIME_KEYS = {
     "COVERAGE_REFERENCE_RUNTIME",
 }
 # Matrix axes that commonly feed actions/setup-python.
-MATRIX_RUNTIME_KEYS = {"python", "python_version", "python-version"}
+MATRIX_RUNTIME_KEYS = frozenset({"python", "python_version", "python-version"})
+MATRIX_AXIS_RE = re.compile(
+    r"""\bmatrix(?:\.([A-Za-z_][A-Za-z0-9_-]*)|\[\s*['"]([^'"]+)['"]\s*\])"""
+)
 FROMJSON_MATRIX_RE = re.compile(
     r"""^\$\{\{\s*fromJSON\(\s*(['"])(?P<payload>.*)\1\s*\)\s*\}\}$""",
     re.DOTALL,
@@ -57,13 +60,27 @@ _decode_fromjson_matrix = _decode_fromjson_literal
 
 
 def _runtime_pins(
-    node: Any, location: str, *, in_matrix: bool = False
+    node: Any,
+    location: str,
+    *,
+    in_matrix: bool = False,
+    matrix_runtime_keys: frozenset[str] = MATRIX_RUNTIME_KEYS,
 ) -> Iterator[tuple[str, Any]]:
     if isinstance(node, dict):
+        if "strategy" in node:
+            # Resolve custom axes from this job's runtime inputs, keeping sibling
+            # jobs independent even when they reuse the same matrix axis name.
+            job_inputs = {key: value for key, value in node.items() if key != "strategy"}
+            matrix_runtime_keys = matrix_runtime_keys | {
+                match.group(1) or match.group(2)
+                for _, pin in _runtime_pins(job_inputs, location)
+                if isinstance(pin, str)
+                for match in MATRIX_AXIS_RE.finditer(pin)
+            }
         for key, value in node.items():
             path = f"{location}.{key}"
             entering_matrix = key == "matrix" and location.endswith(".strategy")
-            if key in RUNTIME_KEYS or (in_matrix and key in MATRIX_RUNTIME_KEYS):
+            if key in RUNTIME_KEYS or (in_matrix and key in matrix_runtime_keys):
                 if isinstance(value, str):
                     yield path, _inspect_fromjson_value(value)
                 else:
@@ -74,16 +91,24 @@ def _runtime_pins(
                     # Reject matrices the scanner cannot inspect so they cannot hide 3.12.
                     yield path, OPAQUE_MATRIX
                     continue
-                yield from _runtime_pins(decoded, path, in_matrix=True)
+                yield from _runtime_pins(
+                    decoded, path, in_matrix=True, matrix_runtime_keys=matrix_runtime_keys
+                )
                 continue
             yield from _runtime_pins(
                 value,
                 path,
                 in_matrix=in_matrix or entering_matrix,
+                matrix_runtime_keys=matrix_runtime_keys,
             )
     elif isinstance(node, list):
         for index, value in enumerate(node):
-            yield from _runtime_pins(value, f"{location}[{index}]", in_matrix=in_matrix)
+            yield from _runtime_pins(
+                value,
+                f"{location}[{index}]",
+                in_matrix=in_matrix,
+                matrix_runtime_keys=matrix_runtime_keys,
+            )
 
 
 def _contains_old_runtime(value: Any) -> bool:
@@ -421,8 +446,63 @@ def test_unquoted_yaml_float_runtime_pin_is_rejected() -> None:
     assert offenders == ["ci.yml.jobs.test.steps[0].with.python-version"]
 
 
+@pytest.mark.parametrize(
+    "axis, values, reference",
+    [
+        ("runtime", ["3.12", "3.14"], "${{ matrix.runtime }}"),
+        ("runtime", ["3.12", "3.14"], "${{ matrix['runtime'] }}"),
+        ("runtime", ["3.12", "3.14"], '${{ matrix["runtime"] }}'),
+        ("runtime", [{"version": "3.12"}], "${{ matrix.runtime.version }}"),
+        ("test-python", ["3.12"], "${{ matrix.test-python }}"),
+    ],
+)
+def test_named_guard_follows_custom_runtime_matrix_axes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    axis: str,
+    values: list[Any],
+    reference: str,
+) -> None:
+    """A setup-python reference makes a custom matrix axis a runtime pin."""
+    for name in ("ci.yml", "pr-00-gate.yml"):
+        (tmp_path / name).write_bytes((WORKFLOWS / name).read_bytes())
+    monkeypatch.setattr(f"{__name__}.WORKFLOWS", tmp_path)
+    workflow = {
+        "jobs": {
+            "test": {
+                "strategy": {"matrix": {axis: values}},
+                "steps": [{"with": {"python-version": reference}}],
+            }
+        }
+    }
+    (tmp_path / "custom.yml").write_text(yaml.safe_dump(workflow), encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="Python 3.12 runtime pins remain") as failure:
+        test_workflow_python_pins_follow_standard()
+    assert f"custom.yml.jobs.test.strategy.matrix.{axis}" in str(failure.value)
+
+
 def test_unrelated_python_metadata_is_not_a_runtime_pin() -> None:
     assert list(_runtime_pins({"metadata": {"python": "3.12"}}, "ci.yml")) == []
+
+
+def test_custom_runtime_axis_references_are_scoped_to_each_job() -> None:
+    workflow = {
+        "jobs": {
+            "test": {
+                "strategy": {"matrix": {"runtime": ["3.14"]}},
+                "steps": [{"with": {"python-version": "${{ matrix.runtime }}"}}],
+            },
+            "other": {
+                "strategy": {"matrix": {"runtime": ["3.12"]}},
+                "steps": [{"with": {"python-version": "3.14"}}],
+            },
+        }
+    }
+    offenders = [
+        path for path, value in _runtime_pins(workflow, "ci.yml") if _contains_old_runtime(value)
+    ]
+    assert offenders == []
 
 
 def test_literal_fromjson_matrix_without_old_runtime_is_allowed() -> None:
