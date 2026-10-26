@@ -30,6 +30,7 @@ FROMJSON_MATRIX_RE = re.compile(
     re.DOTALL,
 )
 OPAQUE_MATRIX = object()
+OLD_RUNTIME_RE = re.compile(r"(?<![\d.])3\.12(?!\d)")
 
 
 def _decode_fromjson_literal(value: str) -> Any | None:
@@ -129,6 +130,10 @@ def _contains_old_runtime(value: Any) -> bool:
         else:
             if decoded != value:
                 return _contains_old_runtime(decoded)
+        text = str(value)
+        if "${{" in text and OLD_RUNTIME_RE.search(text):
+            return True
+        return text == "3.12" or text.startswith("3.12.")
     return str(value) == "3.12" or str(value).startswith("3.12.")
 
 
@@ -164,6 +169,18 @@ def test_yaml_escaped_object_valued_python_matrix_axis() -> None:
         path for path, value in _runtime_pins(workflow, "ci.yml") if _contains_old_runtime(value)
     ]
     assert offenders == ["ci.yml.jobs.test.strategy.matrix.include[0].python"]
+
+
+@pytest.mark.parametrize(
+    "expression, expected",
+    [
+        ("${{ inputs.python-version || '3.12' }}", True),
+        ("${{ inputs.python-version || '3.14' }}", False),
+        ("${{ inputs.python-version || '3.120' }}", False),
+    ],
+)
+def test_runtime_fallback_expressions(expression: str, expected: bool) -> None:
+    assert _contains_old_runtime(expression) is expected
 
 
 @pytest.mark.parametrize(
