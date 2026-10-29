@@ -15,7 +15,7 @@ from pension_data.query.run_record import RunSurface, _surface_dir, default_run_
 
 
 @pytest.fixture()
-def in_memory_db() -> Generator[sqlite3.Connection, None, None]:
+def in_memory_db() -> Generator[sqlite3.Connection]:
     """Create an in-memory SQLite connection with all migrations applied."""
     _config, connection = bootstrap_database_connection(
         environment="local",
@@ -81,7 +81,7 @@ def _run_artifact_sizes() -> dict[Path, int]:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _no_run_artifacts_written_into_checkout() -> Generator[None, None, None]:
+def _no_run_artifacts_written_into_checkout() -> Generator[None]:
     """Fail the session if a test wrote a run artifact into the working tree.
 
     ``persist_nl_query_run_record`` and ``_persist_sql_query_run_record`` fall
