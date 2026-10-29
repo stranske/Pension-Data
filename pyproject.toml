@@ -60,10 +60,10 @@ source_collection = [
     "requests>=2.32.0",
 ]
 dev = [
-    "pytest==9.1.1",
+    "pytest==9.2.0",
     "pytest-cov==7.1.0",
     "ruff==0.17.3",
-    "mypy==2.4.0",
+    "mypy==2.4.1",
     "black==26.10.1",
     # app behavior baseline kit (tests/baseline/) -- shared core + golden-master glue.
     # pytest-regressions' num_regression fixture needs numpy AND pandas.
