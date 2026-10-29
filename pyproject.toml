@@ -16,7 +16,7 @@ name = "pension-data"
 version = "0.1.0"
 description = "Pension data extraction, normalization, and quality pipeline toolkit"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 license = {text = "MIT"}
 authors = [
     {name = "Pension-Data Maintainers"},
@@ -26,8 +26,8 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
     "defusedxml>=0.7.1",
@@ -109,7 +109,7 @@ exclude_lines = [
 fail_under = 80
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 line-length = 100
 src = ["src", "tests"]
 
@@ -133,7 +133,7 @@ ignore = [
 known-first-party = ["pension_data", "tools"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 files = ["src"]
 strict = true
 warn_return_any = true
@@ -170,4 +170,4 @@ ignore_missing_imports = true
 
 [tool.black]
 line-length = 100
-target-version = ["py312"]
+target-version = ["py313"]
