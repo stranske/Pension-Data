@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from pension_data.quant import workspace_producer
 from pension_data.quant.contracts import (
+    PILOT_CASH_FLOW_FIELD_MAP,
+    PILOT_CORE_METRIC_NAMES,
     QuantDataPoint,
     QuantScenarioContract,
     QuantSeriesContract,
@@ -10,7 +21,26 @@ from pension_data.quant.contracts import (
     ReproducibilityEnvelope,
     missing_reproducibility_fields,
     normalize_provenance_refs,
+    require_reproducibility,
 )
+from pension_data.quant.workspace_producer import (
+    DEFAULT_QUANT_WORKSPACE_PATH,
+    build_quant_workspace,
+    write_quant_workspace,
+)
+
+_ROOT = Path(__file__).resolve().parents[2]
+_FIXTURES = Path(__file__).resolve().parent / "fixtures"
+_COMPLETED_PILOT = _FIXTURES / "completed_pilot_run"
+_COMPLETED_PILOT_FLOWS = _FIXTURES / "completed_pilot_run_with_flows"
+_CLI = _ROOT / "scripts" / "web" / "build_quant_workspace.py"
+
+
+def _metric_values(payload: dict) -> dict[str, float]:
+    return {
+        series["metric_name"]: series["points"][0]["y_value"]
+        for series in payload["scenarios"][0]["series"]
+    }
 
 
 def test_normalize_provenance_refs_is_deterministic() -> None:
@@ -75,3 +105,591 @@ def test_workspace_contract_embeds_reproducible_scenario_payload() -> None:
     )
     assert workspace.scenarios[0].reproducibility.seed == 42
     assert workspace.scenarios[0].series[0].points[0].provenance_refs == ("p.40",)
+
+
+def test_completed_pilot_fixture_emits_default_quant_workspace_artifact(tmp_path: Path) -> None:
+    """Producer seam publishes a nonempty metric_engine artifact from a completed pilot."""
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    # AAL 640e6 − AVA 501.8e6 = funded gap 138.2e6; unfunded ratio = gap / AAL.
+    expected_gap = 138_200_000.0
+    expected_ratio = expected_gap / 640_000_000.0
+
+    payload = build_quant_workspace(run_dir)
+    assert payload["module"] == "metric_engine"
+    assert payload["scenarios"]
+    assert _metric_values(payload) == pytest.approx(
+        {"funded_gap_usd": expected_gap, "unfunded_ratio": expected_ratio}
+    )
+    envelope = ReproducibilityEnvelope(**payload["scenarios"][0]["reproducibility"])
+    assert missing_reproducibility_fields(envelope, requires_seed=False) == ()
+    assert set(envelope.source_artifact_ids) == {
+        row["id"] for row in payload["input_artifacts"].values()
+    }
+
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, payload)
+    published = json.loads(out.read_text(encoding="utf-8"))
+    assert published["module"] == "metric_engine"
+    assert _metric_values(published)["funded_gap_usd"] == expected_gap
+
+    core = run_dir / "extraction_persistence" / "staging_core_metrics.json"
+    rows = json.loads(core.read_text(encoding="utf-8"))
+    next(row for row in rows if row["metric_name"] == "ava_usd")["normalized_value"] = 400_000_000.0
+    core.write_text(json.dumps(rows), encoding="utf-8")
+    changed = build_quant_workspace(run_dir)
+    assert _metric_values(changed)["funded_gap_usd"] == 240_000_000.0
+    assert _metric_values(changed)["unfunded_ratio"] == 0.375
+
+
+def test_persisted_fact_ids_remain_exact_through_publication(tmp_path: Path) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    core = run_dir / "extraction_persistence/staging_core_metrics.json"
+    rows = json.loads(core.read_text(encoding="utf-8"))
+    for row in rows:
+        row["fact_id"] = f" {row['fact_id']} "
+    core.write_text(json.dumps(rows), encoding="utf-8")
+
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, build_quant_workspace(run_dir))
+    published = json.loads(out.read_text(encoding="utf-8"))
+    fact_ids = {row["fact_id"] for row in rows}
+    assert set(published["fact_lineage"]) == fact_ids
+    for metric in published["metric_lineage"]:
+        assert set(metric["source_fact_ids"]) == fact_ids
+    for index, row in enumerate(rows):
+        fact = published["fact_lineage"][row["fact_id"]]
+        assert fact["row_index"] == index
+        assert fact["evidence_refs"] == row["evidence_refs"]
+        assert fact["confidence"] == row["confidence"]
+    assert _metric_values(published) == pytest.approx(
+        {"funded_gap_usd": 138_200_000.0, "unfunded_ratio": 138_200_000 / 640_000_000}
+    )
+
+
+def test_cli_writes_default_quant_workspace_path_from_completed_pilot(tmp_path: Path) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    result = subprocess.run(
+        [sys.executable, str(_CLI), "--pilot-run-dir", str(run_dir)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "producer-only" in result.stdout
+    artifact = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    assert artifact.is_file()
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    assert payload["module"] == "metric_engine"
+    assert _metric_values(payload)["funded_gap_usd"] == 138_200_000.0
+    assert payload["scenarios"][0]["series"]
+
+
+def test_pilot_identifier_mapping_feeds_compute_derived_metrics(tmp_path: Path) -> None:
+    """Explicit contracts.py maps pilot fields into metric-engine inputs."""
+    assert frozenset({"aal_usd", "ava_usd"}) == PILOT_CORE_METRIC_NAMES
+    assert PILOT_CASH_FLOW_FIELD_MAP["employer_contributions_usd"] == (
+        "employer_contributions_normalized"
+    )
+    run_dir = tmp_path / "completed_pilot_run_with_flows"
+    shutil.copytree(_COMPLETED_PILOT_FLOWS, run_dir)
+    payload = build_quant_workspace(run_dir)
+    values = _metric_values(payload)
+    assert values["funded_gap_usd"] == 138_200_000.0
+    assert values["net_cash_flow_usd"] == 85_000_000.0
+    assert values["contribution_to_benefit_ratio"] == 4.0
+    for fact_id, lineage in payload["fact_lineage"].items():
+        if lineage["identity_kind"] == "persisted fact_id":
+            assert lineage["pilot_metric_name"] in PILOT_CORE_METRIC_NAMES
+            assert lineage["metric_engine_input"] == lineage["pilot_metric_name"]
+        else:
+            assert lineage["pilot_to_metric_engine_fields"] == dict(PILOT_CASH_FLOW_FIELD_MAP)
+            assert fact_id.startswith(lineage["artifact_id"])
+    # Changing a mapped pilot cash-flow field changes the derived metric.
+    flow_path = run_dir / "document_orchestration/quant-fixture/financial_flow_rows.json"
+    rows = json.loads(flow_path.read_text(encoding="utf-8"))
+    rows[0]["employer_contributions_usd"] = 200_000_000.0
+    flow_path.write_text(json.dumps(rows), encoding="utf-8")
+    changed = build_quant_workspace(run_dir)
+    assert _metric_values(changed)["net_cash_flow_usd"] == 185_000_000.0
+    assert _metric_values(changed)["contribution_to_benefit_ratio"] == pytest.approx(220 / 30)
+
+
+def test_nonempty_workspace_preserves_lineage_and_truthful_reproducibility(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    payload = build_quant_workspace(run_dir)
+    workspace = QuantWorkspaceContract(
+        plan_id=payload["plan_id"],
+        plan_period=payload["plan_period"],
+        as_of_date=payload["as_of_date"],
+        module=payload["module"],
+        scenarios=tuple(
+            QuantScenarioContract(
+                scenario_id=scenario["scenario_id"],
+                scenario_label=scenario["scenario_label"],
+                module=scenario["module"],
+                baseline_scenario_id=scenario["baseline_scenario_id"],
+                reproducibility=ReproducibilityEnvelope(**scenario["reproducibility"]),
+                series=tuple(
+                    QuantSeriesContract(
+                        series_id=series["series_id"],
+                        metric_name=series["metric_name"],
+                        label=series["label"],
+                        chart_kind=series["chart_kind"],
+                        points=tuple(QuantDataPoint(**point) for point in series["points"]),
+                    )
+                    for series in scenario["series"]
+                ),
+                warnings=tuple(scenario["warnings"]),
+            )
+            for scenario in payload["scenarios"]
+        ),
+    )
+    assert workspace.module == "metric_engine"
+    assert workspace.scenarios
+    assert workspace.scenarios[0].series
+    envelope = workspace.scenarios[0].reproducibility
+    require_reproducibility(
+        envelope,
+        requires_seed=False,
+        expected_source_artifact_ids=envelope.source_artifact_ids,
+    )
+    assert set(envelope.source_artifact_ids) == {
+        row["id"] for row in payload["input_artifacts"].values()
+    }
+    assert envelope.config_hash == payload["scenarios"][0]["reproducibility"]["config_hash"]
+    assert envelope.input_snapshot_id.startswith("sha256:")
+    assert envelope.code_version.startswith("sha256:")
+
+    core_rows = {
+        row["fact_id"]: row
+        for row in json.loads(
+            (run_dir / "extraction_persistence/staging_core_metrics.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    }
+    for metric in payload["metric_lineage"]:
+        assert metric["source_fact_ids"]
+        assert metric["confidence"] == min(
+            core_rows[fact_id]["confidence"] for fact_id in metric["source_fact_ids"]
+        )
+        for fact_id in metric["source_fact_ids"]:
+            evidence = payload["fact_lineage"][fact_id]
+            assert evidence["evidence_refs"] == core_rows[fact_id]["evidence_refs"]
+            assert evidence["confidence"] == core_rows[fact_id]["confidence"]
+            assert (
+                evidence["artifact_id"]
+                == payload["input_artifacts"]["staging_core_metrics_json"]["id"]
+            )
+    assert payload["scenarios"][0]["warnings"] == (
+        "net_cash_flow_usd omitted: optional cash-flow inputs absent or incomplete",
+        "contribution_to_benefit_ratio omitted: optional cash-flow inputs absent or incomplete",
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "corruption"),
+    [
+        ("config_hash", "missing"),
+        ("source_artifact_ids", "missing"),
+        ("config_hash", "mismatched-hash"),
+        ("input_snapshot_id", "mismatched-hash"),
+        ("config_hash", "changed-config"),
+        ("input_snapshot_id", "changed-artifacts"),
+    ],
+)
+def test_invalid_reproducibility_retains_prior_quant_artifact(
+    tmp_path: Path, field: str, corruption: str
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, build_quant_workspace(run_dir))
+    before = out.read_bytes()
+    code = """
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('quant_cli', sys.argv[1])
+cli = importlib.util.module_from_spec(spec); spec.loader.exec_module(cli)
+original = cli.build_quant_workspace
+def broken(run):
+    payload = original(run)
+    field, corruption = sys.argv[4:6]
+    envelope = payload['scenarios'][0]['reproducibility']
+    if corruption == 'missing':
+        del envelope[field]
+    elif corruption == 'mismatched-hash':
+        envelope[field] = 'sha256:' + '0' * 64 if field == 'input_snapshot_id' else '0' * 64
+    elif corruption == 'changed-config':
+        payload['producer_config']['producer_schema'] += 1
+    else:
+        payload['input_artifacts']['staging_core_metrics_json']['sha256'] = '0' * 64
+    return payload
+cli.build_quant_workspace = broken
+sys.exit(cli.main(['--pilot-run-dir', sys.argv[2], '--out', sys.argv[3]]))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(_CLI), str(run_dir), str(out), field, corruption],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "reproducibility" in result.stderr
+    if corruption != "missing":
+        assert field in result.stderr
+        assert "mismatch" in result.stderr
+    assert out.read_bytes() == before
+
+
+def test_missing_required_core_input_retains_prior_artifact_and_rejects_empty(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    out = tmp_path / "quant-workspace.generated.json"
+    write_quant_workspace(out, build_quant_workspace(run_dir))
+    before = out.read_bytes()
+    core = run_dir / "extraction_persistence/staging_core_metrics.json"
+    rows = [
+        row
+        for row in json.loads(core.read_text(encoding="utf-8"))
+        if row["metric_name"] != "aal_usd"
+    ]
+    core.write_text(json.dumps(rows), encoding="utf-8")
+    with pytest.raises(ValueError, match="eligible AAL and AVA"):
+        build_quant_workspace(run_dir)
+    result = subprocess.run(
+        [sys.executable, str(_CLI), "--pilot-run-dir", str(run_dir), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert out.read_bytes() == before
+    retained = json.loads(before.decode())
+    assert retained["scenarios"][0]["series"][0]["metric_name"] == "funded_gap_usd"
+
+
+@pytest.mark.parametrize("identity", ["missing", None, "", "   "])
+def test_missing_manifest_document_identity_retains_prior_artifact(
+    tmp_path: Path, identity: str | None
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, build_quant_workspace(run_dir))
+    before = out.read_bytes()
+    manifest_path = run_dir / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if identity == "missing":
+        del manifest["input"]["source_document_id"]
+    else:
+        manifest["input"]["source_document_id"] = identity
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(_CLI), "--pilot-run-dir", str(run_dir), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "source_document_id required" in result.stderr
+    assert out.read_bytes() == before
+
+
+@pytest.mark.parametrize("artifact_key", ["staging_core_metrics_json", "financial_flow_rows_json"])
+def test_foreign_document_input_retains_prior_artifact(tmp_path: Path, artifact_key: str) -> None:
+    run_dir = tmp_path / "completed_pilot_run_with_flows"
+    shutil.copytree(_COMPLETED_PILOT_FLOWS, run_dir)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    payload = build_quant_workspace(run_dir)
+    write_quant_workspace(out, payload)
+    before = out.read_bytes()
+    artifact_path = run_dir / payload["input_artifacts"][artifact_key]["path"]
+    rows = json.loads(artifact_path.read_text(encoding="utf-8"))
+    rows[0]["source_document_id"] = "another-document"
+    artifact_path.write_text(json.dumps(rows), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(_CLI), "--pilot-run-dir", str(run_dir), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "row source document differs from pilot input" in result.stderr
+    assert out.read_bytes() == before
+
+
+def test_partial_cash_flow_omits_metric_with_warning_not_zero(tmp_path: Path) -> None:
+    run_dir = tmp_path / "completed_pilot_run_with_flows"
+    shutil.copytree(_COMPLETED_PILOT_FLOWS, run_dir)
+    flow_path = run_dir / "document_orchestration/quant-fixture/financial_flow_rows.json"
+    rows = json.loads(flow_path.read_text(encoding="utf-8"))
+    rows[0]["refunds_usd"] = None
+    flow_path.write_text(json.dumps(rows), encoding="utf-8")
+    payload = build_quant_workspace(run_dir)
+    values = _metric_values(payload)
+    assert "net_cash_flow_usd" not in values
+    assert values["contribution_to_benefit_ratio"] == pytest.approx(120 / 30)
+    assert payload["scenarios"][0]["warnings"] == (
+        "net_cash_flow_usd omitted: optional cash-flow inputs absent or incomplete",
+    )
+
+
+@pytest.mark.parametrize(
+    ("metric_name", "field", "value", "error"),
+    [
+        ("aal_usd", "normalized_value", 0, "positive AAL required"),
+        ("aal_usd", "normalized_value", -1, "positive AAL required"),
+        ("ava_usd", "normalized_value", -1, "nonnegative AVA required"),
+        ("ava_usd", "normalized_value", True, "finite numeric normalized value required"),
+        ("ava_usd", "normalized_unit", "eur", "normalized USD"),
+        ("aal_usd", "confidence", 1.1, "confidence must be in [0, 1] or null"),
+        ("aal_usd", "confidence", True, "finite numeric normalized value required"),
+        ("aal_usd", "evidence_refs", [], "non-empty page evidence_refs required"),
+    ],
+)
+def test_invalid_required_fact_fails_cli_and_preserves_published_artifact(
+    tmp_path: Path, metric_name: str, field: str, value: object, error: str
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, build_quant_workspace(run_dir))
+    before = out.read_bytes()
+    core = run_dir / "extraction_persistence/staging_core_metrics.json"
+    rows = json.loads(core.read_text(encoding="utf-8"))
+    next(row for row in rows if row["metric_name"] == metric_name)[field] = value
+    core.write_text(json.dumps(rows), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(_CLI), "--pilot-run-dir", str(run_dir), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert error in result.stderr
+    assert out.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("employer", "employee", "refunds", "expected_net"),
+    [(0.0, 0.0, 0.0, 0.0), (100_000_000.0, 20_000_000.0, -5_000_000.0, 115_000_000.0)],
+)
+def test_zero_benefits_publish_net_cash_flow_and_explain_undefined_ratio(
+    tmp_path: Path, employer: float, employee: float, refunds: float, expected_net: float
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run_with_flows"
+    shutil.copytree(_COMPLETED_PILOT_FLOWS, run_dir)
+    flow_path = run_dir / "document_orchestration/quant-fixture/financial_flow_rows.json"
+    rows = json.loads(flow_path.read_text(encoding="utf-8"))
+    rows[0].update(
+        employer_contributions_usd=employer,
+        employee_contributions_usd=employee,
+        benefit_payments_usd=0.0,
+        refunds_usd=refunds,
+    )
+    flow_path.write_text(json.dumps(rows), encoding="utf-8")
+
+    payload = build_quant_workspace(run_dir)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, payload)
+    published = json.loads(out.read_text(encoding="utf-8"))
+    values = _metric_values(published)
+    assert values["net_cash_flow_usd"] == expected_net
+    assert "contribution_to_benefit_ratio" not in values
+    assert published["scenarios"][0]["warnings"] == [
+        "contribution_to_benefit_ratio omitted: benefit payments are zero; ratio is undefined"
+    ]
+    cash_metric = next(
+        metric
+        for metric in published["metric_lineage"]
+        if metric["metric_name"] == "net_cash_flow_usd"
+    )
+    (fact_id,) = cash_metric["source_fact_ids"]
+    evidence = published["fact_lineage"][fact_id]
+    assert evidence["confidence"] == rows[0]["confidence"]
+    assert evidence["evidence_refs"] == rows[0]["evidence_refs"]
+    assert evidence["artifact_id"] == published["input_artifacts"]["financial_flow_rows_json"]["id"]
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["empty-metric-lineage", "missing-metric-lineage", "unknown-artifact", "missing-evidence"],
+)
+def test_broken_published_lineage_retains_prior_quant_artifact(
+    tmp_path: Path, corruption: str
+) -> None:
+    payload = build_quant_workspace(_COMPLETED_PILOT)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, payload)
+    before = out.read_bytes()
+    if corruption == "empty-metric-lineage":
+        payload["metric_lineage"].clear()
+    elif corruption == "missing-metric-lineage":
+        payload["metric_lineage"].pop()
+    else:
+        fact_id = payload["metric_lineage"][0]["source_fact_ids"][0]
+        fact = payload["fact_lineage"][fact_id]
+        if corruption == "unknown-artifact":
+            fact["artifact_id"] = "unknown-input-artifact"
+        else:
+            fact["evidence_refs"] = []
+
+    with pytest.raises(ValueError, match="lineage"):
+        write_quant_workspace(out, payload)
+
+    assert out.read_bytes() == before
+    assert list(out.parent.iterdir()) == [out]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("y_value", 1.0),
+        ("y_unit", "ratio"),
+        ("confidence", None),
+        ("provenance_refs", ["p.999#unrelated"]),
+    ],
+)
+def test_point_lineage_mismatch_retains_prior_quant_artifact(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    payload = build_quant_workspace(_COMPLETED_PILOT)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, payload)
+    before = out.read_bytes()
+    series = next(
+        row for row in payload["scenarios"][0]["series"] if row["metric_name"] == "funded_gap_usd"
+    )
+    series["points"][0][field] = value
+
+    with pytest.raises(ValueError, match="point differs from metric lineage"):
+        write_quant_workspace(out, payload)
+
+    assert out.read_bytes() == before
+    assert list(out.parent.iterdir()) == [out]
+
+
+@pytest.mark.parametrize("existing_output", [False, True])
+def test_failed_publication_preserves_output_and_cleans_temporary_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing_output: bool
+) -> None:
+    payload = build_quant_workspace(_COMPLETED_PILOT)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    before = None
+    if existing_output:
+        write_quant_workspace(out, payload)
+        before = out.read_bytes()
+
+    def fail_replace(source: Path, destination: Path) -> None:
+        # Fail at the publication boundary, after the new file is fully written.
+        assert destination == out
+        assert _metric_values(json.loads(source.read_text(encoding="utf-8"))) == (
+            _metric_values(payload)
+        )
+        raise OSError("publication unavailable")
+
+    monkeypatch.setattr(workspace_producer.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="publication unavailable"):
+        write_quant_workspace(out, payload)
+
+    if existing_output:
+        assert out.read_bytes() == before
+        assert list(out.parent.iterdir()) == [out]
+    else:
+        assert not out.exists()
+        assert list(out.parent.iterdir()) == []
+
+
+@pytest.mark.parametrize("with_flows", [False, True])
+@pytest.mark.parametrize(
+    "corruption", ["fact-confidence", "fact-evidence", "metric-confidence", "metric-evidence"]
+)
+def test_metric_source_evidence_mismatch_retains_prior_artifact(
+    tmp_path: Path, with_flows: bool, corruption: str
+) -> None:
+    payload = build_quant_workspace(_COMPLETED_PILOT_FLOWS if with_flows else _COMPLETED_PILOT)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, payload)
+    before = out.read_bytes()
+    metric_name = "net_cash_flow_usd" if with_flows else "funded_gap_usd"
+    metric = next(row for row in payload["metric_lineage"] if row["metric_name"] == metric_name)
+    fact = payload["fact_lineage"][metric["source_fact_ids"][0]]
+    point = next(
+        row["points"][0]
+        for row in payload["scenarios"][0]["series"]
+        if row["metric_name"] == metric_name
+    )
+    if corruption == "fact-confidence":
+        fact["confidence"] = 0.01
+    elif corruption == "fact-evidence":
+        fact["evidence_refs"] = ["p.999#unrelated"]
+    elif corruption == "metric-confidence":
+        metric["confidence"] = point["confidence"] = 0.01
+    else:
+        metric["provenance_refs"] = point["provenance_refs"] = ["p.999#unrelated"]
+
+    with pytest.raises(ValueError, match="metric lineage differs from source fact evidence"):
+        write_quant_workspace(out, payload)
+
+    assert out.read_bytes() == before
+    assert list(out.parent.iterdir()) == [out]
+
+
+@pytest.mark.parametrize(
+    ("confidences", "expected"),
+    [((None, None), None), ((None, 0.93123456), 0.931235), ((0.0, 0.93123456), 0.0)],
+)
+def test_published_confidence_follows_metric_engine_source_rules(
+    tmp_path: Path, confidences: tuple[float | None, float | None], expected: float | None
+) -> None:
+    run_dir = tmp_path / "completed_pilot_run"
+    shutil.copytree(_COMPLETED_PILOT, run_dir)
+    core = run_dir / "extraction_persistence/staging_core_metrics.json"
+    rows = json.loads(core.read_text(encoding="utf-8"))
+    for row, confidence in zip(rows, confidences, strict=True):
+        row["confidence"] = confidence
+    core.write_text(json.dumps(rows), encoding="utf-8")
+
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, build_quant_workspace(run_dir))
+    published = json.loads(out.read_text(encoding="utf-8"))
+    for metric in published["metric_lineage"]:
+        assert metric["confidence"] == expected
+    assert [fact["confidence"] for fact in published["fact_lineage"].values()] == list(confidences)
+
+
+@pytest.mark.parametrize(
+    "removed_metrics",
+    [("funded_gap_usd",), ("unfunded_ratio",), ("funded_gap_usd", "unfunded_ratio")],
+)
+def test_missing_required_funded_series_retains_prior_artifact(
+    tmp_path: Path, removed_metrics: tuple[str, ...]
+) -> None:
+    payload = build_quant_workspace(_COMPLETED_PILOT_FLOWS)
+    out = tmp_path / DEFAULT_QUANT_WORKSPACE_PATH
+    write_quant_workspace(out, payload)
+    before = out.read_bytes()
+    scenario = payload["scenarios"][0]
+    scenario["series"] = tuple(
+        series for series in scenario["series"] if series["metric_name"] not in removed_metrics
+    )
+    # Optional cash metrics remain numeric; nonempty alone cannot prove completion.
+    assert "net_cash_flow_usd" in _metric_values(payload)
+
+    with pytest.raises(ValueError, match="required funded metric series missing"):
+        write_quant_workspace(out, payload)
+
+    assert out.read_bytes() == before
+    assert list(out.parent.iterdir()) == [out]

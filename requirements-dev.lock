@@ -18,7 +18,7 @@ click==8.3.1
     # via
     #   black
     #   uvicorn
-coverage==7.16.2
+coverage==7.17.0
     # via pytest-cov
 defusedxml==0.7.1
     # via pension-data (pyproject.toml)
@@ -36,7 +36,7 @@ jsonschema-specifications==2025.9.1
     # via jsonschema
 librt==0.16.0
     # via mypy
-mypy==2.4.0
+mypy==2.4.1
     # via pension-data (pyproject.toml)
 mypy-extensions==1.1.0
     # via
@@ -70,7 +70,7 @@ pygments==2.19.2
     # via pytest
 pypdf==6.7.5
     # via pension-data (pyproject.toml)
-pytest==9.1.1
+pytest==9.2.0
     # via
     #   pension-data (pyproject.toml)
     #   app-baseline-kit
@@ -102,7 +102,7 @@ rpds-py==2026.9.1
     # via
     #   jsonschema
     #   referencing
-ruff==0.17.1
+ruff==0.17.3
     # via pension-data (pyproject.toml)
 six==1.17.0
     # via python-dateutil

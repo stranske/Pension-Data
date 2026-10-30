@@ -2,12 +2,28 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
 QuantModule = Literal["metric_engine", "scenario_analysis", "attribution_optimization"]
 ChartKind = Literal["line", "bar", "area", "scatter", "table"]
+
+# Explicit pilot → metric-engine identifier mapping used by the local producer.
+# Staging core metric_name values that are eligible funded inputs.
+PILOT_CORE_METRIC_NAMES: frozenset[str] = frozenset({"aal_usd", "ava_usd"})
+
+# Pilot financial_flow_rows_json field → compute_derived_metrics input key.
+# Values remain optional; missing fields become explicit omissions, never zeros.
+PILOT_CASH_FLOW_FIELD_MAP: Mapping[str, str] = {
+    "employer_contributions_usd": "employer_contributions_normalized",
+    "employee_contributions_usd": "employee_contributions_normalized",
+    "benefit_payments_usd": "benefit_payments_normalized",
+    "refunds_usd": "refunds_normalized",
+}
+
+# Pilot outflow fields must already carry normalized outflow signs (≤ 0).
+PILOT_CASH_FLOW_OUTFLOW_FIELDS: frozenset[str] = frozenset({"benefit_payments_usd", "refunds_usd"})
 
 
 def normalize_provenance_refs(values: Sequence[str]) -> tuple[str, ...]:
@@ -55,6 +71,22 @@ def missing_reproducibility_fields(
     if not envelope.source_artifact_ids:
         missing.append("source_artifact_ids")
     return tuple(missing)
+
+
+def require_reproducibility(
+    envelope: ReproducibilityEnvelope,
+    *,
+    requires_seed: bool,
+    expected_source_artifact_ids: Sequence[str] | None = None,
+) -> None:
+    """Raise ValueError when required reproducibility fields are missing or mismatched."""
+    missing = missing_reproducibility_fields(envelope, requires_seed=requires_seed)
+    if missing:
+        raise ValueError(f"invalid reproducibility fields: {missing}")
+    if expected_source_artifact_ids is not None and set(envelope.source_artifact_ids) != set(
+        expected_source_artifact_ids
+    ):
+        raise ValueError("invalid reproducibility fields: source_artifact_ids mismatch")
 
 
 @dataclass(frozen=True, slots=True)
