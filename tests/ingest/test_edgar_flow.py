@@ -124,7 +124,7 @@ def test_edgar_client_requires_user_agent() -> None:
 
 
 def test_edgar_client_builds_flow_urls() -> None:
-    client = EdgarClient(user_agent="Pension-Data research tim@stranskemo.com")
+    client = EdgarClient(user_agent="Pension-Data research admin@example.com")
     assert (
         client.submissions_url(CALPERS_CIK) == "https://data.sec.gov/submissions/CIK0000919079.json"
     )
@@ -139,12 +139,12 @@ def test_edgar_client_builds_flow_urls() -> None:
 
 def test_edgar_client_does_not_request_compressed_transfer_encoding() -> None:
     opener = _RecordedOpener()
-    client = EdgarClient(user_agent="Pension-Data research tim@stranskemo.com", opener=opener)
+    client = EdgarClient(user_agent="Pension-Data research admin@example.com", opener=opener)
 
     assert client._get("https://data.sec.gov/submissions/CIK0000919079.json") == '{"filings": {}}'
     assert opener.request is not None
     headers = {key.lower(): value for key, value in opener.request.header_items()}
-    assert headers == {"user-agent": "Pension-Data research tim@stranskemo.com"}
+    assert headers == {"user-agent": "Pension-Data research admin@example.com"}
 
 
 def test_end_to_end_fixture_flow_produces_security_positions() -> None:
