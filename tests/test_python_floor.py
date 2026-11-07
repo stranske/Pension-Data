@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FLOOR = (3, 13)
 NEWEST = (3, 14)
 REQUIRES = re.compile(r">=3\.13(?:,<(?P<upper>3\.\d+|4(?:\.0)?))?")
-CLASSIFIER = re.compile(r"Programming Language :: Python :: (3\.\d+)")
+CLASSIFIER = re.compile(r"Programming Language :: Python :: (\d\.\d+)")
 
 
 def _version(value: object) -> tuple[int, int]:
@@ -100,6 +100,14 @@ def test_requires_python_bounds(spec: str, accepted: bool) -> None:
         (
             [
                 "Programming Language :: Python :: 3.12",
+                "Programming Language :: Python :: 3.13",
+                "Programming Language :: Python :: 3.14",
+            ],
+            False,
+        ),
+        (
+            [
+                "Programming Language :: Python :: 2.7",
                 "Programming Language :: Python :: 3.13",
                 "Programming Language :: Python :: 3.14",
             ],
