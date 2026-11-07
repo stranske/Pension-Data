@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from hashlib import sha1
 from typing import Any
 
@@ -57,7 +59,74 @@ def _serialize_evidence_refs(value: object) -> str | None:
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
         refs = [str(item) for item in value]
         return json.dumps(refs, sort_keys=True)
-    return json.dumps(value, sort_keys=True)
+    return _dumps_canonical_json(_json_ready(value))
+
+
+def _json_key(key: object) -> str:
+    if isinstance(key, str):
+        return key
+    if key is True:
+        return "true"
+    if key is False:
+        return "false"
+    if key is None:
+        return "null"
+    return str(key)
+
+
+def _dumps_canonical_json(value: object) -> str:
+    # Emit Decimal as an exact JSON number; float conversion would collapse
+    # distinct high-precision evidence values into one stored value.
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return json.dumps(value)
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, Mapping):
+        items = sorted(value.items(), key=lambda item: _json_key(item[0]))
+        return (
+            "{"
+            + ", ".join(
+                f"{json.dumps(_json_key(key))}: {_dumps_canonical_json(item)}"
+                for key, item in items
+            )
+            + "}"
+        )
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        return "[" + ", ".join(_dumps_canonical_json(item) for item in value) + "]"
+    return json.dumps(value)
+
+
+def _json_ready(value: object) -> object:
+    # Serialize Decimal spellings inside evidence objects as JSON numbers so
+    # Decimal("40.0") reaches the canonical assertion/key contracts as 40
+    # instead of crashing json.dumps or being stored as a quoted string.
+    # Non-integral Decimals stay Decimal so _dumps_canonical_json emits their
+    # exact value instead of rounding through binary float.
+    if isinstance(value, datetime):
+        # Datetimes reach the contract as their canonical UTC instant text,
+        # matching the temporal-column contract in _canonical_instant.
+        return _format_canonical_instant(value)
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        # Non-finite Decimals keep their JSON token spelling (Infinity/NaN);
+        # identity canonicalization happens later, in _canonical_key_value.
+        return _canonical_key_value(value) if value.is_finite() else value
+    if isinstance(value, Mapping):
+        return {key: _json_ready(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_json_ready(item) for item in value]
+    return value
 
 
 def _row_values(row: Mapping[str, object]) -> tuple[object, ...]:
@@ -81,13 +150,134 @@ def _placeholder(dialect: DatabaseDialect) -> str:
     return "%s" if dialect == "postgresql" else "?"
 
 
+def _replacement_id_pattern(fact_id: str) -> str:
+    # The fact_id prefix is literal text, not a LIKE pattern: escape the
+    # wildcard characters (and the escape character itself) so one fact's
+    # ``_``/``%`` cannot match a different fact's replacement rows. Both
+    # dialects are given the same explicit ESCAPE character at the call site
+    # because SQLite LIKE has no default escape.
+    escaped = fact_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"{escaped}@%"
+
+
+def _format_canonical_instant(value: object) -> str:
+    canonical = _canonical_instant(value)
+    if isinstance(canonical, datetime):
+        text = canonical.isoformat()
+        return f"{text[:-6]}Z" if text.endswith("+00:00") else text
+    return "" if canonical is None else str(canonical)
+
+
+def _sign(value: float | Decimal) -> int:
+    return -1 if value < 0 or (isinstance(value, Decimal) and value.is_signed()) else 1
+
+
+def _canonical_key_value(value: object) -> object:
+    # Match Python numeric equality (40 == 40.0) inside nested evidence
+    # without rounding distinct large integers through float conversion.
+    # Booleans are not floats here, so they retain JSON boolean identity.
+    # Non-finite spellings share one identity per kind/sign: float and
+    # Decimal Infinity are the same DOUBLE PRECISION value, and NaN is a
+    # single identity (as in PostgreSQL numeric/float comparisons) even
+    # though Python ``nan != nan``. Distinct kinds/signs stay distinct.
+    if isinstance(value, float) and not math.isfinite(value):
+        return ("nonfinite", "nan") if math.isnan(value) else ("nonfinite", "inf", _sign(value))
+    if isinstance(value, Decimal) and not value.is_finite():
+        return ("nonfinite", "nan") if value.is_nan() else ("nonfinite", "inf", _sign(value))
+    if isinstance(value, Decimal) and value.is_finite():
+        if value == value.to_integral_value():
+            return int(value)
+        # Strip trailing zeros without context-precision rounding, so
+        # Decimal("0.790") and Decimal("0.79") share one key while distinct
+        # non-integral decimals (and float spellings) remain distinct.
+        sign, digits, raw_exponent = value.as_tuple()
+        # Finite decimals always have an int exponent; the Literal
+        # exponents ('n'/'N'/'F') only occur for NaN/Infinity, excluded above.
+        if not isinstance(raw_exponent, int):
+            return value
+        exponent = raw_exponent
+        trimmed = list(digits)
+        while exponent < 0 and trimmed and trimmed[-1] == 0:
+            trimmed.pop()
+            exponent += 1
+        if not trimmed:
+            return 0
+        trimmed_decimal = Decimal((sign, tuple(trimmed), exponent))
+        # A Decimal exactly representable as a float (2.50, 0.5) is the
+        # same DOUBLE PRECISION value as that float, so _same_assertion
+        # already treats them as equal; share the float identity or the
+        # replacement key (where Decimal serializes as text) diverges.
+        # Inexact spellings (0.79) stay Decimal and remain distinct.
+        as_float = float(trimmed_decimal)
+        if math.isfinite(as_float) and Decimal.from_float(as_float) == trimmed_decimal:
+            return as_float
+        return trimmed_decimal
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, Mapping):
+        return {key: _canonical_key_value(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_canonical_key_value(item) for item in value]
+    return value
+
+
+def _digest_value(value: object) -> object:
+    # Uniformly typed encoding: every scalar carries its type, so a Decimal,
+    # a float, an int and a string with the same spelling can never collide
+    # in the digest the way ``default=str`` (quoted Decimal) or a raw JSON
+    # number (Decimal versus float) would let them.
+    if value is None:
+        return ["null", None]
+    if isinstance(value, bool):
+        return ["bool", value]
+    if isinstance(value, Decimal):
+        return ["decimal", str(value)]
+    if isinstance(value, int):
+        return ["int", str(value)]
+    if isinstance(value, float):
+        return ["float", value]
+    if isinstance(value, str):
+        return ["str", value]
+    if isinstance(value, Mapping):
+        items = [[_digest_value(key), _digest_value(item)] for key, item in value.items()]
+        items.sort(key=lambda pair: json.dumps(pair[0], sort_keys=True))
+        return ["dict", items]
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        return ["list", [_digest_value(item) for item in value]]
+    raise TypeError(f"no digest encoding for {type(value).__name__}")
+
+
 def _replacement_fact_id(row: Mapping[str, object]) -> str:
-    asserted_at = row.get("asserted_at") or row.get("ingestion_date") or ""
-    digest_payload = json.dumps(
-        {key: row.get(key) for key in _STAGING_CORE_METRIC_COLUMNS if key != "fact_id"},
-        default=str,
-        sort_keys=True,
+    # Replacement identity uses the same canonical contract as _same_assertion:
+    # decoded JSON and serialized JSON, Z/offset/naive instants, and omitted
+    # valid_from/asserted_at defaults must derive one key, while genuine
+    # content changes still derive a different key.
+    candidate_values = _row_values(row)
+    canonical_values: dict[str, object] = {}
+    for column, value in zip(_STAGING_CORE_METRIC_COLUMNS, candidate_values, strict=True):
+        if column == "fact_id":
+            continue
+        canonical = _canonical_column_value(column, value)
+        if isinstance(canonical, datetime):
+            canonical = _format_canonical_instant(canonical)
+        elif column == "evidence_refs":
+            canonical = _canonical_assertion_value(canonical)
+        else:
+            canonical = _canonical_key_value(canonical)
+        canonical_values[column] = canonical
+    asserted_at = _format_canonical_instant(
+        candidate_values[_STAGING_CORE_METRIC_COLUMNS.index("asserted_at")]
     )
+    # Serialize the digest with the uniformly typed encoding: ``default=str``
+    # would quote Decimal("0.79") as "0.79", colliding with a genuine string
+    # of the same spelling, while a raw JSON number would collide with the
+    # float _same_assertion keeps distinct from an inexact Decimal in typed
+    # columns. Exact Decimals already canonicalize to int/float above, so
+    # only inexact spellings reach the tag.
+    try:
+        digest_payload = json.dumps(_digest_value(canonical_values), sort_keys=True)
+    except (TypeError, ValueError):
+        digest_payload = json.dumps(canonical_values, default=str, sort_keys=True)
     digest = sha1(digest_payload.encode("utf-8")).hexdigest()[:12]
     return f"{row['fact_id']}@{asserted_at}:{digest}"
 
@@ -97,7 +287,9 @@ def _canonical_evidence(value: object) -> object:
         return None
     if isinstance(value, str):
         try:
-            parsed = json.loads(value)
+            # JSON numbers are exact decimal text; float parsing would
+            # collapse values that differ only beyond binary precision.
+            parsed = json.loads(value, parse_float=Decimal)
         except json.JSONDecodeError:
             return value
         return _canonical_evidence(parsed)
@@ -138,10 +330,38 @@ def _canonical_column_value(column: str, value: object) -> object:
     return value
 
 
+def _canonical_assertion_value(value: object) -> object:
+    # JSON booleans are distinct from numbers (true != 1), unlike Python ==.
+    # Tag them so content equality shares the replacement-key contract,
+    # while numeric spellings (79 / 79.0 / Decimal("79.0")) stay equivalent.
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, Mapping):
+        return {key: _canonical_assertion_value(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_canonical_assertion_value(item) for item in value]
+    if isinstance(value, float):
+        # Evidence is JSON, so a driver-decoded float and the equivalent
+        # Decimal/JSON-text spelling are one JSON number (0.79), identified
+        # by the float's shortest decimal representation. Typed relational
+        # columns outside evidence keep exact Decimal/float distinction.
+        converted = Decimal(str(value))
+        return _canonical_key_value(converted if converted.is_finite() else value)
+    return _canonical_key_value(value)
+
+
 def _same_assertion(existing: Any, candidate_values: tuple[object, ...]) -> bool:
+    def assertion_value(column: str, value: object) -> object:
+        canonical = _canonical_column_value(column, value)
+        # Only JSON evidence distinguishes booleans from numbers; typed
+        # relational columns keep driver equivalence (e.g. restated 1/True).
+        if column == "evidence_refs":
+            return _canonical_assertion_value(canonical)
+        return _canonical_key_value(canonical)
+
     return all(
-        _canonical_column_value(_STAGING_CORE_METRIC_COLUMNS[index], existing[index])
-        == _canonical_column_value(_STAGING_CORE_METRIC_COLUMNS[index], candidate)
+        assertion_value(_STAGING_CORE_METRIC_COLUMNS[index], existing[index])
+        == assertion_value(_STAGING_CORE_METRIC_COLUMNS[index], candidate)
         for index, candidate in enumerate(candidate_values)
     )
 
@@ -177,14 +397,16 @@ def persist_staging_core_metrics(
     select_sql = f"SELECT {columns} FROM staging_core_metrics WHERE fact_id = {placeholder}"
     select_active_sql = (
         f"SELECT {columns} FROM staging_core_metrics "
-        f"WHERE (fact_id = {placeholder} OR fact_id LIKE {placeholder}) AND {active_clause} "
+        f"WHERE (fact_id = {placeholder} OR fact_id LIKE {placeholder} ESCAPE '\\') "
+        f"AND {active_clause} "
         f"ORDER BY CASE WHEN fact_id = {placeholder} THEN 0 ELSE 1 END, asserted_at DESC, fact_id DESC "
         "LIMIT 1"
     )
     update_sql = (
         "UPDATE staging_core_metrics "
         f"SET superseded_at = {placeholder}, restated = {placeholder} "
-        f"WHERE (fact_id = {placeholder} OR fact_id LIKE {placeholder}) AND {active_clause}"
+        f"WHERE (fact_id = {placeholder} OR fact_id LIKE {placeholder} ESCAPE '\\') "
+        f"AND {active_clause}"
     )
 
     inserted = 0
@@ -192,7 +414,7 @@ def persist_staging_core_metrics(
         for row in rows:
             candidate_values = _row_values(row)
             fact_id = str(row["fact_id"])
-            fact_id_pattern = f"{fact_id}@%"
+            fact_id_pattern = _replacement_id_pattern(fact_id)
             existing = connection.execute(
                 select_active_sql,
                 (fact_id, fact_id_pattern, fact_id),
