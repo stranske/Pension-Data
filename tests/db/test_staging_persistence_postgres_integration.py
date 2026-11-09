@@ -624,6 +624,24 @@ def test_replacement_key_decimal_spelling_never_collides_with_string_or_float() 
     assert key(normalized_value=Decimal("2.50")) == key(normalized_value=2.5)
 
 
+def test_replacement_key_tuple_vs_list_distinct() -> None:
+    """Tuples and lists have distinct digest encodings (review thread 1)."""
+    import math
+
+    from pension_data.db.staging_persistence import _replacement_fact_id, _same_assertion
+
+    row = _base_pg_row(fact_id="audit:tuple-list:1", plan_id="AUDIT-TUPLE-LIST")
+    # float('nan') is a scalar, distinct from a list encoding
+    key_with_nan_scalar = _replacement_fact_id({**row, "evidence_refs": {"v": float("nan")}})
+    key_with_nan_list = _replacement_fact_id({**row, "evidence_refs": {"v": ["nonfinite", "nan"]}})
+    assert key_with_nan_scalar != key_with_nan_list
+    # _same_assertion must also treat them as different
+    assert not _same_assertion(
+        _row_values({**row, "evidence_refs": {"v": float("nan")}}),
+        _row_values({**row, "evidence_refs": {"v": ["nonfinite", "nan"]}}),
+    )
+
+
 @pytest.mark.parametrize(
     ("first", "other", "equivalent"),
     [
@@ -1831,5 +1849,77 @@ def test_audit_existing_identical_replacement_is_idempotent(
             "SELECT COUNT(*) FROM staging_core_metrics WHERE plan_id = 'AUDIT-EXISTING-SAME'"
         ).fetchone()[0]
         assert count == 2
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_replacement_retry_matches_legacy_keyed_active_row(
+    dialect: DatabaseDialect,
+) -> None:
+    """Active legacy-keyed replacement rows are recognised on exact retry (review thread 2)."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base_fact_id = "audit:legacy-replacement:1"
+    base = _base_pg_row(fact_id=base_fact_id, plan_id="AUDIT-LEGACY-REPLACEMENT")
+    restatement = {
+        **base,
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+        "evidence_refs": ["p.41"],
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated",
+    }
+    # Create the legacy-keyed replacement fact_id with old-style timestamp and arbitrary digest
+    legacy_replacement_fact_id = f"{base_fact_id}@2026-04-01T00:00:00+00:00:deadbeef0000"
+    snapshot_sql = (
+        f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
+        "WHERE plan_id = 'AUDIT-LEGACY-REPLACEMENT' ORDER BY fact_id"
+    )
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-LEGACY-REPLACEMENT")
+        # Persist base row
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        # Supersede the base row FIRST to avoid bitemporal constraint violation
+        connection.execute(
+            "UPDATE staging_core_metrics SET superseded_at = ? WHERE fact_id = ?",
+            ("2026-04-01T00:00:00Z", base_fact_id),
+        )
+        # Manually INSERT the legacy replacement row with old-style timestamp spelling
+        legacy_replacement_row = {**restatement, "fact_id": legacy_replacement_fact_id, "restated": True}
+        placeholder = "%s" if dialect == "postgresql" else "?"
+        placeholders = ", ".join(placeholder for _ in _STAGING_CORE_METRIC_COLUMNS)
+        columns = ", ".join(_STAGING_CORE_METRIC_COLUMNS)
+        connection.execute(
+            f"INSERT INTO staging_core_metrics ({columns}) VALUES ({placeholders})",
+            _row_values(legacy_replacement_row),
+        )
+        connection.commit()
+        before_retry = connection.execute(snapshot_sql).fetchall()
+        assert len(before_retry) == 2
+        # Retry the same restatement through persist_staging_core_metrics
+        # It should recognize the legacy-keyed active replacement and be a no-op
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
+        after_retry = connection.execute(snapshot_sql).fetchall()
+        assert after_retry == before_retry
+        count = connection.execute(
+            "SELECT COUNT(*) FROM staging_core_metrics WHERE plan_id = 'AUDIT-LEGACY-REPLACEMENT'"
+        ).fetchone()[0]
+        assert count == 2
+        # Retry with changed as_reported_value and same source_document_id
+        # This should conflict because the source is the same but content differs
+        changed_restatement = {
+            **restatement,
+            "as_reported_value": 80.0,
+            "normalized_value": 0.80,
+        }
+        with pytest.raises(ValueError, match="conflicting assertion source"):
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[changed_restatement])
+        # Verify nothing changed
+        assert connection.execute(snapshot_sql).fetchall() == before_retry
     finally:
         connection.close()

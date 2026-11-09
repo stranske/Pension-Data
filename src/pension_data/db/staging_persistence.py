@@ -238,6 +238,8 @@ def _digest_value(value: object) -> object:
         return ["float", value]
     if isinstance(value, str):
         return ["str", value]
+    if isinstance(value, tuple):
+        return ["tuple", [_digest_value(item) for item in value]]
     if isinstance(value, Mapping):
         items = [[_digest_value(key), _digest_value(item)] for key, item in value.items()]
         items.sort(key=lambda pair: json.dumps(pair[0], sort_keys=True))
@@ -366,6 +368,21 @@ def _same_assertion(existing: Any, candidate_values: tuple[object, ...]) -> bool
     )
 
 
+def _same_assertion_content(existing: Any, candidate_values: tuple[object, ...]) -> bool:
+    def assertion_value(column: str, value: object) -> object:
+        canonical = _canonical_column_value(column, value)
+        if column == "evidence_refs":
+            return _canonical_assertion_value(canonical)
+        return _canonical_key_value(canonical)
+
+    return all(
+        assertion_value(_STAGING_CORE_METRIC_COLUMNS[index], existing[index])
+        == assertion_value(_STAGING_CORE_METRIC_COLUMNS[index], candidate)
+        for index, candidate in enumerate(candidate_values)
+        if index != 0  # Skip fact_id column
+    )
+
+
 def _same_assertion_source(existing: Any, candidate_values: tuple[object, ...]) -> bool:
     asserted_at_index = _STAGING_CORE_METRIC_COLUMNS.index("asserted_at")
     source_document_id_index = _STAGING_CORE_METRIC_COLUMNS.index("source_document_id")
@@ -431,6 +448,14 @@ def persist_staging_core_metrics(
                 replacement["fact_id"] = _replacement_fact_id(row)
                 replacement["restated"] = True
                 replacement_values = _row_values(replacement)
+                # Check if existing is a legacy-keyed active replacement row with same content
+                existing_fact_id = existing[0]
+                if (
+                    str(existing_fact_id).startswith(f"{fact_id}@")
+                    and existing_fact_id != fact_id
+                    and _same_assertion_content(existing, replacement_values)
+                ):
+                    continue
                 if _same_assertion(existing, candidate_values) or _same_assertion(
                     existing,
                     replacement_values,
