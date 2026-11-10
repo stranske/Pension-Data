@@ -95,3 +95,45 @@ does not include manually dispatched runs. GitHub CLI network access failed,
 preventing inspection or dispatch of the existing PostgreSQL job.
 Run that existing job and verify both named tests before completing the first
 acceptance criterion.
+
+## Local keepalive round 2 verification
+
+Check date: 2026-11-09 (America/Chicago). Base head: `1c91b9a`.
+Outcome: the two named regressions pass on SQLite; direct deliberate-break
+verification fails as required and passes after restoration. PostgreSQL on
+this revision remains pending the existing CI job.
+Stop rule: three local acceptance attempts or 20 minutes. All three attempts
+completed in under two minutes total; no additional local repair was needed.
+
+Runtime: `/opt/anaconda3/bin/python3` (Python 3.12.2).
+
+```sh
+/opt/anaconda3/bin/python3 -m pytest \
+  tests/db/test_staging_persistence_postgres_integration.py \
+  -k '(legacy_keyed_active_row or superseded_legacy_replacement or legacy_active_retry_regression) and sqlite' -q
+```
+
+Restored result: **8 passed, 153 deselected in 0.20s**, no skips. This includes
+all seven SQLite variants of the two named acceptance tests and the automatic
+mutation check.
+
+For the direct A2 experiment, temporarily changed only
+`_same_assertion_content` to return `False`, then ran:
+
+```sh
+/opt/anaconda3/bin/python3 -m pytest \
+  'tests/db/test_staging_persistence_postgres_integration.py::test_replacement_retry_matches_legacy_keyed_active_row[original-sqlite]' \
+  -q --tb=short
+```
+
+Observed **1 failed in 0.25s**, raising
+`ValueError: conflicting assertion source for 'audit:legacy-active:1'` at the
+retry assertion. Restored the original file in a `finally` block, confirmed no
+production diff, then obtained the eight passing cases above.
+
+The initial dual-dialect selection reported 8 passed and 8 skipped because
+`PENSION_DATA_TEST_POSTGRES_URL` is unset. CI run
+[42731301950](https://github.com/stranske/Pension-Data/actions/runs/42731301950)
+passed 153 tests without skips, but tested `a7c21a2`, before the latest source
+and test changes. It does not establish A1 for this revision. The existing
+`PostgreSQL Integration` workflow must verify the updated branch.
