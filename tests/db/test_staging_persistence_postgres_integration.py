@@ -13,6 +13,7 @@ import pytest
 from pension_data.db.migrations_runner import apply_migrations
 from pension_data.db.staging_persistence import (
     _STAGING_CORE_METRIC_COLUMNS,
+    _replacement_fact_id,
     _row_values,
     _same_assertion,
     _same_assertion_source,
@@ -1627,7 +1628,25 @@ def _seed_legacy_replacement(
 
 
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
-def test_replacement_retry_matches_legacy_keyed_active_row(dialect: DatabaseDialect) -> None:
+@pytest.mark.parametrize(
+    "retry_overrides",
+    [
+        pytest.param({}, id="original"),
+        pytest.param({"evidence_refs": '[ "p.41" ]'}, id="json-whitespace"),
+        pytest.param({"ingestion_date": "2026-04-01T00:00:00Z"}, id="utc-z"),
+        pytest.param({"ingestion_date": "2026-03-31T20:00:00-04:00"}, id="utc-offset"),
+        pytest.param(
+            {
+                "asserted_at": "2026-04-01T00:00:00Z",
+                "valid_from": "2024-06-30T00:00:00+00:00",
+            },
+            id="explicit-defaults",
+        ),
+    ],
+)
+def test_replacement_retry_matches_legacy_keyed_active_row(
+    dialect: DatabaseDialect, retry_overrides: dict[str, object]
+) -> None:
     """Exact legacy retries are no-ops; same-source content conflicts still roll back."""
     if dialect == "postgresql":
         connection = _postgres_connection()
@@ -1647,14 +1666,28 @@ def test_replacement_retry_matches_legacy_keyed_active_row(dialect: DatabaseDial
         restatement = _seed_legacy_replacement(connection, dialect, base)
         before = connection.execute(snapshot_sql, (plan_id,)).fetchall()
         assert len(before) == 2
-        for retry in (restatement, {**restatement, "evidence_refs": '[ "p.41" ]'}):
+        active = [
+            row
+            for row in before
+            if row[_STAGING_CORE_METRIC_COLUMNS.index("superseded_at")] is None
+        ]
+        assert len(active) == 1
+        retry = {**restatement, **retry_overrides}
+        assert active[0][0].startswith(f"{base['fact_id']}@2026-04-01T00:00:00+00:00:")
+        assert active[0][0] != _replacement_fact_id(retry)
+        for _ in range(2):
             assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
             assert connection.execute(snapshot_sql, (plan_id,)).fetchall() == before
-        with pytest.raises(ValueError, match="conflicting assertion source"):
-            persist_staging_core_metrics(
-                connection, dialect=dialect, rows=[{**restatement, "normalized_value": 0.80}]
-            )
-        assert connection.execute(snapshot_sql, (plan_id,)).fetchall() == before
+        for conflict in (
+            {"normalized_value": 0.80},
+            {"evidence_refs": ["p.42"]},
+            {"confidence": 0.90},
+        ):
+            with pytest.raises(ValueError, match="conflicting assertion source"):
+                persist_staging_core_metrics(
+                    connection, dialect=dialect, rows=[{**retry, **conflict}]
+                )
+            assert connection.execute(snapshot_sql, (plan_id,)).fetchall() == before
     finally:
         connection.close()
 
@@ -1697,8 +1730,16 @@ def test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion(
         assert [row[6] for row in before if row[superseded_index] is None] == [0.80]
         historical = {**older, "superseded_at": newer["ingestion_date"], "restated": True}
         # Supplying every historical column is an exact retry, even under a legacy ID.
-        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[historical]) == 0
-        assert connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall() == before
+        for retry in (
+            historical,
+            {
+                **historical,
+                "asserted_at": "2026-04-01T00:00:00Z",
+                "superseded_at": "2026-05-01T00:00:00+00:00",
+            },
+        ):
+            assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
+            assert connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall() == before
         for retry in (older, {**historical, "normalized_value": 0.81}):
             batch = [pending, retry] if pending_first else [retry, pending]
             with pytest.raises(ValueError, match="conflicting assertion already exists"):
