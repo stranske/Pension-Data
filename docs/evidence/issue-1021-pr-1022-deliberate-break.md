@@ -352,3 +352,29 @@ to leave current-head PostgreSQL acceptance pending was rejected by the GitHub
 connector's approval requirement under policy `never`. The PR is open and ready.
 PostgreSQL success recorded below predates the latest test additions; this
 follow-up still needs a commit, the full formatting gate, and PostgreSQL CI.
+
+
+## Local keepalive round 6 verification
+
+Check date: 2026-11-09 (America/Chicago). Source/test head: `8f659e0`.
+Outcome: **19 passed, 164 deselected in 0.56s**, zero skips. No production
+or test changes were needed. This receipt is the only change in this round.
+Stop rule: three failures at the same step or 20 minutes.
+
+Command (runtime Python 3.12.2):
+
+```sh
+/opt/anaconda3/bin/python3 -m pytest -q --no-cov \
+  tests/db/test_staging_persistence_postgres_integration.py -k 'legacy and sqlite'
+```
+
+This selection includes all five active-row variants, all eight historical-row
+variants, the two retired-history variants, three literal fact-ID variants,
+and the reversible deliberate-break check. The latter disables
+`_same_assertion_content`, requires the named active retry test to raise
+`ValueError: conflicting assertion source for 'audit:legacy-active:1'`, then
+restores matching and reruns that same regression successfully.
+
+A1 still requires the existing PostgreSQL Integration workflow on the pushed
+head; earlier successful runs do not cover the latest source/test revision.
+The automation continuation must inspect that exact-head job and review signals.
