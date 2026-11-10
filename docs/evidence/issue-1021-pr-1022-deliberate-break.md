@@ -18,6 +18,13 @@ confidence still conflict and leave the database unchanged.
 The superseded-row test also retries equivalent `asserted_at` and `superseded_at`
 spellings while preserving history and the newest active assertion.
 
+`test_legacy_active_retry_regression_detects_disabled_content_matching` now
+reproduces the deliberate break automatically for SQLite and PostgreSQL. It
+temporarily disables `_same_assertion_content`, invokes the named active-row
+regression and requires its source-conflict error, then restores matching and
+requires that same regression to pass. The patch is scoped to a monkeypatch
+context, including when an assertion fails or PostgreSQL is unavailable.
+
 ## Deliberate break
 
 Temporarily replace the body of `_same_assertion_content` in
@@ -45,11 +52,12 @@ pytest tests/db/test_staging_persistence.py \
   -m 'not slow' --no-cov --tb=short -q
 ```
 
-Result after restoration: **123 passed, 41 skipped**. All seven SQLite cases for
-the two acceptance tests pass. The production source has no remaining changes
-from this experiment.
+Result after restoration and adding the automatic deliberate-break check:
+**124 passed, 42 skipped**. All seven SQLite cases for the two acceptance tests
+and the automatic deliberate-break check pass. The production source has no
+remaining changes from this experiment.
 
-Formatting and lint checks also pass:
+The prior iteration recorded passing formatting and lint checks:
 
 ```sh
 BLACK_NUM_WORKERS=1 BLACK_CACHE_DIR=/tmp/pension-black-cache \
@@ -59,12 +67,31 @@ ruff check tests/db/test_staging_persistence_postgres_integration.py
 
 Black reports 467 files unchanged; Ruff reports all checks passed.
 
+For this iteration, Black formatting of the changed test file and Ruff pass.
+The required repository-wide Black CLI check stalled and was interrupted; a
+second attempt timed out after 30 seconds. A serial check using Black's
+`format_file_in_place` with `WriteBack.CHECK`, line length 100 and target Python
+3.13 checked all 467 Python files and found none requiring formatting. The
+exact CLI gate still needs to pass before committing. Git staging is also
+blocked because `.git` is mounted read-only, so this iteration's source and
+evidence changes remain uncommitted.
+
 ## PostgreSQL verification still required
+
+Reviewed commits `a7c21a2`, `aae96b6`, and `3b9af26`: the PR body's three
+implementation checkboxes already match the verified implementation. The
+deliberate-break acceptance checkbox should now also be checked, bringing
+verified progress to four of five tasks. The GitHub connector rejected the
+PR-body update because it requires approval and this run's approval policy is
+`never`; the remote checkbox remains unchanged.
 
 PostgreSQL cases skipped because `PENSION_DATA_TEST_POSTGRES_URL` was unset.
 PostgreSQL 18 binaries are available locally, but the required `psycopg` driver
 is missing. Installing the project's existing PostgreSQL extra failed because
-PyPI DNS resolution is unavailable. GitHub API access also failed, preventing
-inspection of the `postgres-integration` result or updating the PR checklist.
+package network access is unavailable. The GitHub connector successfully
+confirmed PR #1022 is open and ready for review, and listed no
+pull-request-triggered PostgreSQL workflow run for head `3b9af26`. That query
+does not include manually dispatched runs. GitHub CLI network access failed,
+preventing inspection or dispatch of the existing PostgreSQL job.
 Run that existing job and verify both named tests before completing the first
 acceptance criterion.

@@ -1693,6 +1693,23 @@ def test_replacement_retry_matches_legacy_keyed_active_row(
 
 
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_legacy_active_retry_regression_detects_disabled_content_matching(
+    dialect: DatabaseDialect, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The named regression fails without legacy matching and passes after restoration."""
+    from pension_data.db import staging_persistence
+
+    with monkeypatch.context() as disabled_matching:
+        disabled_matching.setattr(staging_persistence, "_same_assertion_content", lambda *_: False)
+        with pytest.raises(
+            ValueError, match="^conflicting assertion source for 'audit:legacy-active:1'$"
+        ):
+            test_replacement_retry_matches_legacy_keyed_active_row(dialect, {})
+
+    test_replacement_retry_matches_legacy_keyed_active_row(dialect, {})
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 @pytest.mark.parametrize("pending_first", [True, False], ids=["pending-first", "retry-first"])
 def test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion(
     dialect: DatabaseDialect, pending_first: bool
