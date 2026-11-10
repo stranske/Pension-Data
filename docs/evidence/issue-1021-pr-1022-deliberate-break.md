@@ -2,8 +2,9 @@
 
 Verified on 2026-11-10 with Python 3.14.10.
 
-- [ ] Both legacy replacement tests pass on SQLite locally and PostgreSQL in the
-  `postgres-integration` CI job. SQLite passes; PostgreSQL CI remains unverified.
+- [x] Both legacy replacement tests pass on SQLite locally and PostgreSQL in the
+  `postgres-integration` CI job. See round 3 below; earlier pending statements
+  describe the state at those earlier checks.
 - [x] Disabling legacy-content matching makes the active-row retry test raise;
   restoring matching makes the test pass again.
 
@@ -137,3 +138,32 @@ The initial dual-dialect selection reported 8 passed and 8 skipped because
 passed 153 tests without skips, but tested `a7c21a2`, before the latest source
 and test changes. It does not establish A1 for this revision. The existing
 `PostgreSQL Integration` workflow must verify the updated branch.
+
+## Local keepalive round 3 verification
+
+Check date: 2026-11-09 (America/Chicago). Tested head: `2c1962f`.
+Outcome A1: both named regressions pass locally on SQLite and in the existing
+`postgres-integration` CI job on this exact head. No production or test changes
+were necessary. This round changes only this evidence file.
+
+Acceptance command (also exercises the A2 deliberate-break check):
+
+```sh
+/opt/anaconda3/bin/python3 -m pytest -q \
+  tests/db/test_staging_persistence_postgres_integration.py \
+  -k 'replacement_retry_matches_legacy_keyed_active_row or audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion or legacy_active_retry_regression_detects_disabled_content_matching'
+```
+
+Result: **8 passed, 8 skipped, 145 deselected in 0.19s**. The eight skips
+are PostgreSQL variants because the local database URL is unset; the seven
+named SQLite acceptance variants and the A2 mutation check all pass.
+
+Inspected [CI run 42736444509](https://github.com/stranske/Pension-Data/actions/runs/42736444509)
+and its job log: head SHA `2c1962fbca2123b998c2a25c3230a5013fe4e8ee`,
+job `postgres-integration`, **163 passed in 1.55s**, no skips. The command
+includes this entire staging integration test file and sets the PostgreSQL
+database URL. Thus the named PostgreSQL variants actually ran successfully.
+
+Stop rule written before execution: two attempts per acceptance command or
+15 minutes. The local command passed on its first attempt. No dependency pins
+changed, no full local suite ran, and no new PR was opened.
