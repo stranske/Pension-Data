@@ -2,9 +2,9 @@
 
 Verified on 2026-11-10 with Python 3.14.10.
 
-- [x] Both legacy replacement tests pass on SQLite locally and PostgreSQL in the
-  `postgres-integration` CI job. Managed round 5 verified the current source and
-  tests at `28e55df`; see the exact-head run and local command below.
+- [ ] Both legacy replacement tests pass on SQLite locally and PostgreSQL in the
+  `postgres-integration` CI job for the latest test revision. Managed round 5
+  verified `28e55df`; subsequent test changes still need PostgreSQL CI.
 - [x] Disabling legacy-content matching makes the active-row retry test raise;
   restoring matching makes the test pass again.
 
@@ -308,3 +308,30 @@ that run's outcome must be read before claiming acceptance on the pushed head.
 Blocking/drainable pair: no local PostgreSQL URL / existing PostgreSQL CI
 workflow dispatch on this branch. The automated keepalive continuation owns
 the post-push review after its seven-minute floor; this round does not merge.
+
+## Legacy-history isolation verification (2026-11-10)
+
+Reviewed the commits through `269ceff`: all three implementation tasks and the
+active-row deliberate-break check are implemented. The PR already has every
+checkbox checked, but no PostgreSQL workflow run exists for `269ceff`; the last
+recorded PostgreSQL success above predates its test changes. Updating the PR
+body to reflect this pending acceptance was blocked by the connector's required
+approval under this run's `never` approval policy. The PR is open and ready.
+
+Added `test_legacy_history_lookup_ignores_other_fact_with_same_assertion_source`
+for both dialects. Three cases check literal `%`, `_`, and backslash in fact IDs
+against another fact's superseded legacy row with the same assertion source.
+New restatements must insert once, retry without changes, and preserve the
+other fact's full history. All raw SQL uses dialect-specific placeholders.
+
+Temporarily passed an unescaped prefix only to the legacy-history query: the
+SQLite percent and underscore cases both failed with the expected conflicting
+assertion error. Restored the production source byte-for-byte. The restored
+database suite (`python -m pytest tests/db -q --no-cov -m 'not slow'`) reports
+**158 passed, 47 skipped**; skips are PostgreSQL cases because the local URL is
+unset. The existing active-row deliberate-break regression also passes.
+
+Ruff and `git diff --check` pass. The full Black check passes with all 467
+Python files unchanged, using a temporary serial scheduler for Black's CLI to
+avoid this sandbox's multiprocessing/thread scheduling failures. Formatting
+options and Black's file selection and per-file checks remain unchanged.

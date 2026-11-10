@@ -1831,6 +1831,60 @@ def test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion(
 
 
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize(
+    ("fact_id", "other_id"),
+    [
+        pytest.param("audit:legacy_a", "audit:legacyXa", id="underscore"),
+        pytest.param("audit:legacy%a", "audit:legacyXa", id="percent"),
+        pytest.param(r"audit:legacy\_a", "audit:legacy_a", id="escape-character"),
+    ],
+)
+def test_legacy_history_lookup_ignores_other_fact_with_same_assertion_source(
+    dialect: DatabaseDialect, fact_id: str, other_id: str
+) -> None:
+    """A different fact's legacy history must not block a new restatement."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    plan_id = "AUDIT-LEGACY-ISOLATION"
+    other_plan = "AUDIT-LEGACY-ISOLATION-OTHER"
+    base = _base_pg_row(fact_id=fact_id, plan_id=plan_id)
+    other = _base_pg_row(fact_id=other_id, plan_id=other_plan)
+    placeholder = "%s" if dialect == "postgresql" else "?"
+    snapshot_sql = (
+        f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
+        f"WHERE plan_id = {placeholder} ORDER BY fact_id"
+    )
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, plan_id, other_plan)
+        # Seed the foreign history first so an overly broad history query finds it.
+        other_legacy = _seed_legacy_replacement(connection, dialect, other)
+        other_newer = {
+            **other_legacy,
+            "ingestion_date": "2026-05-01T00:00:00Z",
+            "source_document_id": "doc:other-newer",
+        }
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[other_newer]) == 1
+        other_before = connection.execute(snapshot_sql, (other_plan,)).fetchall()
+        assert len(other_before) == 3
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        # Same document/instant, different fact: foreign history is not a conflict.
+        restatement = {**other_legacy, "fact_id": fact_id, "plan_id": plan_id}
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
+        before = connection.execute(snapshot_sql, (plan_id,)).fetchall()
+        assert len(before) == 2
+        assert {row[0] for row in before} == {fact_id, _replacement_fact_id(restatement)}
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
+        assert connection.execute(snapshot_sql, (plan_id,)).fetchall() == before
+        assert connection.execute(snapshot_sql, (other_plan,)).fetchall() == other_before
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 def test_audit_existing_replacement_with_different_content_conflicts(
     dialect: DatabaseDialect,
 ) -> None:
