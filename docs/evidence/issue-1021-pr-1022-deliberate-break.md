@@ -438,3 +438,33 @@ receipt changes documentation only. Blocking/drainable pair: final-head CI
 is unverified until this receipt is pushed / dispatch the existing PostgreSQL
 workflow on the pushed branch and read its exact-head result. Post-push review
 remains a separate delivery check.
+
+## Local keepalive round 9 acceptance verification
+
+Check date: 2026-11-09 America/Chicago (2026-11-10 UTC).
+Starting head: `f842805b23617ee8000d01abf6ebb132879430ec`.
+Required outcome: exact legacy retries preserve stored rows, superseded retries
+preserve the newer assertion, and disabling legacy content matching makes the
+named active-row regression raise before restoring matching makes it pass.
+Stop rule: two attempts per failing command or 20 minutes.
+
+```sh
+/opt/anaconda3/bin/python3 -m pytest -q --no-cov \
+  tests/db/test_staging_persistence_postgres_integration.py \
+  -k '(replacement_retry_matches_legacy_keyed_active_row or audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion or legacy_active_retry_regression_detects_disabled_content_matching) and sqlite'
+```
+
+Observed result: **20 passed, 175 deselected in 0.51s**, zero skips. The mutation
+cases execute the named regression with content matching disabled, require the
+source-conflict exception, then execute it successfully after restoration.
+
+The starting head's PostgreSQL run
+[`42751597860`](https://github.com/stranske/Pension-Data/actions/runs/42751597860)
+completed successfully: **197 passed in 3.03s**, zero skips, including both named
+regressions and mutation cases. The `tests_skipped` condition did not reproduce.
+No implementation, tests, workflow files, or dependency pins needed changes.
+
+Blocking/drainable pair: this documentation commit needs final-head PostgreSQL
+verification / dispatch `postgres-integration.yml` on `codex/issue-1021` and
+read the run's head SHA and test summary. The current automation round leaves
+the seven-minute post-push review to its next scheduled review pass.
