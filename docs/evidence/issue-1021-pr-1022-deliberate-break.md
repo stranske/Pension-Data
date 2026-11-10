@@ -468,3 +468,33 @@ Blocking/drainable pair: this documentation commit needs final-head PostgreSQL
 verification / dispatch `postgres-integration.yml` on `codex/issue-1021` and
 read the run's head SHA and test summary. The current automation round leaves
 the seven-minute post-push review to its next scheduled review pass.
+
+## Local keepalive round 10 acceptance verification
+
+Check date: 2026-11-09 America/Chicago (2026-11-10 UTC).
+Starting head: `c7ddbed1e55a3e594209ddbd0fa06df49bfc3c80`.
+Required outcome: exact legacy retries preserve stored rows, historical retries
+preserve newer assertions, and disabling content matching breaks the active-row
+regression before restoration makes it pass. Stop rule: three acceptance
+attempts or 20 minutes, recorded before execution.
+
+```sh
+/opt/anaconda3/bin/python3 -m pytest -q --no-cov \
+  tests/db/test_staging_persistence_postgres_integration.py \
+  -k 'sqlite and (test_replacement_retry_matches_legacy_keyed_active_row or test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion or test_legacy_active_retry_regression_detects_disabled_content_matching)'
+```
+
+Observed result: **20 passed, 175 deselected in 0.49s**, zero skips. The two
+mutation cases disable matching, require the named active-row regression to
+raise the expected source-conflict error, restore matching, and rerun it.
+The starting head's PostgreSQL workflow
+[`42753126058`](https://github.com/stranske/Pension-Data/actions/runs/42753126058),
+job `129621165949`, reported **197 passed in 3.80s**, zero skips. The reported
+`tests_skipped` failure was not reproduced; no implementation or test repair
+was warranted. Dependency pins remain unchanged.
+
+Blocking/drainable pair: the receipt's final head requires PostgreSQL CI /
+dispatch the existing `postgres-integration.yml` on `codex/issue-1021` after
+push and verify its head SHA and test summary. The scheduled continuation owns
+the seven-minute post-push review. Merge remains separately blocked on the
+prerequisite PR #1020; acceptance and review remain drainable on this branch.
