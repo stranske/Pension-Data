@@ -1745,8 +1745,15 @@ def test_legacy_active_retry_regression_detects_disabled_content_matching(
 
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 @pytest.mark.parametrize("pending_first", [True, False], ids=["pending-first", "retry-first"])
+@pytest.mark.parametrize(
+    "newer_source_document_id",
+    [
+        pytest.param("doc:newest", id="different-document"),
+        pytest.param("doc:legacy-restated", id="same-document-later-assertion"),
+    ],
+)
 def test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion(
-    dialect: DatabaseDialect, pending_first: bool
+    dialect: DatabaseDialect, pending_first: bool, newer_source_document_id: str
 ) -> None:
     """History remains immutable, with rollback independent of batch ordering."""
     if dialect == "postgresql":
@@ -1772,7 +1779,8 @@ def test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion(
             "normalized_value": 0.80,
             "as_reported_value": 80.0,
             "ingestion_date": "2026-05-01T00:00:00Z",
-            "source_document_id": "doc:newest",
+            # Reingesting one document at a later instant is also a new assertion.
+            "source_document_id": newer_source_document_id,
         }
         assert persist_staging_core_metrics(connection, dialect=dialect, rows=[newer]) == 1
         before = connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall()
