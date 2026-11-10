@@ -440,12 +440,16 @@ def persist_staging_core_metrics(
                 replacement["fact_id"] = _replacement_fact_id(row)
                 replacement["restated"] = True
                 replacement_values = _row_values(replacement)
-                if _same_assertion(existing, candidate_values) or _same_assertion(
-                    existing,
-                    replacement_values,
-                ) or (
-                    str(existing[0]).startswith(f"{fact_id}@")
-                    and _same_assertion_content(existing, replacement_values)
+                if (
+                    _same_assertion(existing, candidate_values)
+                    or _same_assertion(
+                        existing,
+                        replacement_values,
+                    )
+                    or (
+                        str(existing[0]).startswith(f"{fact_id}@")
+                        and _same_assertion_content(existing, replacement_values)
+                    )
                 ):
                     continue
                 if _same_assertion_source(existing, candidate_values):
