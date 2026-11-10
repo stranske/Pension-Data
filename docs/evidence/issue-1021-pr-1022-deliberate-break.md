@@ -378,3 +378,31 @@ restores matching and reruns that same regression successfully.
 A1 still requires the existing PostgreSQL Integration workflow on the pushed
 head; earlier successful runs do not cover the latest source/test revision.
 The automation continuation must inspect that exact-head job and review signals.
+
+## Local keepalive round 7 acceptance verification
+
+Check date: 2026-11-09 America/Chicago (2026-11-10 UTC).
+Source/test head: `d01bf52a95684cb78eed14d7ef792a6196f29ba0`.
+Outcome: **20 passed, 175 deselected in 0.48s**, zero skips, using the
+owner-selected Python 3.12.2 runtime. Stop rule written before execution:
+two attempts per failing acceptance step or 20 minutes.
+
+```sh
+/opt/anaconda3/bin/python3 -m pytest -q --no-cov \
+  tests/db/test_staging_persistence_postgres_integration.py \
+  -k '(replacement_retry_matches_legacy_keyed_active_row or audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion or legacy_active_retry_regression_detects_disabled_content_matching) and sqlite'
+```
+
+The selection exercises ten active-row cases (base present and absent), eight
+historical-row cases, and two reversible deliberate-break cases. The latter
+disable legacy-content matching, require the named active-row test to raise
+its source-conflict error, restore matching, and require that test to pass.
+The broader focused `-k 'legacy and sqlite'` selection also passed all 25 cases
+without skips in 0.62s. No production or test changes were needed.
+
+Blocking/drainable pair: no local PostgreSQL connection is configured / the
+existing PostgreSQL Integration workflow can be dispatched on this branch.
+Its latest successful run, `42748296202`, tested `bd6bb93`, before this head's
+test changes; it does not establish current A1. This receipt must be pushed
+before dispatch so the job tests the actual delivered head. Exact-head CI
+and post-push review remain required; green unrelated checks are insufficient.
