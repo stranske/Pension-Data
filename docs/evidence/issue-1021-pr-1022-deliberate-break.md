@@ -530,3 +530,31 @@ Blocking/drainable pair: final-head PostgreSQL evidence pending this receipt's
 push / dispatch the existing `postgres-integration.yml` on `codex/issue-1021`
 and verify the resulting head SHA and test summary. The scheduled continuation
 owns the seven-minute post-push review; this round does not merge the PR.
+
+
+## Local keepalive round 12 acceptance verification
+
+Check date: 2026-11-09 America/Chicago (2026-11-10 UTC).
+Starting head: `c64d51f257595d092d13c7ff7d3729e78a2fa047`.
+Required outcome: legacy retries are no-ops, historical retries preserve newer
+assertions, and disabling content matching breaks the active-row regression
+before restoration makes it pass. Stop rule recorded before execution: two
+attempts per failing command or 20 minutes.
+
+```sh
+/opt/anaconda3/bin/python3 -m pytest \
+  tests/db/test_staging_persistence_postgres_integration.py \
+  -k '(replacement_retry_matches_legacy_keyed_active_row or audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion or legacy_active_retry_regression_detects_disabled_content_matching) and sqlite' \
+  --no-cov -q
+```
+
+Observed: **20 passed, 175 deselected in 0.44s**, zero skips, Python 3.12.2.
+This includes both named acceptance regressions and the reversible mutation
+check, which requires the expected source-conflict error with matching disabled
+and passes the named regression again after restoring matching. No production,
+test, workflow, or dependency change was warranted by this run.
+
+Blocking/drainable pair: A1 needs PostgreSQL CI on the pushed receipt head /
+dispatch `postgres-integration.yml` on `codex/issue-1021`, verify its head SHA,
+and inspect the test summary for zero skips. This final automation round records
+the push for the scheduled post-push review pass; it does not merge the PR.
