@@ -249,3 +249,30 @@ complete that gate before committing the Python change.
 Attempts to add the `needs-human` label and post the blocker comment through
 the GitHub connector were rejected: both tools require approval, but this
 run's approval policy is `never`. The blocker report is therefore local only.
+
+## Managed local keepalive verification (2026-11-09 America/Chicago)
+
+Outcome: seven SQLite variants of the two named acceptance regressions and
+one reversible legacy-content mutation check pass. The focused command below
+prints the outcome in under two minutes. Stop rule: two attempts per command
+or 20 minutes; stop at the first unresolved failure. Base head: `3b31d22`.
+
+```sh
+/opt/anaconda3/bin/python3 -m pytest -q \
+  tests/db/test_staging_persistence_postgres_integration.py \
+  -k 'replacement_retry_matches_legacy_keyed_active_row or audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion or legacy_active_retry_regression_detects_disabled_content_matching'
+```
+
+Observed with Python 3.12.2: **8 passed, 8 skipped, 145 deselected in 0.38s**.
+The PostgreSQL skips reflect an unset local database URL. The mutation test
+replaces `_same_assertion_content` with a function returning false, requires
+the named active-row regression to raise `conflicting assertion source`, then
+restores matching and reruns that same regression successfully.
+
+Blocking/drainable pair: local PostgreSQL is unavailable / dispatch the
+existing `postgres-integration.yml` workflow on `codex/issue-1021` and inspect
+its exact-head job log. The PR targets `gemini/issue-1019`, outside that
+workflow's automatic `main` pull-request filter. Green Gate checks therefore
+do not establish A1. No source, test, workflow, or dependency changes are
+needed for this verification. PostgreSQL acceptance for the pushed revision
+must be established from the dispatched run before reporting A1 complete.
