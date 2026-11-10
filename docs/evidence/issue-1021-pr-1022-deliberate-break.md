@@ -406,3 +406,35 @@ Its latest successful run, `42748296202`, tested `bd6bb93`, before this head's
 test changes; it does not establish current A1. This receipt must be pushed
 before dispatch so the job tests the actual delivered head. Exact-head CI
 and post-push review remain required; green unrelated checks are insufficient.
+
+## Local keepalive round 8 acceptance verification
+
+Check date: 2026-11-09 America/Chicago (2026-11-10 UTC).
+Verified source/test head: `f1348a8b79ff5fe1e0276bf4a3592e7df054e4d8`.
+Stop rule: three acceptance attempts or 20 minutes, recorded before execution.
+Required outcome: legacy retries preserve stored rows, conflicting historical
+retries preserve the newer assertion, and disabling content matching breaks
+the named active-row regression before restoration makes it pass.
+
+```sh
+/opt/anaconda3/bin/python3 -m pytest -q --no-cov \
+  tests/db/test_staging_persistence_postgres_integration.py \
+  -k '(replacement_retry_matches_legacy_keyed_active_row or audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion or legacy_active_retry_regression_detects_disabled_content_matching) and sqlite'
+```
+
+Result: **20 passed, 175 deselected in 0.47s**, zero skips. The reversible
+mutation cases require the named active-row test to raise the expected
+source-conflict error with content matching disabled, then pass after restoration.
+
+The previous round's PostgreSQL uncertainty is now resolved: workflow run
+[`42750119924`](https://github.com/stranske/Pension-Data/actions/runs/42750119924)
+used this exact head. Its `postgres-integration` job ran both integration files
+with the configured PostgreSQL connection and reported **197 passed in 2.92s**,
+zero skips. This includes both named regressions and the mutation cases on
+PostgreSQL. The reported `tests_skipped` condition was not reproduced.
+
+No production, test, workflow, or dependency changes were necessary. This
+receipt changes documentation only. Blocking/drainable pair: final-head CI
+is unverified until this receipt is pushed / dispatch the existing PostgreSQL
+workflow on the pushed branch and read its exact-head result. Post-push review
+remains a separate delivery check.
