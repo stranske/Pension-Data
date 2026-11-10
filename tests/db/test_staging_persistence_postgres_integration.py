@@ -1746,6 +1746,9 @@ def test_legacy_active_retry_regression_detects_disabled_content_matching(
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 @pytest.mark.parametrize("pending_first", [True, False], ids=["pending-first", "retry-first"])
 @pytest.mark.parametrize(
+    "valid_to", [None, "2025-06-30T00:00:00Z"], ids=["open-ended", "finite-validity"]
+)
+@pytest.mark.parametrize(
     "newer_source_document_id",
     [
         pytest.param("doc:newest", id="different-document"),
@@ -1753,7 +1756,10 @@ def test_legacy_active_retry_regression_detects_disabled_content_matching(
     ],
 )
 def test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion(
-    dialect: DatabaseDialect, pending_first: bool, newer_source_document_id: str
+    dialect: DatabaseDialect,
+    pending_first: bool,
+    valid_to: str | None,
+    newer_source_document_id: str,
 ) -> None:
     """History remains immutable, with rollback independent of batch ordering."""
     if dialect == "postgresql":
@@ -1763,7 +1769,7 @@ def test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion(
         apply_migrations(connection, dialect=dialect)
     plan_id = "AUDIT-LEGACY-HISTORY"
     pending_plan = "AUDIT-LEGACY-PENDING"
-    base = _base_pg_row(fact_id="audit:legacy-history:1", plan_id=plan_id)
+    base = {**_base_pg_row(fact_id="audit:legacy-history:1", plan_id=plan_id), "valid_to": valid_to}
     pending = _base_pg_row(fact_id="audit:legacy-pending:1", plan_id=pending_plan)
     placeholder = "%s" if dialect == "postgresql" else "?"
     snapshot_sql = (
@@ -1795,6 +1801,7 @@ def test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion(
                 **historical,
                 "asserted_at": "2026-04-01T00:00:00Z",
                 "superseded_at": "2026-05-01T00:00:00+00:00",
+                "valid_to": "2025-06-29T20:00:00-04:00" if valid_to else None,
             },
         ):
             assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0

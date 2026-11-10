@@ -335,3 +335,20 @@ Ruff and `git diff --check` pass. The full Black check passes with all 467
 Python files unchanged, using a temporary serial scheduler for Black's CLI to
 avoid this sandbox's multiprocessing/thread scheduling failures. Formatting
 options and Black's file selection and per-file checks remain unchanged.
+## Finite validity follow-up (2026-11-10)
+
+Reviewed recent commits through `38b2750` and confirmed that all three task
+checkboxes already describe implemented code. Extended the named historical
+legacy regression to exercise a non-null `valid_to`, including an equivalent
+UTC-offset spelling on retry. Both dialects, batch orders, and document-source
+variants are parametrized. The database suite reports **162 passed, 51 skipped**
+with `pytest tests/db -m 'not slow' -q`; PostgreSQL skips because its URL is unset
+and `psycopg` is absent. Ruff, `git diff --check`, and Black on the edited file pass.
+
+The repository-wide Black gate fails on sandbox multiprocessing socket creation;
+its single-worker retry stalls. No commit was created: `git add` independently
+fails because `.git/index.lock` is on a read-only filesystem. Updating PR #1022
+to leave current-head PostgreSQL acceptance pending was rejected by the GitHub
+connector's approval requirement under policy `never`. The PR is open and ready.
+PostgreSQL success recorded below predates the latest test additions; this
+follow-up still needs a commit, the full formatting gate, and PostgreSQL CI.
