@@ -1654,17 +1654,20 @@ def test_replacement_retry_matches_legacy_keyed_active_row(
         connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
         apply_migrations(connection, dialect=dialect)
     plan_id = "AUDIT-LEGACY-ACTIVE"
+    pending_plan = "AUDIT-LEGACY-ACTIVE-PENDING"
     base = _base_pg_row(fact_id="audit:legacy-active:1", plan_id=plan_id)
+    pending = _base_pg_row(fact_id="audit:legacy-active:pending", plan_id=pending_plan)
     placeholder = "%s" if dialect == "postgresql" else "?"
     snapshot_sql = (
         f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
-        f"WHERE plan_id = {placeholder} ORDER BY fact_id"
+        f"WHERE plan_id IN ({placeholder}, {placeholder}) ORDER BY fact_id"
     )
+    snapshot_params = (plan_id, pending_plan)
     try:
         if dialect == "postgresql":
-            _reset_plan_rows(connection, plan_id)
+            _reset_plan_rows(connection, plan_id, pending_plan)
         restatement = _seed_legacy_replacement(connection, dialect, base)
-        before = connection.execute(snapshot_sql, (plan_id,)).fetchall()
+        before = connection.execute(snapshot_sql, snapshot_params).fetchall()
         assert len(before) == 2
         active = [
             row
@@ -1677,17 +1680,26 @@ def test_replacement_retry_matches_legacy_keyed_active_row(
         assert active[0][0] != _replacement_fact_id(retry)
         for _ in range(2):
             assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
-            assert connection.execute(snapshot_sql, (plan_id,)).fetchall() == before
+            assert connection.execute(snapshot_sql, snapshot_params).fetchall() == before
         for conflict in (
             {"normalized_value": 0.80},
             {"evidence_refs": ["p.42"]},
             {"confidence": 0.90},
         ):
-            with pytest.raises(ValueError, match="conflicting assertion source"):
-                persist_staging_core_metrics(
-                    connection, dialect=dialect, rows=[{**retry, **conflict}]
-                )
-            assert connection.execute(snapshot_sql, (plan_id,)).fetchall() == before
+            conflicting = {**retry, **conflict}
+            for batch in ([pending, conflicting], [conflicting, pending]):
+                with pytest.raises(ValueError, match="conflicting assertion source"):
+                    persist_staging_core_metrics(connection, dialect=dialect, rows=batch)
+                # Compare both plans: a preceding insert must roll back too.
+                assert connection.execute(snapshot_sql, snapshot_params).fetchall() == before
+
+        # A successful mixed batch must continue past the legacy no-op.
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry, pending]) == 1
+        after = connection.execute(snapshot_sql, snapshot_params).fetchall()
+        assert len(after) == 3
+        assert [row for row in after if row[0] != pending["fact_id"]] == before
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[pending, retry]) == 0
+        assert connection.execute(snapshot_sql, snapshot_params).fetchall() == after
     finally:
         connection.close()
 

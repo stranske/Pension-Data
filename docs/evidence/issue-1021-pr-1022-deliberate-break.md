@@ -2,9 +2,9 @@
 
 Verified on 2026-11-10 with Python 3.14.10.
 
-- [x] Both legacy replacement tests pass on SQLite locally and PostgreSQL in the
-  `postgres-integration` CI job. See round 3 below; earlier pending statements
-  describe the state at those earlier checks.
+- [ ] Both legacy replacement tests pass on SQLite locally and PostgreSQL in the
+  `postgres-integration` CI job. Round 3 verified an earlier revision; the test
+  changes in round 4 still require PostgreSQL CI verification.
 - [x] Disabling legacy-content matching makes the active-row retry test raise;
   restoring matching makes the test pass again.
 
@@ -167,3 +167,42 @@ database URL. Thus the named PostgreSQL variants actually ran successfully.
 Stop rule written before execution: two attempts per acceptance command or
 15 minutes. The local command passed on its first attempt. No dependency pins
 changed, no full local suite ran, and no new PR was opened.
+
+## Local keepalive round 4 verification
+
+Check date: 2026-11-10. Python 3.14.10; base head: `34e316a`.
+
+Strengthened the named active-row regression to test conflicts with an
+independent pending insert in both batch orders. Full-column snapshots now
+include both plans, so a failed batch must preserve legacy rows and roll back
+the pending insert. A successful mixed batch must insert the pending row after
+the legacy no-op, preserve the legacy rows, and remain idempotent on retry.
+All new snapshot parameters use the existing dialect-specific placeholders.
+
+```sh
+pytest tests/db/test_staging_persistence.py \
+  tests/db/test_staging_persistence_postgres_integration.py -m 'not slow' -q
+```
+
+Result: **124 passed, 42 skipped**. The named SQLite regressions and the existing
+deliberate-break check passed. PostgreSQL variants skipped because
+`PENSION_DATA_TEST_POSTGRES_URL` is unset. PostgreSQL 18 binaries are available,
+but `psycopg` is absent and installation failed because PyPI DNS resolution is
+unavailable. GitHub API access also failed, so this round cannot establish
+PostgreSQL CI success or inspect PR readiness. The existing CI job already
+includes both named regressions; no workflow changes are required.
+
+An isolated connection wrapper that makes `rollback()` a no-op caused the
+strengthened active-row regression to fail at its snapshot assertion, confirming
+that it detects a pending insert surviving a failed batch. The wrapper was
+temporary and did not change repository files. Ruff and `git diff --check`
+passed. Black left the edited test file unchanged.
+
+The required repository-wide Black check failed on sandbox socket creation.
+With `BLACK_NUM_WORKERS=1`, a bounded retry reported **467 files would be left
+unchanged** when interrupted at 45 seconds, but exited 124. This is not a
+successful formatting gate; a writable, unrestricted run must complete it
+before committing.
+
+Committing is blocked: `git add` cannot create `.git/index.lock` because `.git`
+is mounted read-only. Changes remain in the working tree for a writable run.
