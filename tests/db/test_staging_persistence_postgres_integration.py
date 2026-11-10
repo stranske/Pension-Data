@@ -1627,6 +1627,32 @@ def _seed_legacy_replacement(
     return restatement
 
 
+# Keep the assertion source fixed while changing each other persisted field.
+# Replacement rows always force restated=True, so callers cannot change it.
+_LEGACY_CONTENT_CONFLICTS: tuple[dict[str, object], ...] = (
+    {"plan_id": "AUDIT-LEGACY-CONFLICT"},
+    {"plan_period": "FY2025"},
+    {"metric_family": "contributions"},
+    {"metric_name": "contribution_rate"},
+    {"as_reported_value": 80.0},
+    {"normalized_value": 0.81},
+    {"as_reported_unit": "basis_points"},
+    {"normalized_unit": "percent"},
+    {"manager_name": "Different manager"},
+    {"fund_name": "Different fund"},
+    {"vehicle_name": "Different vehicle"},
+    {"relationship_completeness": "partial"},
+    {"confidence": 0.90},
+    {"evidence_refs": ["p.42"]},
+    {"effective_date": "2024-07-01T00:00:00Z"},
+    {"ingestion_date": "2026-04-02T00:00:00Z", "asserted_at": "2026-04-01T00:00:00Z"},
+    {"valid_from": "2024-07-01T00:00:00Z"},
+    {"valid_to": "2025-07-01T00:00:00Z"},
+    {"superseded_at": "2026-06-01T00:00:00Z"},
+    {"benchmark_version": "v2"},
+)
+
+
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 @pytest.mark.parametrize(
     "retry_overrides",
@@ -1681,11 +1707,7 @@ def test_replacement_retry_matches_legacy_keyed_active_row(
         for _ in range(2):
             assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
             assert connection.execute(snapshot_sql, snapshot_params).fetchall() == before
-        for conflict in (
-            {"normalized_value": 0.80},
-            {"evidence_refs": ["p.42"]},
-            {"confidence": 0.90},
-        ):
+        for conflict in _LEGACY_CONTENT_CONFLICTS:
             conflicting = {**retry, **conflict}
             for batch in ([pending, conflicting], [conflicting, pending]):
                 with pytest.raises(ValueError, match="conflicting assertion source"):
@@ -1769,7 +1791,10 @@ def test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion(
         ):
             assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
             assert connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall() == before
-        for retry in (older, {**historical, "normalized_value": 0.81}):
+        conflicting_retries = [older] + [
+            {**historical, **conflict} for conflict in _LEGACY_CONTENT_CONFLICTS
+        ]
+        for retry in conflicting_retries:
             batch = [pending, retry] if pending_first else [retry, pending]
             with pytest.raises(ValueError, match="conflicting assertion already exists"):
                 persist_staging_core_metrics(connection, dialect=dialect, rows=batch)
