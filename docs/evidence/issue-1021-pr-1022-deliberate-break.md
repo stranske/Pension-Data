@@ -2,9 +2,9 @@
 
 Verified on 2026-11-10 with Python 3.14.10.
 
-- [ ] Both legacy replacement tests pass on SQLite locally and PostgreSQL in the
-  `postgres-integration` CI job. Round 3 verified an earlier revision; the test
-  changes in rounds 4 and 5 still require PostgreSQL CI verification.
+- [x] Both legacy replacement tests pass on SQLite locally and PostgreSQL in the
+  `postgres-integration` CI job. Managed round 5 verified the current source and
+  tests at `28e55df`; see the exact-head run and local command below.
 - [x] Disabling legacy-content matching makes the active-row retry test raise;
   restoring matching makes the test pass again.
 
@@ -276,3 +276,35 @@ workflow's automatic `main` pull-request filter. Green Gate checks therefore
 do not establish A1. No source, test, workflow, or dependency changes are
 needed for this verification. PostgreSQL acceptance for the pushed revision
 must be established from the dispatched run before reporting A1 complete.
+
+
+## Managed local keepalive round 5 acceptance (2026-11-09 America/Chicago)
+
+Outcome A1/A2: verified at base head `28e55dfcf4910f229689296915b90c1544bc48bf`.
+The acceptance result is seven SQLite regression variants plus one reversible
+mutation check passing locally, and both dialects passing in PostgreSQL CI.
+Stop rule recorded before execution: three acceptance attempts or 20 minutes.
+No production, test, workflow, or dependency-pin changes were needed.
+
+```sh
+/opt/anaconda3/bin/python3 -m pytest -q --no-cov \
+  tests/db/test_staging_persistence_postgres_integration.py \
+  -k '(replacement_retry_matches_legacy_keyed_active_row or audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion or legacy_active_retry_regression_detects_disabled_content_matching) and sqlite'
+```
+
+Python 3.12.2 result: **8 passed, 153 deselected in 0.21s**, no skips.
+The mutation check disables `_same_assertion_content`, requires the named
+active-row retry to raise its source-conflict error, restores matching, and
+requires the same named regression to pass.
+
+[PostgreSQL CI run 42741656793](https://github.com/stranske/Pension-Data/actions/runs/42741656793)
+reports head `28e55dfcf4910f229689296915b90c1544bc48bf`, successful job
+`postgres-integration`, **163 passed in 1.37s**, no skips. Its log confirms
+that the complete staging integration test file ran with the PostgreSQL URL
+set. This verifies the round 4/5 test additions that the earlier notes left
+pending. This evidence-only commit will receive another exact-head dispatch;
+that run's outcome must be read before claiming acceptance on the pushed head.
+
+Blocking/drainable pair: no local PostgreSQL URL / existing PostgreSQL CI
+workflow dispatch on this branch. The automated keepalive continuation owns
+the post-push review after its seven-minute floor; this round does not merge.
