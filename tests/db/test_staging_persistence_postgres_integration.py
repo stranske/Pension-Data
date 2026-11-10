@@ -1587,6 +1587,129 @@ def _seed_existing_replacement(
     return replacement_id
 
 
+def _seed_legacy_replacement(
+    connection: Any, dialect: DatabaseDialect, base: dict[str, object]
+) -> dict[str, object]:
+    """Model a pre-canonicalization restatement without rewriting its key."""
+    from hashlib import sha1
+
+    restatement = {
+        **base,
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+        "evidence_refs": ["p.41"],
+        "ingestion_date": "2026-04-01T00:00:00+00:00",
+        "source_document_id": "doc:legacy-restated",
+    }
+    payload = json.dumps(
+        {key: restatement.get(key) for key in _STAGING_CORE_METRIC_COLUMNS if key != "fact_id"},
+        default=str,
+        sort_keys=True,
+    )
+    digest = sha1(payload.encode("utf-8")).hexdigest()[:12]
+    legacy_id = f"{base['fact_id']}@{restatement['ingestion_date']}:{digest}"
+    placeholder = "%s" if dialect == "postgresql" else "?"
+    assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+    # Supersede first: PostgreSQL enforces exclusion of overlapping active facts.
+    connection.execute(
+        f"UPDATE staging_core_metrics SET superseded_at = {placeholder}, restated = {placeholder} "
+        f"WHERE fact_id = {placeholder}",
+        (restatement["ingestion_date"], True, base["fact_id"]),
+    )
+    columns = ", ".join(_STAGING_CORE_METRIC_COLUMNS)
+    placeholders = ", ".join(placeholder for _ in _STAGING_CORE_METRIC_COLUMNS)
+    connection.execute(
+        f"INSERT INTO staging_core_metrics ({columns}) VALUES ({placeholders})",
+        _row_values({**restatement, "fact_id": legacy_id, "restated": True}),
+    )
+    connection.commit()
+    return restatement
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_replacement_retry_matches_legacy_keyed_active_row(dialect: DatabaseDialect) -> None:
+    """Exact legacy retries are no-ops; same-source content conflicts still roll back."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    plan_id = "AUDIT-LEGACY-ACTIVE"
+    base = _base_pg_row(fact_id="audit:legacy-active:1", plan_id=plan_id)
+    placeholder = "%s" if dialect == "postgresql" else "?"
+    snapshot_sql = (
+        f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
+        f"WHERE plan_id = {placeholder} ORDER BY fact_id"
+    )
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, plan_id)
+        restatement = _seed_legacy_replacement(connection, dialect, base)
+        before = connection.execute(snapshot_sql, (plan_id,)).fetchall()
+        assert len(before) == 2
+        for retry in (restatement, {**restatement, "evidence_refs": '[ "p.41" ]'}):
+            assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
+            assert connection.execute(snapshot_sql, (plan_id,)).fetchall() == before
+        with pytest.raises(ValueError, match="conflicting assertion source"):
+            persist_staging_core_metrics(
+                connection, dialect=dialect, rows=[{**restatement, "normalized_value": 0.80}]
+            )
+        assert connection.execute(snapshot_sql, (plan_id,)).fetchall() == before
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize("pending_first", [True, False], ids=["pending-first", "retry-first"])
+def test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion(
+    dialect: DatabaseDialect, pending_first: bool
+) -> None:
+    """History remains immutable, with rollback independent of batch ordering."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    plan_id = "AUDIT-LEGACY-HISTORY"
+    pending_plan = "AUDIT-LEGACY-PENDING"
+    base = _base_pg_row(fact_id="audit:legacy-history:1", plan_id=plan_id)
+    pending = _base_pg_row(fact_id="audit:legacy-pending:1", plan_id=pending_plan)
+    placeholder = "%s" if dialect == "postgresql" else "?"
+    snapshot_sql = (
+        f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
+        f"WHERE plan_id IN ({placeholder}, {placeholder}) ORDER BY asserted_at, fact_id"
+    )
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, plan_id, pending_plan)
+        older = _seed_legacy_replacement(connection, dialect, base)
+        newer = {
+            **older,
+            "normalized_value": 0.80,
+            "as_reported_value": 80.0,
+            "ingestion_date": "2026-05-01T00:00:00Z",
+            "source_document_id": "doc:newest",
+        }
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[newer]) == 1
+        before = connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall()
+        superseded_index = _STAGING_CORE_METRIC_COLUMNS.index("superseded_at")
+        assert len(before) == 3
+        assert [row[6] for row in before if row[superseded_index] is None] == [0.80]
+        historical = {**older, "superseded_at": newer["ingestion_date"], "restated": True}
+        # Supplying every historical column is an exact retry, even under a legacy ID.
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[historical]) == 0
+        assert connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall() == before
+        for retry in (older, {**historical, "normalized_value": 0.81}):
+            batch = [pending, retry] if pending_first else [retry, pending]
+            with pytest.raises(ValueError, match="conflicting assertion already exists"):
+                persist_staging_core_metrics(connection, dialect=dialect, rows=batch)
+            assert connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall() == before
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[newer]) == 0
+        assert connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall() == before
+    finally:
+        connection.close()
+
+
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 def test_audit_existing_replacement_with_different_content_conflicts(
     dialect: DatabaseDialect,

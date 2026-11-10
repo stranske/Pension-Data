@@ -376,6 +376,11 @@ def _same_assertion_source(existing: Any, candidate_values: tuple[object, ...]) 
     )
 
 
+def _same_assertion_content(existing: Any, candidate_values: tuple[object, ...]) -> bool:
+    """Compare every stored column except the legacy/canonical key spelling."""
+    return _same_assertion(existing, (existing[0], *candidate_values[1:]))
+
+
 def persist_staging_core_metrics(
     connection: Any,
     *,
@@ -402,6 +407,10 @@ def persist_staging_core_metrics(
     else:
         select_columns = columns
     select_sql = f"SELECT {select_columns} FROM staging_core_metrics WHERE fact_id = {placeholder}"
+    select_replacements_sql = (
+        f"SELECT {select_columns} FROM staging_core_metrics "
+        f"WHERE fact_id LIKE {placeholder} ESCAPE '\\'"
+    )
     select_active_sql = (
         f"SELECT {select_columns} FROM staging_core_metrics "
         f"WHERE (fact_id = {placeholder} OR fact_id LIKE {placeholder} ESCAPE '\\') "
@@ -434,6 +443,9 @@ def persist_staging_core_metrics(
                 if _same_assertion(existing, candidate_values) or _same_assertion(
                     existing,
                     replacement_values,
+                ) or (
+                    str(existing[0]).startswith(f"{fact_id}@")
+                    and _same_assertion_content(existing, replacement_values)
                 ):
                     continue
                 if _same_assertion_source(existing, candidate_values):
@@ -447,6 +459,25 @@ def persist_staging_core_metrics(
                     if _same_assertion(existing_replacement, replacement_values):
                         continue
                     raise ValueError(f"conflicting assertion already exists for {row['fact_id']!r}")
+
+                # Legacy IDs cannot be reconstructed from canonical content. Search
+                # this fact's history before superseding the current assertion.
+                # superseded_at still participates in equality: an ordinary retry
+                # must never resurrect a historical replacement.
+                legacy_replacement = next(
+                    (
+                        stored
+                        for stored in connection.execute(
+                            select_replacements_sql, (fact_id_pattern,)
+                        ).fetchall()
+                        if _same_assertion_source(stored, replacement_values)
+                    ),
+                    None,
+                )
+                if legacy_replacement is not None:
+                    if _same_assertion_content(legacy_replacement, replacement_values):
+                        continue
+                    raise ValueError(f"conflicting assertion already exists for {fact_id!r}")
 
                 asserted_at_index = _STAGING_CORE_METRIC_COLUMNS.index("asserted_at")
                 superseded_at = candidate_values[asserted_at_index]
