@@ -1776,6 +1776,23 @@ def test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion(
             assert connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall() == before
         assert persist_staging_core_metrics(connection, dialect=dialect, rows=[newer]) == 0
         assert connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall() == before
+
+        # A historical no-op must still allow the rest of a successful batch to persist.
+        batch = [pending, historical] if pending_first else [historical, pending]
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=batch) == 1
+        after = connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall()
+        assert len(after) == 4
+        assert [row for row in after if row[0] != pending["fact_id"]] == before
+        pending_rows = [row for row in after if row[0] == pending["fact_id"]]
+        assert len(pending_rows) == 1
+        assert _same_assertion(pending_rows[0], _row_values(pending))
+
+        # Retrying the complete batch in the opposite order must change nothing.
+        assert (
+            persist_staging_core_metrics(connection, dialect=dialect, rows=list(reversed(batch)))
+            == 0
+        )
+        assert connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall() == after
     finally:
         connection.close()
 

@@ -4,7 +4,7 @@ Verified on 2026-11-10 with Python 3.14.10.
 
 - [ ] Both legacy replacement tests pass on SQLite locally and PostgreSQL in the
   `postgres-integration` CI job. Round 3 verified an earlier revision; the test
-  changes in round 4 still require PostgreSQL CI verification.
+  changes in rounds 4 and 5 still require PostgreSQL CI verification.
 - [x] Disabling legacy-content matching makes the active-row retry test raise;
   restoring matching makes the test pass again.
 
@@ -206,3 +206,46 @@ before committing.
 
 Committing is blocked: `git add` cannot create `.git/index.lock` because `.git`
 is mounted read-only. Changes remain in the working tree for a writable run.
+
+## Local keepalive round 5 verification
+
+Check date: 2026-11-10. Python 3.14.10; base head: `df2dee7`.
+
+Extended the named superseded-row regression to exercise successful batches in
+both orders. An exact historical retry must allow an independent pending row
+to persist, preserve every existing history column, and return zero when the
+complete batch is retried in reverse order. The fetched pending row is compared
+canonically so PostgreSQL JSONB and timestamp types participate in the check.
+
+```sh
+pytest tests/db/test_staging_persistence.py \
+  tests/db/test_staging_persistence_postgres_integration.py \
+  -m 'not slow' --no-cov -q
+```
+
+Result: **124 passed, 42 skipped**. All SQLite acceptance variants and the
+deliberate-break check pass. PostgreSQL cases skip because the database URL is
+unset. PostgreSQL 18 binaries are present, but `psycopg` is absent and PyPI DNS
+resolution prevents installation. Ruff and `git diff --check` pass, and Black
+leaves the edited test file unchanged.
+
+The GitHub connector confirms PR #1022 is open with `draft=false`. Listing all
+workflow runs for `df2dee7f41a8307e36e76b971e2ec09863586059` finds nine runs and
+no PostgreSQL integration run. The PR targets `gemini/issue-1019`, whereas the
+existing PostgreSQL workflow automatically runs only for PRs targeting `main`.
+The updated revision still needs a dispatch of the existing PostgreSQL workflow
+on `codex/issue-1021` after the test changes are committed. No workflow edits
+are required. Acceptance remains unchecked pending that result.
+
+Staging the test change fails with `Unable to create .git/index.lock: Read-only
+file system`, so this run cannot create the required source commit locally.
+
+The required repository-wide Black command first fails on sandbox socket
+creation. A single-worker retry hangs; a bounded check using Black's standard
+asyncio fallback reports **467 files would be left unchanged** when interrupted,
+but exits 124. This is not a passing formatting gate. A writable run must
+complete that gate before committing the Python change.
+
+Attempts to add the `needs-human` label and post the blocker comment through
+the GitHub connector were rejected: both tools require approval, but this
+run's approval policy is `never`. The blocker report is therefore local only.
