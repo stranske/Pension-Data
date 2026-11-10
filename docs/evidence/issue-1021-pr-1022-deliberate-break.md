@@ -2,9 +2,11 @@
 
 Verified on 2026-11-10 with Python 3.14.10.
 
-- [ ] Both legacy replacement tests pass on SQLite locally and PostgreSQL in the
-  `postgres-integration` CI job for the latest test revision. Managed round 5
-  verified `28e55df`; subsequent test changes still need PostgreSQL CI.
+- [x] Both legacy replacement tests pass on SQLite locally and PostgreSQL in the
+  `postgres-integration` CI job. Round 11 rechecked the unchanged implementation
+  and tests at `2464529531fbd243a329f9e706ee1bc915dc296b`: 20 focused SQLite cases
+  passed without skips; PostgreSQL run `42754914292` passed all 197 cases without
+  skips. See the round 11 receipt below for commands and final-head readback.
 - [x] Disabling legacy-content matching makes the active-row retry test raise;
   restoring matching makes the test pass again.
 
@@ -498,3 +500,33 @@ dispatch the existing `postgres-integration.yml` on `codex/issue-1021` after
 push and verify its head SHA and test summary. The scheduled continuation owns
 the seven-minute post-push review. Merge remains separately blocked on the
 prerequisite PR #1020; acceptance and review remain drainable on this branch.
+
+
+## Local keepalive round 11 acceptance verification
+
+Check date: 2026-11-09 America/Chicago (2026-11-10 UTC).
+Starting head: `2464529531fbd243a329f9e706ee1bc915dc296b`.
+Outcome 1: exact legacy retries preserve rows and older retries preserve newer
+assertions; disabling matching produces the expected source conflict and
+restoring matching makes the active-row regression pass. Stop rule recorded
+before execution: two attempts per failing command or 20 minutes.
+
+```sh
+/opt/anaconda3/bin/python3 -m pytest -q --no-cov \
+  tests/db/test_staging_persistence_postgres_integration.py \
+  -k 'sqlite and (test_replacement_retry_matches_legacy_keyed_active_row or test_audit_superseded_legacy_replacement_does_not_overwrite_newer_assertion or test_legacy_active_retry_regression_detects_disabled_content_matching)'
+```
+
+Observed: **20 passed, 175 deselected in 0.43s**, zero skips. The automatic
+mutation check disables `_same_assertion_content`, requires the named active-row
+regression's source-conflict error, restores matching, then reruns it successfully.
+Starting-head PostgreSQL workflow
+[42754914292](https://github.com/stranske/Pension-Data/actions/runs/42754914292)
+reported **197 passed in 3.87s**, zero skips. The reported `tests_skipped` failure
+was not reproduced. No production, test, workflow, or dependency changes were
+needed. Corrected the stale unchecked acceptance entry above.
+
+Blocking/drainable pair: final-head PostgreSQL evidence pending this receipt's
+push / dispatch the existing `postgres-integration.yml` on `codex/issue-1021`
+and verify the resulting head SHA and test summary. The scheduled continuation
+owns the seven-minute post-push review; this round does not merge the PR.
