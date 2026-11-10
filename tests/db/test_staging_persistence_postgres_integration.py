@@ -1654,6 +1654,7 @@ _LEGACY_CONTENT_CONFLICTS: tuple[dict[str, object], ...] = (
 
 
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize("base_present", [True, False], ids=["base-present", "replacement-only"])
 @pytest.mark.parametrize(
     "retry_overrides",
     [
@@ -1671,7 +1672,7 @@ _LEGACY_CONTENT_CONFLICTS: tuple[dict[str, object], ...] = (
     ],
 )
 def test_replacement_retry_matches_legacy_keyed_active_row(
-    dialect: DatabaseDialect, retry_overrides: dict[str, object]
+    dialect: DatabaseDialect, retry_overrides: dict[str, object], base_present: bool
 ) -> None:
     """Exact legacy retries are no-ops; same-source content conflicts still roll back."""
     if dialect == "postgresql":
@@ -1693,8 +1694,14 @@ def test_replacement_retry_matches_legacy_keyed_active_row(
         if dialect == "postgresql":
             _reset_plan_rows(connection, plan_id, pending_plan)
         restatement = _seed_legacy_replacement(connection, dialect, base)
+        if not base_present:
+            connection.execute(
+                f"DELETE FROM staging_core_metrics WHERE fact_id = {placeholder}",
+                (base["fact_id"],),
+            )
+            connection.commit()
         before = connection.execute(snapshot_sql, snapshot_params).fetchall()
-        assert len(before) == 2
+        assert len(before) == (2 if base_present else 1)
         active = [
             row
             for row in before
@@ -1718,7 +1725,7 @@ def test_replacement_retry_matches_legacy_keyed_active_row(
         # A successful mixed batch must continue past the legacy no-op.
         assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry, pending]) == 1
         after = connection.execute(snapshot_sql, snapshot_params).fetchall()
-        assert len(after) == 3
+        assert len(after) == len(before) + 1
         assert [row for row in after if row[0] != pending["fact_id"]] == before
         assert persist_staging_core_metrics(connection, dialect=dialect, rows=[pending, retry]) == 0
         assert connection.execute(snapshot_sql, snapshot_params).fetchall() == after
@@ -1790,8 +1797,9 @@ def test_superseded_legacy_retry_without_active_row_checks_content(
 
 
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize("base_present", [True, False], ids=["base-present", "replacement-only"])
 def test_legacy_active_retry_regression_detects_disabled_content_matching(
-    dialect: DatabaseDialect, monkeypatch: pytest.MonkeyPatch
+    dialect: DatabaseDialect, monkeypatch: pytest.MonkeyPatch, base_present: bool
 ) -> None:
     """The named regression fails without legacy matching and passes after restoration."""
     from pension_data.db import staging_persistence
@@ -1801,9 +1809,9 @@ def test_legacy_active_retry_regression_detects_disabled_content_matching(
         with pytest.raises(
             ValueError, match="^conflicting assertion source for 'audit:legacy-active:1'$"
         ):
-            test_replacement_retry_matches_legacy_keyed_active_row(dialect, {})
+            test_replacement_retry_matches_legacy_keyed_active_row(dialect, {}, base_present)
 
-    test_replacement_retry_matches_legacy_keyed_active_row(dialect, {})
+    test_replacement_retry_matches_legacy_keyed_active_row(dialect, {}, base_present)
 
 
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
