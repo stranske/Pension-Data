@@ -1727,6 +1727,69 @@ def test_replacement_retry_matches_legacy_keyed_active_row(
 
 
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize("base_present", [True, False], ids=["base-present", "replacement-only"])
+def test_superseded_legacy_retry_without_active_row_checks_content(
+    dialect: DatabaseDialect, base_present: bool
+) -> None:
+    """Retired history still distinguishes exact retries from conflicting content."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    plan_id = "AUDIT-LEGACY-RETIRED"
+    pending_plan = "AUDIT-LEGACY-RETIRED-PENDING"
+    base = _base_pg_row(fact_id="audit:legacy-retired:1", plan_id=plan_id)
+    pending = _base_pg_row(fact_id="audit:legacy-retired:pending", plan_id=pending_plan)
+    placeholder = "%s" if dialect == "postgresql" else "?"
+    snapshot_sql = (
+        f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
+        f"WHERE plan_id IN ({placeholder}, {placeholder}) ORDER BY fact_id"
+    )
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, plan_id, pending_plan)
+        older = _seed_legacy_replacement(connection, dialect, base)
+        retired_at = "2026-05-01T00:00:00Z"
+        connection.execute(
+            f"UPDATE staging_core_metrics SET superseded_at = {placeholder} "
+            f"WHERE plan_id = {placeholder} AND superseded_at IS NULL",
+            (retired_at, plan_id),
+        )
+        if not base_present:
+            connection.execute(
+                f"DELETE FROM staging_core_metrics WHERE fact_id = {placeholder}",
+                (base["fact_id"],),
+            )
+        connection.commit()
+        before = connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall()
+        assert len(before) == (2 if base_present else 1)
+        historical = {**older, "superseded_at": retired_at, "restated": True}
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[historical]) == 0
+        assert connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall() == before
+        for retry in (older, {**historical, "normalized_value": 0.81}):
+            for batch in ([pending, retry], [retry, pending]):
+                with pytest.raises(ValueError, match="conflicting assertion already exists"):
+                    persist_staging_core_metrics(connection, dialect=dialect, rows=batch)
+                assert (
+                    connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall() == before
+                )
+        assert (
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[pending, historical])
+            == 1
+        )
+        after = connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall()
+        assert [row for row in after if row[0] != pending["fact_id"]] == before
+        assert (
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[historical, pending])
+            == 0
+        )
+        assert connection.execute(snapshot_sql, (plan_id, pending_plan)).fetchall() == after
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 def test_legacy_active_retry_regression_detects_disabled_content_matching(
     dialect: DatabaseDialect, monkeypatch: pytest.MonkeyPatch
 ) -> None:

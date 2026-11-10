@@ -490,6 +490,25 @@ def persist_staging_core_metrics(
                 inserted += max(replacement_cursor.rowcount, 0)
                 continue
 
+            # Retired facts can have only superseded history. Check legacy
+            # content before ON CONFLICT would silently discard a changed retry
+            # (or insert a duplicate if the original base row is absent).
+            historical_values = _row_values({**row, "restated": True})
+            legacy_replacement = next(
+                (
+                    stored
+                    for stored in connection.execute(
+                        select_replacements_sql, (fact_id_pattern,)
+                    ).fetchall()
+                    if _same_assertion_source(stored, historical_values)
+                ),
+                None,
+            )
+            if legacy_replacement is not None:
+                if _same_assertion_content(legacy_replacement, historical_values):
+                    continue
+                raise ValueError(f"conflicting assertion already exists for {fact_id!r}")
+
             cursor = connection.execute(sql, candidate_values)
             rowcount = max(cursor.rowcount, 0)
             inserted += rowcount
