@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 import os
 from datetime import UTC, date, datetime, timedelta, timezone
+from decimal import Decimal
+from hashlib import sha1
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from pension_data.db import staging_persistence
 from pension_data.db.migrations_runner import apply_migrations
 from pension_data.db.staging_persistence import (
     _STAGING_CORE_METRIC_COLUMNS,
@@ -433,42 +436,35 @@ def _declared_sql_type(table_body: str, column: str) -> str:
     raise AssertionError(f"column {column!r} missing from staging_core_metrics")
 
 
-# Audit #964: local adapter controls run even when the live PostgreSQL DSN is absent.
-class _VerifiedRestatementRetryConflictError(ValueError):
-    """Only the known retry conflict, after checking transaction integrity, may xfail."""
+def _legacy_replacement_fact_id(row: dict[str, object]) -> str:
+    """Generate the key exactly as the pre-upgrade writer did."""
+    asserted_at = row.get("asserted_at") or row.get("ingestion_date") or ""
+    payload = json.dumps(
+        {column: row.get(column) for column in _STAGING_CORE_METRIC_COLUMNS if column != "fact_id"},
+        default=str,
+        sort_keys=True,
+    )
+    return f"{row['fact_id']}@{asserted_at}:{sha1(payload.encode('utf-8')).hexdigest()[:12]}"
 
 
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize("legacy_key", [False, True], ids=["canonical-key", "legacy-key"])
 @pytest.mark.parametrize(
     "retry_overrides",
     [
         pytest.param({}, id="identical"),
-        *[
-            pytest.param(
-                overrides,
-                id=case,
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    raises=_VerifiedRestatementRetryConflictError,
-                    reason="Audit #964: raw replacement IDs reject equivalent restatement retries",
-                ),
-            )
-            for case, overrides in (
-                ("timezone", {"ingestion_date": "2026-04-01T02:00:00+02:00"}),
-                ("json-text", {"evidence_refs": '["p.41"]'}),
-                ("explicit-default", {"asserted_at": "2026-04-01T00:00:00Z"}),
-            )
-        ],
+        pytest.param({"ingestion_date": "2026-04-01T02:00:00+02:00"}, id="timezone"),
+        pytest.param({"evidence_refs": '[ "p.41" ]'}, id="json-text"),
+        pytest.param({"asserted_at": "2026-04-01T00:00:00Z"}, id="explicit-default"),
     ],
 )
 def test_audit_restatement_retry_representation_boundary(
-    dialect: DatabaseDialect, retry_overrides: dict[str, object]
+    dialect: DatabaseDialect,
+    legacy_key: bool,
+    retry_overrides: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Desired retry contract; strict xfails return the observed gap for human review.
-
-    SQLite exercises the real persistence path locally. PostgreSQL remains an
-    independent live check; neither the local result nor an xfail proves PG parity.
-    """
+    """Retry both a newly written and a pre-upgrade replacement through persistence."""
     if dialect == "postgresql":
         connection = _postgres_connection()
     else:
@@ -495,27 +491,40 @@ def test_audit_restatement_retry_representation_boundary(
         if dialect == "postgresql":
             _reset_plan_rows(connection, "AUDIT-RESTATEMENT", "AUDIT-RESTATEMENT-PENDING")
         assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
-        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
-        # Exact retries provide a passing control before varying only representation.
-        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
+        with monkeypatch.context() as writer:
+            if legacy_key:
+                writer.setattr(
+                    staging_persistence, "_replacement_fact_id", _legacy_replacement_fact_id
+                )
+            inserted = persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement])
+            assert inserted == 1
         before_retry = connection.execute(snapshot_sql).fetchall()
-        try:
-            # A prior write makes rollback observable if the retry raises the known conflict.
-            inserted = persist_staging_core_metrics(
-                connection, dialect=dialect, rows=[pending, retry]
-            )
-        except ValueError as error:
-            assert str(error) == "conflicting assertion source for 'audit:restatement:1'"
-            assert connection.execute(snapshot_sql).fetchall() == before_retry
-            assert (
-                persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
-            )
-            raise _VerifiedRestatementRetryConflictError(str(error)) from error
-        assert inserted == 1  # Only the pending fact is new when the retry succeeds.
-        count = connection.execute(
-            "SELECT COUNT(*) FROM staging_core_metrics WHERE plan_id = 'AUDIT-RESTATEMENT'"
-        ).fetchone()[0]
-        assert count == 2
+        assert len(before_retry) == 2
+        replacement_id = before_retry[1][0]
+        if legacy_key:
+            assert replacement_id == _legacy_replacement_fact_id(restatement)
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
+        conflict = {**retry, "normalized_value": 0.80}
+        with pytest.raises(ValueError, match="conflicting assertion source"):
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[pending, conflict])
+        assert connection.execute(snapshot_sql).fetchall() == before_retry
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[retry]) == 0
+        assert connection.execute(snapshot_sql).fetchall() == before_retry
+        if not legacy_key:
+            # Content fallback also recognizes an active row after a key change.
+            # Independently require the current writer to generate the same key.
+            assert staging_persistence._replacement_fact_id(retry) == replacement_id
+
+        later = {
+            **restatement,
+            "ingestion_date": "2026-05-01T00:00:00Z",
+            "source_document_id": "doc:later-restatement",
+        }
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[later]) == 1
+        after_later = connection.execute(snapshot_sql).fetchall()
+        with pytest.raises(ValueError, match="conflicting assertion already exists"):
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[retry])
+        assert connection.execute(snapshot_sql).fetchall() == after_later
     finally:
         connection.close()
 
@@ -547,8 +556,7 @@ def test_audit_inventories_equality_and_key_construction_seams() -> None:
     for name, fn in seams:
         assert callable(fn), name
 
-    # Content equality is representation-tolerant; replacement key construction is not.
-    # Disposition: review candidate — do not file an issue or repair in this audit PR.
+    # Content equality and replacement keys both tolerate equivalent representations.
     row_z = {
         **_base_pg_row(fact_id="audit:key:1", plan_id="AUDIT-KEY"),
         "asserted_at": "2026-03-03T00:00:00Z",
@@ -563,7 +571,7 @@ def test_audit_inventories_equality_and_key_construction_seams() -> None:
     values_offset = _row_values(row_offset)
     assert values_z != values_offset
     assert _same_assertion(values_z, values_offset)
-    assert persistence._replacement_fact_id(row_z) != persistence._replacement_fact_id(row_offset)
+    assert persistence._replacement_fact_id(row_z) == persistence._replacement_fact_id(row_offset)
 
     # Direct builder callers may skip parser CUSIP normalization (unknown; human decision).
     punctuated = positions._normalize_cusip("037-833-100")
@@ -919,3 +927,138 @@ def test_audit_name_only_security_identity_uses_its_own_contract(
 )
 def test_audit_schema_rejects_array_type_suffixes(declaration: str) -> None:
     assert _declared_sql_type(f"  valid_to {declaration},", "valid_to") != "TIMESTAMPTZ"
+
+
+@pytest.mark.parametrize(
+    ("wildcard_id", "other_id"),
+    [
+        pytest.param("a_b", "axb", id="underscore"),
+        pytest.param("a%b", "axb", id="percent"),
+        pytest.param(r"a\b", "ab", id="backslash"),
+    ],
+)
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_audit_wildcard_fact_id_does_not_steal_other_replacement(
+    dialect: DatabaseDialect, wildcard_id: str, other_id: str
+) -> None:
+    """LIKE wildcards in a fact_id must not match another fact's rows (#964).
+
+    The active/replacement lookup keys replacements by ``fact_id LIKE
+    '<fact_id>@%'``; an unescaped ``_``/``%`` in one fact's id matched a
+    different fact's active replacement, so that fact's first insert
+    superseded the stranger's row and was stored only under a replacement
+    id. The pattern is escaped so the prefix is literal in both dialects.
+    """
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    other = _base_pg_row(fact_id=other_id, plan_id="AUDIT-WILDCARD-OTHER")
+    other_restated = {
+        **other,
+        "normalized_value": 0.80,
+        "as_reported_value": 80.0,
+        "evidence_refs": ["p.41"],
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:other-restated",
+    }
+    wildcard = _base_pg_row(fact_id=wildcard_id, plan_id="AUDIT-WILDCARD")
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-WILDCARD-OTHER", "AUDIT-WILDCARD")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[other]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[other_restated]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[wildcard]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[wildcard]) == 0
+        wildcard_restated = {
+            **wildcard,
+            "normalized_value": 0.81,
+            "as_reported_value": 81.0,
+            "evidence_refs": ["p.42"],
+            "ingestion_date": "2026-04-01T00:00:00Z",
+            "source_document_id": "doc:wildcard-restated",
+        }
+        # Its own restatement still finds and supersedes only its own rows.
+        assert (
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[wildcard_restated]) == 1
+        )
+        assert (
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[wildcard_restated]) == 0
+        )
+        # The base row is now superseded, so both lookup and update must match
+        # the escaped prefix to find the first replacement.
+        wildcard_latest = {
+            **wildcard_restated,
+            "ingestion_date": "2026-05-01T00:00:00Z",
+            "source_document_id": "doc:wildcard-latest",
+        }
+        inserted = persist_staging_core_metrics(connection, dialect=dialect, rows=[wildcard_latest])
+        assert inserted == 1
+        rows = connection.execute(
+            "SELECT fact_id, plan_id, superseded_at FROM staging_core_metrics "
+            "WHERE plan_id IN ('AUDIT-WILDCARD-OTHER', 'AUDIT-WILDCARD')"
+        ).fetchall()
+        assert len(rows) == 5
+        wildcard_rows = [row for row in rows if row[1] == "AUDIT-WILDCARD"]
+        wildcard_ids = sorted(row[0] for row in wildcard_rows)
+        assert wildcard_ids[0] == wildcard_id
+        assert all(fact_id.startswith(f"{wildcard_id}@") for fact_id in wildcard_ids[1:])
+        active_wildcard = [row[0] for row in wildcard_rows if row[2] is None]
+        assert active_wildcard == [staging_persistence._replacement_fact_id(wildcard_latest)]
+        # The other fact's active replacement was not superseded by the insert.
+        active_other = [
+            row[0] for row in rows if row[1] == "AUDIT-WILDCARD-OTHER" and row[2] is None
+        ]
+        assert len(active_other) == 1
+        assert active_other[0].startswith(f"{other_id}@")
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_audit_evidence_decimal_precision_restatement_retry_is_idempotent(
+    dialect: DatabaseDialect,
+) -> None:
+    """A precision-distinct evidence change conflicts; an exact retry does not."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    base = {
+        **_base_pg_row(fact_id="audit:evidence-precision:2", plan_id="AUDIT-EVIDENCE-PRECISION"),
+        "evidence_refs": {"amount": Decimal("0.123456789012345678900")},
+    }
+    restatement = {
+        **base,
+        "normalized_value": 0.79,
+        "as_reported_value": 79.0,
+        "evidence_refs": {"amount": Decimal("0.123456789012345678901")},
+        "ingestion_date": "2026-04-01T00:00:00Z",
+        "source_document_id": "doc:restated",
+    }
+    distinct_retry = {
+        **restatement,
+        "evidence_refs": {"amount": Decimal("0.123456789012345678902")},
+    }
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-EVIDENCE-PRECISION")
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
+        json_retry = {**restatement, "evidence_refs": '{"amount": 0.1234567890123456789010}'}
+        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[json_retry]) == 0
+        replacement_id = staging_persistence._replacement_fact_id(restatement)
+        assert staging_persistence._replacement_fact_id(json_retry) == replacement_id
+        assert staging_persistence._replacement_fact_id(distinct_retry) != replacement_id
+        with pytest.raises(ValueError, match="conflicting assertion source"):
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[distinct_retry])
+        count = connection.execute(
+            "SELECT COUNT(*) FROM staging_core_metrics "
+            "WHERE plan_id = 'AUDIT-EVIDENCE-PRECISION'"
+        ).fetchone()[0]
+        assert count == 2
+    finally:
+        connection.close()
