@@ -529,6 +529,16 @@ def test_audit_restatement_retry_representation_boundary(
             # Independently require the current writer to generate the same key.
             assert staging_persistence._replacement_fact_id(retry) == replacement_id
 
+        # Retrying in a successful batch must count only new facts, preserve
+        # existing history, and tolerate the same assertion appearing twice.
+        assert (
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[pending, retry, retry])
+            == 1
+        )
+        after_batch = connection.execute(snapshot_sql).fetchall()
+        assert [row for row in after_batch if row[0] != pending["fact_id"]] == before_retry
+        assert sum(row[0] == pending["fact_id"] for row in after_batch) == 1
+
         later = {
             **restatement,
             "ingestion_date": "2026-05-01T00:00:00Z",
