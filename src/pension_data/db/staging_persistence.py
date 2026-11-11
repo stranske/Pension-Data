@@ -63,12 +63,14 @@ def _serialize_evidence_refs(value: object) -> str | None:
 
 def _evidence_json(value: object, *, reject_nonfinite_decimal: bool = False) -> str:
     """Encode evidence without rounding JSON numbers through binary floats."""
-    if reject_nonfinite_decimal and isinstance(value, Decimal) and not value.is_finite():
-        raise ValueError(f"non-finite Decimal in evidence_refs: {value}")
     if isinstance(value, int) and not isinstance(value, bool):
         value = Decimal(value)
     elif isinstance(value, float):
         value = Decimal(str(value))
+    # After the float conversion, so NaN/Infinity floats are refused exactly like non-finite Decimals:
+    # emitting them would write invalid JSON (PostgreSQL JSONB rejects it; SQLite would keep it).
+    if reject_nonfinite_decimal and isinstance(value, Decimal) and not value.is_finite():
+        raise ValueError(f"non-finite Decimal in evidence_refs: {value}")
     if isinstance(value, Decimal):
         if not value.is_finite():
             return json.dumps(float(value))

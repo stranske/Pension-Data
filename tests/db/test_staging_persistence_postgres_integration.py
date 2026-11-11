@@ -1059,6 +1059,39 @@ def test_audit_wildcard_fact_id_does_not_steal_other_replacement(
 
 
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize(
+    ("amount", "shown"),
+    [(float("nan"), "NaN"), (float("inf"), "Infinity"), (float("-inf"), "-Infinity")],
+)
+def test_audit_rejects_nonfinite_float_evidence(
+    dialect: DatabaseDialect, amount: float, shown: str
+) -> None:
+    """A float NaN/Infinity is refused like a non-finite Decimal, never written as invalid JSON."""
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    valid = _base_pg_row(fact_id="audit:evidence:valid-f", plan_id="AUDIT-NONFINITE-F-VALID")
+    invalid = {
+        **_base_pg_row(fact_id="audit:evidence:nonfinite-f", plan_id="AUDIT-NONFINITE-F-INVALID"),
+        "evidence_refs": {"entries": [{"amount": amount}]},
+    }
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-NONFINITE-F-VALID", "AUDIT-NONFINITE-F-INVALID")
+        with pytest.raises(ValueError, match=f"non-finite Decimal in evidence_refs: {shown}"):
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[valid, invalid])
+        rows = connection.execute(
+            "SELECT fact_id FROM staging_core_metrics "
+            "WHERE plan_id IN ('AUDIT-NONFINITE-F-VALID', 'AUDIT-NONFINITE-F-INVALID')"
+        ).fetchall()
+        assert rows == []
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 @pytest.mark.parametrize("amount", ["NaN", "Infinity", "-Infinity"])
 def test_audit_rejects_nonfinite_decimal_evidence(dialect: DatabaseDialect, amount: str) -> None:
     if dialect == "postgresql":
