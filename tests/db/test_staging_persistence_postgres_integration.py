@@ -1026,6 +1026,17 @@ def test_audit_wildcard_fact_id_does_not_steal_other_replacement(
         }
         inserted = persist_staging_core_metrics(connection, dialect=dialect, rows=[wildcard_latest])
         assert inserted == 1
+        # Lookup must return both active and superseded replacements for this
+        # literal prefix while excluding the other fact's replacement.
+        replacements = connection.execute(
+            f"SELECT fact_id FROM staging_core_metrics WHERE fact_id LIKE {placeholder} ESCAPE '\\'",
+            (staging_persistence._replacement_id_pattern(wildcard_id),),
+        ).fetchall()
+        assert {row[0] for row in replacements} == {
+            staging_persistence._replacement_fact_id(wildcard_restated),
+            staging_persistence._replacement_fact_id(wildcard_latest),
+        }
+        assert all(not row[0].startswith(f"{other_id}@") for row in replacements)
         rows = connection.execute(
             "SELECT fact_id, plan_id, superseded_at FROM staging_core_metrics "
             "WHERE plan_id IN ('AUDIT-WILDCARD-OTHER', 'AUDIT-WILDCARD')"
