@@ -1059,6 +1059,33 @@ def test_audit_wildcard_fact_id_does_not_steal_other_replacement(
 
 
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+@pytest.mark.parametrize("amount", ["NaN", "Infinity", "-Infinity"])
+def test_audit_rejects_nonfinite_decimal_evidence(dialect: DatabaseDialect, amount: str) -> None:
+    if dialect == "postgresql":
+        connection = _postgres_connection()
+    else:
+        connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+        apply_migrations(connection, dialect=dialect)
+    valid = _base_pg_row(fact_id="audit:evidence:valid", plan_id="AUDIT-NONFINITE-VALID")
+    invalid = {
+        **_base_pg_row(fact_id="audit:evidence:nonfinite", plan_id="AUDIT-NONFINITE-INVALID"),
+        "evidence_refs": {"entries": [{"amount": Decimal(amount)}]},
+    }
+    try:
+        if dialect == "postgresql":
+            _reset_plan_rows(connection, "AUDIT-NONFINITE-VALID", "AUDIT-NONFINITE-INVALID")
+        with pytest.raises(ValueError, match=f"non-finite Decimal in evidence_refs: {amount}"):
+            persist_staging_core_metrics(connection, dialect=dialect, rows=[valid, invalid])
+        rows = connection.execute(
+            "SELECT fact_id FROM staging_core_metrics "
+            "WHERE plan_id IN ('AUDIT-NONFINITE-VALID', 'AUDIT-NONFINITE-INVALID')"
+        ).fetchall()
+        assert rows == []
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 def test_audit_evidence_decimal_precision_restatement_retry_is_idempotent(
     dialect: DatabaseDialect,
 ) -> None:

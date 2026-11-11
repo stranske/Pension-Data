@@ -58,11 +58,13 @@ def _serialize_evidence_refs(value: object) -> str | None:
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
         refs = [str(item) for item in value]
         return json.dumps(refs, sort_keys=True)
-    return _evidence_json(value)
+    return _evidence_json(value, reject_nonfinite_decimal=True)
 
 
-def _evidence_json(value: object) -> str:
+def _evidence_json(value: object, *, reject_nonfinite_decimal: bool = False) -> str:
     """Encode evidence without rounding JSON numbers through binary floats."""
+    if reject_nonfinite_decimal and isinstance(value, Decimal) and not value.is_finite():
+        raise ValueError(f"non-finite Decimal in evidence_refs: {value}")
     if isinstance(value, int) and not isinstance(value, bool):
         value = Decimal(value)
     elif isinstance(value, float):
@@ -86,10 +88,15 @@ def _evidence_json(value: object) -> str:
                 if key is not None and not isinstance(key, (int, float)):
                     raise TypeError(f"invalid JSON object key: {key!r}")
                 key = json.dumps(key)
-            items.append(f"{json.dumps(key)}: {_evidence_json(item)}")
+            encoded = _evidence_json(item, reject_nonfinite_decimal=reject_nonfinite_decimal)
+            items.append(f"{json.dumps(key)}: {encoded}")
         return "{" + ", ".join(items) + "}"
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return "[" + ", ".join(_evidence_json(item) for item in value) + "]"
+        encoded_items = (
+            _evidence_json(item, reject_nonfinite_decimal=reject_nonfinite_decimal)
+            for item in value
+        )
+        return "[" + ", ".join(encoded_items) + "]"
     return json.dumps(value, sort_keys=True)
 
 
