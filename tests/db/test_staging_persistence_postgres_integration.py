@@ -450,6 +450,9 @@ def _legacy_replacement_fact_id(row: dict[str, object]) -> str:
 @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
 @pytest.mark.parametrize("legacy_key", [False, True], ids=["canonical-key", "legacy-key"])
 @pytest.mark.parametrize(
+    "variant_on_write", [False, True], ids=["variant-on-retry", "variant-on-write"]
+)
+@pytest.mark.parametrize(
     "retry_overrides",
     [
         pytest.param({}, id="identical"),
@@ -469,10 +472,11 @@ def _legacy_replacement_fact_id(row: dict[str, object]) -> str:
 def test_audit_restatement_retry_representation_boundary(
     dialect: DatabaseDialect,
     legacy_key: bool,
+    variant_on_write: bool,
     retry_overrides: dict[str, object],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Retry both a newly written and a pre-upgrade replacement through persistence."""
+    """Retry current and legacy replacements across representations in both directions."""
     if dialect == "postgresql":
         connection = _postgres_connection()
     else:
@@ -488,6 +492,8 @@ def test_audit_restatement_retry_representation_boundary(
         "source_document_id": "doc:restated",
     }
     retry = {**restatement, **retry_overrides}
+    if variant_on_write:
+        restatement, retry = retry, restatement
     pending = _base_pg_row(fact_id="audit:restatement:pending", plan_id="AUDIT-RESTATEMENT-PENDING")
     snapshot_sql = (
         f"SELECT {', '.join(_STAGING_CORE_METRIC_COLUMNS)} FROM staging_core_metrics "
