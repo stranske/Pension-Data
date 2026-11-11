@@ -456,6 +456,14 @@ def _legacy_replacement_fact_id(row: dict[str, object]) -> str:
         pytest.param({"ingestion_date": "2026-04-01T02:00:00+02:00"}, id="timezone"),
         pytest.param({"evidence_refs": '[ "p.41" ]'}, id="json-text"),
         pytest.param({"asserted_at": "2026-04-01T00:00:00Z"}, id="explicit-default"),
+        pytest.param(
+            {
+                "ingestion_date": "2026-04-01T02:00:00+02:00",
+                "evidence_refs": '[ "p.41" ]',
+                "asserted_at": "2026-04-01T00:00:00+00:00",
+            },
+            id="combined",
+        ),
     ],
 )
 def test_audit_restatement_retry_representation_boundary(
@@ -986,6 +994,13 @@ def test_audit_wildcard_fact_id_does_not_steal_other_replacement(
         assert (
             persist_staging_core_metrics(connection, dialect=dialect, rows=[wildcard_restated]) == 0
         )
+        placeholder = "%s" if dialect == "postgresql" else "?"
+        replacements = connection.execute(
+            f"SELECT fact_id FROM staging_core_metrics WHERE fact_id LIKE {placeholder} ESCAPE '\\'",
+            (staging_persistence._replacement_id_pattern(wildcard_id),),
+        ).fetchall()
+        assert replacements == [(staging_persistence._replacement_fact_id(wildcard_restated),)]
+        assert all(not row[0].startswith(f"{other_id}@") for row in replacements)
         # The base row is now superseded, so both lookup and update must match
         # the escaped prefix to find the first replacement.
         wildcard_latest = {
@@ -1042,23 +1057,34 @@ def test_audit_evidence_decimal_precision_restatement_retry_is_idempotent(
         **restatement,
         "evidence_refs": {"amount": Decimal("0.123456789012345678902")},
     }
+    snapshot_sql = (
+        "SELECT fact_id, CAST(evidence_refs AS TEXT), superseded_at, restated "
+        "FROM staging_core_metrics WHERE plan_id = 'AUDIT-EVIDENCE-PRECISION' ORDER BY fact_id"
+    )
     try:
         if dialect == "postgresql":
             _reset_plan_rows(connection, "AUDIT-EVIDENCE-PRECISION")
         assert persist_staging_core_metrics(connection, dialect=dialect, rows=[base]) == 1
         assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 1
+        before_retry = connection.execute(snapshot_sql).fetchall()
+        assert len(before_retry) == 2
+        assert [json.loads(row[1], parse_float=Decimal) for row in before_retry] == [
+            base["evidence_refs"],
+            restatement["evidence_refs"],
+        ]
         assert persist_staging_core_metrics(connection, dialect=dialect, rows=[restatement]) == 0
-        json_retry = {**restatement, "evidence_refs": '{"amount": 0.1234567890123456789010}'}
-        assert persist_staging_core_metrics(connection, dialect=dialect, rows=[json_retry]) == 0
         replacement_id = staging_persistence._replacement_fact_id(restatement)
-        assert staging_persistence._replacement_fact_id(json_retry) == replacement_id
+        for evidence_refs in (
+            '{"amount": 0.1234567890123456789010}',
+            '{ "amount" : 123456789012345678901e-21 }',
+        ):
+            json_retry = {**restatement, "evidence_refs": evidence_refs}
+            assert persist_staging_core_metrics(connection, dialect=dialect, rows=[json_retry]) == 0
+            assert staging_persistence._replacement_fact_id(json_retry) == replacement_id
+            assert connection.execute(snapshot_sql).fetchall() == before_retry
         assert staging_persistence._replacement_fact_id(distinct_retry) != replacement_id
         with pytest.raises(ValueError, match="conflicting assertion source"):
             persist_staging_core_metrics(connection, dialect=dialect, rows=[distinct_retry])
-        count = connection.execute(
-            "SELECT COUNT(*) FROM staging_core_metrics "
-            "WHERE plan_id = 'AUDIT-EVIDENCE-PRECISION'"
-        ).fetchone()[0]
-        assert count == 2
+        assert connection.execute(snapshot_sql).fetchall() == before_retry
     finally:
         connection.close()
