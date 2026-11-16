@@ -1,10 +1,10 @@
 # Issue #1031 / PR #1033 deliberate-break transcript
 
-Fresh replay on `cursor/issue-1031` (2026-11-16) for acceptance criterion A2.
+Fresh replay on `cursor/issue-1031` (2026-11-16) for acceptance criteria A1–A4.
 
 ## Provenance
 
-- Branch: `cursor/issue-1031` at keepalive round 3/12 (recovered from hollow_break on acceptance replay)
+- Branch: `cursor/issue-1031` at keepalive round 4/12 (acceptance replay after hollow_break on round 4 dispatch)
 - Focused test: `tests/web/test_build_workspace_bundle.py::test_builder_rejects_failed_or_foreign_pilot_artifacts`
 - Break target: `scripts/web/build_workspace_bundle.py` (`_artifact_path`)
 - Environment: Python 3.12.2 via `/opt/anaconda3/bin/python3`; `PYTHONPATH=src`
@@ -17,8 +17,8 @@ python3 -m pytest tests/web/test_build_workspace_bundle.py -q
 ```
 
 ```text
-7 passed in 0.55s  (named parametrized test)
-10 passed in 0.68s  (full file)
+7 passed in 0.60s  (named parametrized test)
+10 passed in 0.61s  (full file)
 ```
 
 ```console
