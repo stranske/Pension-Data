@@ -327,4 +327,6 @@ def test_builder_rejects_failed_or_foreign_pilot_artifacts(tmp_path: Path, mutat
         text=True,
     )
     assert result.returncode != 0
+    assert "wrote generated workspace bundle" not in result.stdout
+    assert result.stderr.startswith("error:")
     assert out.read_bytes() == before
