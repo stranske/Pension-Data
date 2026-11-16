@@ -52,10 +52,7 @@ def _artifact_path(pilot_run_dir: Path, manifest: Mapping[str, Any], key: str) -
                 candidate = cwd_candidate
             else:
                 root_candidate = ROOT / candidate
-                if root_candidate.exists():
-                    candidate = root_candidate
-                else:
-                    candidate = run_relative
+                candidate = root_candidate if root_candidate.exists() else run_relative
     try:
         resolved = candidate.resolve(strict=True)
     except OSError as exc:
