@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILDER_PATH = ROOT / "scripts" / "web" / "build_workspace_bundle.py"
@@ -74,6 +77,7 @@ def _write_fixture_pilot_run(tmp_path: Path) -> Path:
                     "plan_period": "FY2024",
                     "source_document_id": "calpers-fy2024",
                 },
+                "ledger_status": "success",
                 "run_id": "run-123",
             }
         ),
@@ -147,7 +151,13 @@ def test_generator_accepts_paths_already_rooted_at_output_root(tmp_path: Path, m
                         "extraction_persistence/staging_core_metrics.json"
                     ),
                 },
-                "input": {"effective_date": "2026-05-30"},
+                "input": {
+                    "effective_date": "2026-05-30",
+                    "plan_id": "ca-pers",
+                    "plan_period": "FY2025",
+                    "source_document_id": "calpers-fy2025",
+                },
+                "ledger_status": "success",
                 "run_id": "run-456",
             }
         ),
@@ -192,3 +202,176 @@ def test_cli_writes_bundle_that_runtime_smoke_accepts(tmp_path: Path) -> None:
         path_label="data/workspace.json",
         reject_fixture=True,
     )
+
+
+def _staging_row() -> dict[str, object]:
+    return {
+        "confidence": 0.92,
+        "evidence_refs": ["p12:t4:r2"],
+        "metric_family": "funded_status",
+        "metric_name": "funded_ratio",
+        "normalized_value": 0.81,
+        "plan_id": "ca-pers",
+        "plan_period": "FY2024",
+        "source_document_id": "calpers-fy2024",
+    }
+
+
+def _valid_manifest(*, artifact_path: str) -> dict[str, object]:
+    return {
+        "artifact_files": {"staging_core_metrics_json": artifact_path},
+        "input": {
+            "effective_date": "2026-05-30",
+            "plan_id": "ca-pers",
+            "plan_period": "FY2024",
+            "source_document_id": "calpers-fy2024",
+        },
+        "ledger_status": "success",
+        "run_id": "run-guard",
+    }
+
+
+def _symlink_outside_run(
+    manifest: dict[str, object], run: Path, other: Path, *_args: object
+) -> None:
+    link = run / "persistence" / "outside_link.json"
+    if link.exists() or link.is_symlink():
+        link.unlink()
+    os.symlink(other / "persistence" / "staging_core_metrics.json", link)
+    manifest["artifact_files"]["staging_core_metrics_json"] = "persistence/outside_link.json"
+
+
+def _mixed_rows_artifact(manifest: dict[str, object], run: Path, *_args: object) -> None:
+    mixed = run / "persistence" / "mixed_rows.json"
+    mixed.write_text(
+        json.dumps([_staging_row(), {**_staging_row(), "plan_id": "other-plan"}]),
+        encoding="utf-8",
+    )
+    manifest["artifact_files"]["staging_core_metrics_json"] = "persistence/mixed_rows.json"
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda manifest, _run, _other: manifest.update(ledger_status="failed"),
+        lambda manifest, _run, _other: manifest["input"].update(plan_id="other-plan"),
+        lambda manifest, _run, _other: manifest["input"].update(plan_period="FY2099"),
+        lambda manifest, _run, _other: manifest["input"].update(source_document_id="foreign-doc"),
+        lambda manifest, _run, other: manifest["artifact_files"].update(
+            staging_core_metrics_json=str(other / "persistence" / "staging_core_metrics.json")
+        ),
+        lambda manifest, _run, _other: manifest["artifact_files"].update(
+            staging_core_metrics_json="../outside/staging_core_metrics.json"
+        ),
+        _symlink_outside_run,
+        _mixed_rows_artifact,
+        lambda manifest, _run, _other: manifest.pop("input"),
+        lambda manifest, _run, _other: manifest["input"].pop("plan_id"),
+        lambda manifest, _run, _other: manifest["input"].update(plan_period=None),
+        lambda manifest, _run, _other: manifest["input"].update(source_document_id="  "),
+    ],
+    ids=[
+        "failed-ledger",
+        "mismatched-plan-id",
+        "mismatched-plan-period",
+        "mismatched-source-document",
+        "absolute-outside-run",
+        "traversal-outside-run",
+        "symlink-outside-run",
+        "matching-then-foreign-row",
+        "missing-input",
+        "missing-plan-id",
+        "null-plan-period",
+        "blank-source-document",
+    ],
+)
+def test_builder_rejects_failed_or_foreign_pilot_artifacts(tmp_path: Path, mutate) -> None:
+    """Reject unsafe pilot inputs before writing a generated review bundle.
+
+    Deliberate-break: reverting ``_artifact_path`` on ``origin/main`` (early return
+    when ``candidate.is_absolute() or candidate.exists()``) accepts
+    ``absolute-outside-run`` staging whose plan/period/document identity still
+    matches the manifest, so this parametrized test fails until containment is
+    restored.
+    """
+    run_dir = tmp_path / "selected-run"
+    other_run = tmp_path / "other-run"
+    for run in (run_dir, other_run):
+        persistence = run / "persistence"
+        persistence.mkdir(parents=True)
+        (persistence / "staging_core_metrics.json").write_text(
+            json.dumps([_staging_row()]),
+            encoding="utf-8",
+        )
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "staging_core_metrics.json").write_text(
+        json.dumps([_staging_row()]),
+        encoding="utf-8",
+    )
+
+    manifest = _valid_manifest(
+        artifact_path="persistence/staging_core_metrics.json",
+    )
+    mutate(manifest, run_dir, other_run)
+    (run_dir / "run_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        build_workspace_bundle.build_workspace_bundle(run_dir)
+
+    out = tmp_path / "workspace.json"
+    good_manifest = _valid_manifest(
+        artifact_path="persistence/staging_core_metrics.json",
+    )
+    (run_dir / "run_manifest.json").write_text(json.dumps(good_manifest), encoding="utf-8")
+    write_payload = build_workspace_bundle.build_workspace_bundle(run_dir)
+    out.write_text(json.dumps(write_payload), encoding="utf-8")
+    before = out.read_bytes()
+
+    bad_manifest = _valid_manifest(
+        artifact_path="persistence/staging_core_metrics.json",
+    )
+    mutate(bad_manifest, run_dir, other_run)
+    (run_dir / "run_manifest.json").write_text(json.dumps(bad_manifest), encoding="utf-8")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(BUILDER_PATH),
+            "--pilot-run-dir",
+            str(run_dir),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "wrote generated workspace bundle" not in result.stdout
+    assert result.stderr.startswith("error:")
+    assert out.read_bytes() == before
+
+
+def test_cli_reports_missing_run_manifest_without_overwriting_output(tmp_path: Path) -> None:
+    run_dir = tmp_path / "incomplete-run"
+    run_dir.mkdir()
+    out = tmp_path / "workspace.json"
+    out.write_text('{"existing": true}', encoding="utf-8")
+    before = out.read_bytes()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(BUILDER_PATH),
+            "--pilot-run-dir",
+            str(run_dir),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert result.stderr.startswith("error: run manifest not found:")
+    assert "Traceback" not in result.stderr
+    assert out.read_bytes() == before
