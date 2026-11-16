@@ -4,7 +4,7 @@ Fresh replay on `cursor/issue-1031` (2026-11-16) for acceptance criterion A2.
 
 ## Provenance
 
-- Branch: `cursor/issue-1031` at keepalive round 2/12
+- Branch: `cursor/issue-1031` at keepalive round 3/12 (recovered from hollow_break on acceptance replay)
 - Focused test: `tests/web/test_build_workspace_bundle.py::test_builder_rejects_failed_or_foreign_pilot_artifacts`
 - Break target: `scripts/web/build_workspace_bundle.py` (`_artifact_path`)
 - Environment: Python 3.12.2 via `/opt/anaconda3/bin/python3`; `PYTHONPATH=src`
@@ -12,15 +12,22 @@ Fresh replay on `cursor/issue-1031` (2026-11-16) for acceptance criterion A2.
 ## Baseline (head)
 
 ```console
-PYTHONPATH=src python3 -m pytest tests/web/test_build_workspace_bundle.py::test_builder_rejects_failed_or_foreign_pilot_artifacts -q -o addopts=
+python3 -m pytest tests/web/test_build_workspace_bundle.py::test_builder_rejects_failed_or_foreign_pilot_artifacts -q
+python3 -m pytest tests/web/test_build_workspace_bundle.py -q
 ```
 
 ```text
-.......                                                                  [100%]
-7 passed in 0.52s
+7 passed in 0.55s  (named parametrized test)
+10 passed in 0.68s  (full file)
 ```
 
-`scripts/check_deliberate_break.py` with an explicit PR-body marker reports `verdict: PASS` (`head-passed-base-failed`).
+```console
+PYTHONPATH=src python3 scripts/check_deliberate_break.py --head HEAD --pr-body-file <pr-body>
+```
+
+```text
+verdict: PASS (head-passed-base-failed)
+```
 
 ## Deliberate break: expected failure
 
