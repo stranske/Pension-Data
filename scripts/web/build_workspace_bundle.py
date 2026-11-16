@@ -98,9 +98,7 @@ def _manifest_input_identity(manifest: Mapping[str, Any]) -> tuple[str, str, str
     plan_period = _as_text(input_payload.get("plan_period"))
     source_document_id = _as_text(input_payload.get("source_document_id"))
     if not plan_id or not plan_period or not source_document_id:
-        raise ValueError(
-            "run manifest input requires plan_id, plan_period, and source_document_id"
-        )
+        raise ValueError("run manifest input requires plan_id, plan_period, and source_document_id")
     return plan_id, plan_period, source_document_id
 
 

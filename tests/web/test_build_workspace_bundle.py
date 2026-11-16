@@ -266,9 +266,7 @@ def _symlink_outside_run(
         "symlink-outside-run",
     ],
 )
-def test_builder_rejects_failed_or_foreign_pilot_artifacts(
-    tmp_path: Path, mutate
-) -> None:
+def test_builder_rejects_failed_or_foreign_pilot_artifacts(tmp_path: Path, mutate) -> None:
     """Reject unsafe pilot inputs before writing a generated review bundle."""
     run_dir = tmp_path / "selected-run"
     other_run = tmp_path / "other-run"
