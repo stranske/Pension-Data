@@ -34,6 +34,12 @@ def _load_json(path: Path) -> Any:
 
 
 def _artifact_path(pilot_run_dir: Path, manifest: Mapping[str, Any], key: str) -> Path:
+    """Resolve a manifest artifact path and require it to stay inside the pilot run.
+
+    Deliberate-break anchor: ``origin/main`` returned absolute/existing paths without
+    a run-directory containment check; restoring that early return lets foreign-run
+    staging with matching identity bypass this guard.
+    """
     artifact_files = manifest.get("artifact_files")
     if not isinstance(artifact_files, Mapping):
         raise ValueError("run_manifest.json missing artifact_files object")
@@ -175,7 +181,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    bundle = build_workspace_bundle(args.pilot_run_dir)
+    try:
+        bundle = build_workspace_bundle(args.pilot_run_dir)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
     write_workspace_bundle(args.out, bundle)
     print(f"wrote generated workspace bundle: {args.out}")
 
