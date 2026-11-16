@@ -40,13 +40,29 @@ def _artifact_path(pilot_run_dir: Path, manifest: Mapping[str, Any], key: str) -
     raw_path = artifact_files.get(key)
     if not isinstance(raw_path, str) or not raw_path.strip():
         raise ValueError(f"run_manifest.json missing artifact_files.{key}")
-    candidate = Path(raw_path)
-    if candidate.is_absolute() or candidate.exists():
-        return candidate
-    root_candidate = ROOT / candidate
-    if root_candidate.exists():
-        return root_candidate
-    return pilot_run_dir / candidate
+    resolved_run = pilot_run_dir.resolve()
+    candidate = Path(raw_path.strip())
+    if not candidate.is_absolute():
+        run_relative = resolved_run / candidate
+        if run_relative.exists():
+            candidate = run_relative
+        else:
+            cwd_candidate = Path.cwd() / candidate
+            if cwd_candidate.exists():
+                candidate = cwd_candidate
+            else:
+                root_candidate = ROOT / candidate
+                if root_candidate.exists():
+                    candidate = root_candidate
+                else:
+                    candidate = run_relative
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError(f"artifact_files.{key} cannot be resolved: {exc}") from exc
+    if not resolved.is_relative_to(resolved_run) or not resolved.is_file():
+        raise ValueError(f"artifact_files.{key} must resolve to a file inside the pilot run")
+    return resolved
 
 
 def _as_text(value: Any) -> str:
@@ -74,6 +90,36 @@ def _load_staging_rows(path: Path) -> list[Mapping[str, Any]]:
     return normalized
 
 
+def _manifest_input_identity(manifest: Mapping[str, Any]) -> tuple[str, str, str]:
+    input_payload = manifest.get("input")
+    if not isinstance(input_payload, Mapping):
+        raise ValueError("run_manifest.json missing input object")
+    plan_id = _as_text(input_payload.get("plan_id"))
+    plan_period = _as_text(input_payload.get("plan_period"))
+    source_document_id = _as_text(input_payload.get("source_document_id"))
+    if not plan_id or not plan_period or not source_document_id:
+        raise ValueError(
+            "run manifest input requires plan_id, plan_period, and source_document_id"
+        )
+    return plan_id, plan_period, source_document_id
+
+
+def _validate_staging_rows_match_manifest(
+    rows: list[Mapping[str, Any]],
+    manifest: Mapping[str, Any],
+) -> None:
+    plan_id, plan_period, source_document_id = _manifest_input_identity(manifest)
+    for index, row in enumerate(rows):
+        if _as_text(row.get("plan_id")) != plan_id:
+            raise ValueError(f"staging row {index} plan_id differs from run manifest input")
+        if _as_text(row.get("plan_period")) != plan_period:
+            raise ValueError(f"staging row {index} plan_period differs from run manifest input")
+        if _as_text(row.get("source_document_id")) != source_document_id:
+            raise ValueError(
+                f"staging row {index} source_document_id differs from run manifest input"
+            )
+
+
 def _last_updated(manifest: Mapping[str, Any]) -> str:
     input_payload = manifest.get("input")
     if isinstance(input_payload, Mapping):
@@ -90,10 +136,13 @@ def build_workspace_bundle(pilot_run_dir: Path) -> dict[str, Any]:
     manifest = _load_json(manifest_path)
     if not isinstance(manifest, Mapping):
         raise ValueError(f"run manifest must be an object: {manifest_path}")
+    if _as_text(manifest.get("ledger_status")) != "success":
+        raise ValueError("completed pilot ledger_status=success required")
 
     staging_rows = _load_staging_rows(
         _artifact_path(pilot_run_dir, manifest, "staging_core_metrics_json")
     )
+    _validate_staging_rows_match_manifest(staging_rows, manifest)
     run_id = _as_text(manifest.get("run_id")) or pilot_run_dir.name
     contract = load_runtime_contract(CONTRACT_PATH)
     bundle = build_generated_workspace_bundle(
