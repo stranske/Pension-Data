@@ -134,6 +134,8 @@ def _last_updated(manifest: Mapping[str, Any]) -> str:
 def build_workspace_bundle(pilot_run_dir: Path) -> dict[str, Any]:
     pilot_run_dir = pilot_run_dir.resolve()
     manifest_path = pilot_run_dir / "run_manifest.json"
+    if not manifest_path.is_file():
+        raise ValueError(f"run manifest not found: {manifest_path}")
     manifest = _load_json(manifest_path)
     if not isinstance(manifest, Mapping):
         raise ValueError(f"run manifest must be an object: {manifest_path}")

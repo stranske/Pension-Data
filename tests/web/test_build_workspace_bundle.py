@@ -241,6 +241,15 @@ def _symlink_outside_run(
     manifest["artifact_files"]["staging_core_metrics_json"] = "persistence/outside_link.json"
 
 
+def _mixed_rows_artifact(manifest: dict[str, object], run: Path, *_args: object) -> None:
+    mixed = run / "persistence" / "mixed_rows.json"
+    mixed.write_text(
+        json.dumps([_staging_row(), {**_staging_row(), "plan_id": "other-plan"}]),
+        encoding="utf-8",
+    )
+    manifest["artifact_files"]["staging_core_metrics_json"] = "persistence/mixed_rows.json"
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -255,6 +264,11 @@ def _symlink_outside_run(
             staging_core_metrics_json="../outside/staging_core_metrics.json"
         ),
         _symlink_outside_run,
+        _mixed_rows_artifact,
+        lambda manifest, _run, _other: manifest.pop("input"),
+        lambda manifest, _run, _other: manifest["input"].pop("plan_id"),
+        lambda manifest, _run, _other: manifest["input"].update(plan_period=None),
+        lambda manifest, _run, _other: manifest["input"].update(source_document_id="  "),
     ],
     ids=[
         "failed-ledger",
@@ -264,6 +278,11 @@ def _symlink_outside_run(
         "absolute-outside-run",
         "traversal-outside-run",
         "symlink-outside-run",
+        "matching-then-foreign-row",
+        "missing-input",
+        "missing-plan-id",
+        "null-plan-period",
+        "blank-source-document",
     ],
 )
 def test_builder_rejects_failed_or_foreign_pilot_artifacts(tmp_path: Path, mutate) -> None:
@@ -329,4 +348,30 @@ def test_builder_rejects_failed_or_foreign_pilot_artifacts(tmp_path: Path, mutat
     assert result.returncode != 0
     assert "wrote generated workspace bundle" not in result.stdout
     assert result.stderr.startswith("error:")
+    assert out.read_bytes() == before
+
+
+def test_cli_reports_missing_run_manifest_without_overwriting_output(tmp_path: Path) -> None:
+    run_dir = tmp_path / "incomplete-run"
+    run_dir.mkdir()
+    out = tmp_path / "workspace.json"
+    out.write_text('{"existing": true}', encoding="utf-8")
+    before = out.read_bytes()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(BUILDER_PATH),
+            "--pilot-run-dir",
+            str(run_dir),
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert result.stderr.startswith("error: run manifest not found:")
+    assert "Traceback" not in result.stderr
     assert out.read_bytes() == before
