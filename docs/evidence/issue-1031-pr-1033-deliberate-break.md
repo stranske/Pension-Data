@@ -4,7 +4,7 @@ Fresh replay on `cursor/issue-1031` (2026-11-16) for acceptance criteria A1–A4
 
 ## Provenance
 
-- Branch: `cursor/issue-1031` at keepalive round 6/12 (acceptance replay after hollow_break on round 6 dispatch)
+- Branch: `cursor/issue-1031` at keepalive round 7/12 (acceptance replay after hollow_break on round 7 dispatch)
 - Focused test: `tests/web/test_build_workspace_bundle.py::test_builder_rejects_failed_or_foreign_pilot_artifacts`
 - Break target: `scripts/web/build_workspace_bundle.py` (`_artifact_path`)
 - Environment: Python 3.12.2 via `/opt/anaconda3/bin/python3`; `PYTHONPATH=src`
@@ -17,8 +17,8 @@ python3 -m pytest tests/web/test_build_workspace_bundle.py -q
 ```
 
 ```text
-7 passed in 0.51s  (named parametrized test, default addopts)
-10 passed in 0.65s  (full file, PYTHONPATH=src -o addopts=)
+7 passed in 0.70s  (named parametrized test, -o addopts=)
+10 passed in 2.55s  (full file, -o addopts=)
 ```
 
 ```console
