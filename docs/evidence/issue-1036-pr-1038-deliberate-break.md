@@ -187,3 +187,71 @@ The GitHub connector rejected the PR-body checkbox update, verification comment,
 and additive `needs-human` label with `MCP tool call requires approval, but
 approval policy is never`. No remote metadata changes were made. PR #1038 was
 confirmed open and ready for review (`draft=false`).
+
+## Renderer follow-up and task reconciliation (2026-11-17)
+
+Reviewed `81eb631`, `29e8389`, `ebbd91d`, and `a79d74c` before continuing.
+Those commits contain the pilot, bundle, rebuild, API, renderer, and regression
+changes described above; the earlier read-only Git notes describe previous runs,
+whose changes have since been committed by the automation runner. The remote PR
+checklist still has unchecked entries for verified work.
+
+Extended the existing browser-script regression test across every declared
+authority tier and unknown authority, crossed with nullable/false/true parser
+escalation (12 cases). This checks escalation with unresolved authority, the
+difference between false and unknown escalation, and simultaneous actionable
+flags. Existing formatting, filtering, reset, row-click, legacy unknown, and
+renderer materialization assertions remain intact.
+
+Reconciliation verified against the current working tree:
+
+- [x] Pilot validates optional declared authority and persists manifest/direct bundle context.
+- [x] Bundle producer and runtime validators carry and validate context.
+- [x] Rebuild script supplies manifest context to every bundle row.
+- [x] API attaches context before combining runs; renderer displays it and materialization is current.
+- [x] Named escalation/authority/API/legacy acceptance test passes.
+- [x] Deliberate omission fails for direct and rebuilt bundles while the manifest retains context; restoring passes.
+- [x] Whole pilot test file passes (23 tests).
+- [x] Optional metadata tuple includes authority; existing API multi-run tests preserve per-document contexts.
+
+Verification used the same temporary selector-wait cap documented above, at
+`/tmp/pension-review-context-runtime/sitecustomize.py`. An unmodified HTTP test
+stalled; a separate socketpair write reproduced `PermissionError: [Errno 1]
+Operation not permitted`. No repository runtime or test assertions were patched
+to work around that sandbox restriction.
+
+```console
+PYTHONPATH=/tmp/pension-review-context-runtime python3 -m pytest tests/ops/test_one_pdf_pilot.py::test_escalation_and_declared_authority_survive_to_bundle_and_api -q -m "not slow"
+# 1 passed in 0.59s (baseline)
+
+# Temporarily omit review_context=resolved_review_context in the bundle row mapping.
+# Manifest equality passes, then the direct/rebuilt bundle tuple assertion fails:
+# both bundle lists have null escalation and empty flags instead of manifest values.
+# 1 failed in 0.55s
+# Restore the exact original source bytes in a finally block and rerun:
+# 1 passed in 0.52s
+
+PYTHONPATH=/tmp/pension-review-context-runtime python3 -m pytest tests/ops/test_one_pdf_pilot.py tests/export/test_workspace_bundle.py tests/web/test_build_workspace_bundle.py tests/web/test_workspace_contract.py tests/api/test_artifact_data.py tests/api/test_app_serving.py tests/ops/test_one_pdf_pilot_cli.py tests/query/test_metric_history.py tests/renderer/test_shell_import_smoke.py -q -m "not slow"
+# 258 passed in 5.26s
+
+black --line-length 100 tests/web/test_workspace_contract.py
+# 1 file left unchanged.
+PYTHONPATH=/tmp/pension-review-context-runtime BLACK_NUM_WORKERS=1 black --check --line-length 100 --exclude '(\.workflows-lib|node_modules)' .
+# 467 files would be left unchanged.
+ruff check tests/web/test_workspace_contract.py
+# All checks passed!
+python3 scripts/web/sync_renderer_shell.py --check
+# Renderer-shell materialization is current.
+git diff --check
+# Passed.
+```
+
+Handoff remains blocked by environment permissions:
+
+- [ ] Commit the new Python renderer test and this evidence on the existing branch.
+  `git add` fails creating `.git/index.lock`: `Read-only file system`.
+- [ ] Update the PR checkboxes and publish the verification comment. Both the
+  PR-body update and comment were rejected with `MCP tool call requires approval,
+  but approval policy is never`; the additive `needs-human` label was also rejected.
+
+No branch or PR was created, and no workflow or protected configuration changed.

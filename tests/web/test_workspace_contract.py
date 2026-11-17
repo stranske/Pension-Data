@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from pension_data.export.workspace_bundle import build_workspace_bundle
+from pension_data.sources.schema import SOURCE_AUTHORITY_TIERS, SourceAuthorityTier
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = ROOT / "apps" / "web"
@@ -368,10 +369,35 @@ def test_ui_surfaces_fixture_origin_marker() -> None:
     assert "data_origin" in app
 
 
-def test_ui_formatting_filters_reset_and_row_click_render_details() -> None:
+@pytest.mark.parametrize("authority_tier", [None, *SOURCE_AUTHORITY_TIERS])
+@pytest.mark.parametrize("escalation_required", [None, False, True])
+def test_ui_formatting_filters_reset_and_row_click_render_details(
+    authority_tier: SourceAuthorityTier | None, escalation_required: bool | None
+) -> None:
     """Run the shipped browser script against a tiny DOM instead of source markers."""
     if shutil.which("node") is None:
         pytest.skip("node is required for browser-script regression coverage")
+
+    flags = (
+        ["doc_lineage_unreadable_pages:1", "manual_review_needed"]
+        if escalation_required is True
+        else []
+    )
+    review_context = {
+        "escalation_required": escalation_required,
+        "actionable_flags": flags,
+        "source_authority_tier": authority_tier,
+        "source_authority_status": "declared" if authority_tier is not None else "unknown",
+    }
+    expected_details = {
+        "Parser Escalation": (
+            "unknown"
+            if escalation_required is None
+            else "required (true)" if escalation_required else "not required (false)"
+        ),
+        "Actionable Flags": " · ".join(flags) if flags else "none",
+        "Source Authority": f"{authority_tier} (declared)" if authority_tier else "unknown",
+    }
 
     script = f"""
 const fs = require("fs");
@@ -403,7 +429,7 @@ vm.runInNewContext(source, context);
 const {{ state, renderTable, bindFilterHandlers }} = context.__app;
 ["table-head", "table-body", "result-count", "detail-content", "clear-filters", "filter-entity", "filter-period", "filter-family", "filter-source", "filter-confidence", "filter-confidence-value"].forEach(byId);
 state.datasets = [{{ id: "demo", rows: [
-  {{ entity: "CA", plan_period: "FY2024", metric_family: "funded", metric: "funded_ratio", value: 0.81, confidence: 0.92, provenance: {{ source_document: "calpers", evidence_refs: ["p1"] }}, review_context: {{ escalation_required: true, actionable_flags: ["doc_lineage_unreadable_pages:1"], source_authority_tier: "high-confidence-third-party", source_authority_status: "declared" }} }},
+  {{ entity: "CA", plan_period: "FY2024", metric_family: "funded", metric: "funded_ratio", value: 0.81, confidence: 0.92, provenance: {{ source_document: "calpers", evidence_refs: ["p1"] }}, review_context: {json.dumps(review_context)} }},
   {{ entity: "NY", plan_period: "FY2024", metric_family: "cash", metric: "contributions", value: 1500000000, confidence: 0.75, provenance: {{ source_document: "nycers", evidence_refs: ["p2"] }} }},
 ] }}];
 state.selectedDatasetId = "demo";
@@ -423,7 +449,9 @@ byId("table-body").children[0].trigger("click");
 const detail = byId("detail-content").children[0];
 if (state.selectedRowIndex !== 0 || !detail || detail.children.length === 0) throw new Error("row click did not render record details");
 const detailEntries = Object.fromEntries(detail.children.map((item) => [item.children[0].textContent, item.children[1].textContent]));
-if (detailEntries["Parser Escalation"] !== "required (true)" || detailEntries["Actionable Flags"] !== "doc_lineage_unreadable_pages:1" || detailEntries["Source Authority"] !== "high-confidence-third-party (declared)") throw new Error("review_context details were not rendered");
+for (const [label, expected] of Object.entries({json.dumps(expected_details)})) {{
+  if (detailEntries[label] !== expected) throw new Error(`${{label}}: expected ${{expected}}, got ${{detailEntries[label]}}`);
+}}
 byId("table-body").children[1].trigger("click");
 const legacyDetail = byId("detail-content").children[0];
 const legacyEntries = Object.fromEntries(legacyDetail.children.map((item) => [item.children[0].textContent, item.children[1].textContent]));
