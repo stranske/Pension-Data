@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,6 +14,10 @@ from pension_data.coverage.readiness import (
     derive_extraction_blocker_reason,
     derive_readiness_state,
     write_coverage_artifacts,
+)
+from pension_data.langchain.review_artifact import (
+    build_extraction_quality_dashboard_artifact,
+    validate_reviewable_findings_artifact,
 )
 from pension_data.quality.anomaly_rules import TimeSeriesPoint
 from pension_data.sources.schema import SourceMapRecord
@@ -406,3 +411,52 @@ def test_write_coverage_artifacts_is_deterministic_for_json_and_csv(tmp_path: Pa
     assert "blocked_quality" in first_files["plan_year_readiness_rows_json"]
     assert "coverage_gap_state" in first_files["annual_report_gap_rows_csv"]
     assert "system_type,total_plan_periods" in first_files["summary_by_system_type_csv"]
+
+
+def test_multi_source_readiness_csv_yields_one_review_finding_per_plan_period(
+    tmp_path: Path,
+) -> None:
+    records = [
+        *_fixture_records(),
+        SourceMapRecord(
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            cohort="state",
+            source_url="https://example.com/ca-third-party.pdf",
+            source_authority_tier="high-confidence-third-party",
+            official_resolution_state="available_non_official_only",
+            expected_plan_identity="CA-PERS",
+            mismatch_reason="non_official_only",
+        ),
+    ]
+    artifacts = build_readiness_artifacts(
+        records,
+        target_years=(2023, 2024),
+        system_type_by_plan_id=_system_type_lookup(),
+    )
+    paths = write_coverage_artifacts(artifacts, output_root=tmp_path)
+    contract_path = tmp_path / "persistence_contract.json"
+    contract_path.write_text(
+        json.dumps({"source_authority_readiness": ["plan_id", "plan_period"]}),
+        encoding="utf-8",
+    )
+
+    review_artifact = build_extraction_quality_dashboard_artifact(
+        generated_at="2026-11-17T00:00:00Z",
+        artifact_date="2026-11-17",
+        persistence_contract_path=contract_path,
+        readiness_csv_path=paths["readiness_rows_csv"],
+    )
+
+    validate_reviewable_findings_artifact(review_artifact)
+    finding_ids = [finding["finding_id"] for finding in review_artifact["findings"]]
+    assert len(finding_ids) == len(set(finding_ids)) == 5
+    ca_finding = next(
+        finding for finding in review_artifact["findings"] if finding["entity"] == "CA-PERS"
+    )
+    assert ca_finding["finding_id"] == "finding:CA-PERS:FY2024:extraction-readiness"
+    assert ca_finding["severity"] == "info"
+    assert any(
+        "extraction_blocker_reason=non_official_only" in ref
+        for ref in ca_finding["provenance_refs"]
+    )

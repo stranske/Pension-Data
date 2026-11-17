@@ -457,3 +457,128 @@ def test_build_from_sources_raises_when_readiness_csv_has_no_usable_rows(tmp_pat
             persistence_contract_path=contract_path,
             readiness_csv_path=readiness_path,
         )
+
+
+_MULTI_SOURCE_HEADER = (
+    "plan_id,plan_period,cohort,system_type,official_resolution_state,"
+    "source_authority_tier,mismatch_reason,extraction_blocker_reason,"
+    "is_extraction_ready,readiness_state"
+)
+_MULTI_SOURCE_ROWS = (
+    "CA-PERS,FY2024,state,public,available_official,official,,,true,ready",
+    "CA-PERS,FY2024,state,public,available_non_official_only,"
+    "high-confidence-third-party,non_official_only,non_official_only,false,blocked_source",
+    "CA-PERS,FY2023,state,public,available_official,official,stale_period,"
+    "stale_period,false,blocked_quality",
+    "TX-ERS,FY2024,state,public,available_non_official_only,"
+    "high-confidence-third-party,non_official_only,non_official_only,false,blocked_source",
+)
+
+
+def _build_from_rows(tmp_path: Path, rows: tuple[str, ...]) -> dict[str, Any]:
+    contract_path, readiness_path = _write_real_sources(tmp_path)
+    readiness_path.write_text("\n".join((_MULTI_SOURCE_HEADER, *rows)) + "\n", encoding="utf-8")
+    return build_extraction_quality_dashboard_artifact(
+        generated_at="2026-11-17T00:00:00Z",
+        artifact_date="2026-11-17",
+        persistence_contract_path=contract_path,
+        readiness_csv_path=readiness_path,
+    )
+
+
+def test_multi_source_plan_period_findings_are_unambiguous(tmp_path: Path) -> None:
+    forward = _build_from_rows(tmp_path, _MULTI_SOURCE_ROWS)
+    reversed_rows = _build_from_rows(tmp_path, tuple(reversed(_MULTI_SOURCE_ROWS)))
+
+    validate_reviewable_findings_artifact(forward)
+    assert forward == reversed_rows
+
+    finding_ids = [finding["finding_id"] for finding in forward["findings"]]
+    assert finding_ids == [
+        "finding:CA-PERS:FY2023:extraction-readiness",
+        "finding:CA-PERS:FY2024:extraction-readiness",
+        "finding:TX-ERS:FY2024:extraction-readiness",
+    ]
+    assert forward["total_candidate_findings"] == 3
+
+    findings_by_id = {finding["finding_id"]: finding for finding in forward["findings"]}
+    readiness_ref = forward["source_artifact_ids"][1]
+
+    ca_2023 = findings_by_id["finding:CA-PERS:FY2023:extraction-readiness"]
+    assert ca_2023["value"] == 0.0
+    assert ca_2023["severity"] == "warning"
+    assert ca_2023["provenance_refs"] == [
+        f"{readiness_ref}#CA-PERS:FY2023",
+        f"{readiness_ref}#CA-PERS:FY2023:source_authority_tier=official"
+        ":readiness_state=blocked_quality:extraction_blocker_reason=stale_period",
+    ]
+
+    ca_2024 = findings_by_id["finding:CA-PERS:FY2024:extraction-readiness"]
+    assert ca_2024["value"] == 1.0
+    assert ca_2024["severity"] == "info"
+    assert ca_2024["provenance_refs"] == [
+        f"{readiness_ref}#CA-PERS:FY2024",
+        f"{readiness_ref}#CA-PERS:FY2024:source_authority_tier=high-confidence-third-party"
+        ":readiness_state=blocked_source:extraction_blocker_reason=non_official_only",
+        f"{readiness_ref}#CA-PERS:FY2024:source_authority_tier=official"
+        ":readiness_state=ready:extraction_blocker_reason=none",
+    ]
+    assert ca_2024["citations"] == forward["source_artifact_ids"]
+
+    compare = next(a for a in forward["langchain_actions"] if a["action"] == "compare")
+    assert len(set(compare["finding_ids"])) == 2
+
+    duplicate_ids = json.loads(json.dumps(forward))
+    duplicate_ids["findings"].append(dict(duplicate_ids["findings"][0]))
+    with pytest.raises(ReviewableFindingsArtifactError, match="duplicates"):
+        validate_reviewable_findings_artifact(duplicate_ids)
+
+    duplicate_compare = json.loads(json.dumps(forward))
+    for action in duplicate_compare["langchain_actions"]:
+        if action["action"] == "compare":
+            action["finding_ids"] = [finding_ids[0], finding_ids[0]]
+    with pytest.raises(ReviewableFindingsArtifactError, match="two distinct findings"):
+        validate_reviewable_findings_artifact(duplicate_compare)
+
+
+def test_multi_source_plan_period_without_official_ready_source_is_warning(
+    tmp_path: Path,
+) -> None:
+    artifact = _build_from_rows(
+        tmp_path,
+        (
+            "CA-PERS,FY2024,state,public,not_found,high-confidence-third-party,,"
+            "official_source_unresolved,false,blocked_source",
+            "CA-PERS,FY2024,state,public,available_official,official,stale_period,"
+            "stale_period,false,blocked_quality",
+        ),
+    )
+
+    validate_reviewable_findings_artifact(artifact)
+    assert len(artifact["findings"]) == 1
+    finding = artifact["findings"][0]
+    assert finding["finding_id"] == "finding:CA-PERS:FY2024:extraction-readiness"
+    assert finding["value"] == 0.0
+    assert finding["severity"] == "warning"
+    assert any("official_source_unresolved" in ref for ref in finding["provenance_refs"])
+    assert any("stale_period" in ref for ref in finding["provenance_refs"])
+    assert [action["action"] for action in artifact["langchain_actions"]] == ["explain"]
+
+
+def test_validator_rejects_duplicate_finding_ids() -> None:
+    artifact = _valid_artifact()
+    artifact["findings"][1]["finding_id"] = artifact["findings"][0]["finding_id"]
+    for action in artifact["langchain_actions"]:
+        action["finding_ids"] = [artifact["findings"][0]["finding_id"]]
+
+    with pytest.raises(ReviewableFindingsArtifactError, match="duplicates"):
+        validate_reviewable_findings_artifact(artifact)
+
+
+def test_validator_rejects_compare_without_two_distinct_findings() -> None:
+    artifact = _valid_artifact()
+    compare = next(a for a in artifact["langchain_actions"] if a["action"] == "compare")
+    compare["finding_ids"] = [compare["finding_ids"][0]] * 2
+
+    with pytest.raises(ReviewableFindingsArtifactError, match="two distinct findings"):
+        validate_reviewable_findings_artifact(artifact)
