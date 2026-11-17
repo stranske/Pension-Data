@@ -606,6 +606,43 @@ def test_load_query_data_snapshot_rejects_conflicting_duplicate_fact_id(
         load_query_data_snapshot(tmp_path)
 
 
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+def test_load_query_data_snapshot_reconciles_same_fact_review_context(
+    tmp_path: Path, reverse_run_order: bool
+) -> None:
+    """Same staged fact from two runs with different review metadata stays loadable."""
+    first_context = {
+        "actionable_flags": ["manual_review_needed"],
+        "escalation_required": True,
+        "source_authority_status": "unknown",
+        "source_authority_tier": None,
+    }
+    second_context = {
+        "actionable_flags": ["doc_lineage_unreadable_pages:1"],
+        "escalation_required": False,
+        "source_authority_status": "declared",
+        "source_authority_tier": "official-mirror",
+    }
+    runs = [
+        ("run-a", first_context),
+        ("run-b", second_context),
+    ]
+    if reverse_run_order:
+        runs.reverse()
+    for run_id, review_context in runs:
+        _write_run(tmp_path, run_id, [_metric_row()], review_context=review_context)
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 1
+    assert snapshot.metric_history_rows[0].review_context.to_dict() == {
+        "actionable_flags": ["doc_lineage_unreadable_pages:1", "manual_review_needed"],
+        "escalation_required": True,
+        "source_authority_status": "unknown",
+        "source_authority_tier": None,
+    }
+
+
 def test_load_query_data_snapshot_rejects_manifest_identity_mismatch(tmp_path: Path) -> None:
     _write_run(tmp_path, "run-a", [_metric_row(plan_id="OTHER")])
 

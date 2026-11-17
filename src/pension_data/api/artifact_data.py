@@ -238,6 +238,66 @@ def _manifest_review_context(
     return normalized
 
 
+def _staging_row_identity(row: Mapping[str, object]) -> dict[str, object]:
+    """Compare staging rows across runs without run-local review metadata."""
+    identity = dict(row)
+    identity.pop("review_context", None)
+    return identity
+
+
+def _reconcile_review_context(
+    contexts: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    """Merge review metadata for duplicate fact rows in an order-independent way.
+
+    Escalation stays true when any contributing run requires it, becomes false only
+    when every run explicitly clears it, and is otherwise null. Actionable flags are
+    the sorted union of all contributing runs. A declared authority tier is kept only
+    when every contributing run declares the same tier; mixed or absent tiers become
+    unknown authority.
+    """
+    if not contexts:
+        return default_review_context()
+    normalized: list[dict[str, object]] = []
+    for context in contexts:
+        try:
+            normalized.append(normalize_review_context(context, require_all_fields=True))
+        except WorkspaceBundleError as exc:
+            raise QueryArtifactError(str(exc)) from exc
+
+    escalation_values = [context["escalation_required"] for context in normalized]
+    if any(value is True for value in escalation_values):
+        escalation_required: bool | None = True
+    elif all(value is False for value in escalation_values):
+        escalation_required = False
+    else:
+        escalation_required = None
+
+    flags: list[str] = []
+    for context in normalized:
+        for flag in cast(list[str], context["actionable_flags"]):
+            if flag not in flags:
+                flags.append(flag)
+    flags.sort()
+
+    tiers = {context["source_authority_tier"] for context in normalized}
+    if len(tiers) == 1:
+        tier = next(iter(tiers))
+        source_authority_status: Literal["declared", "unknown"] = (
+            "declared" if tier is not None else "unknown"
+        )
+    else:
+        tier = None
+        source_authority_status = "unknown"
+
+    return {
+        "actionable_flags": flags,
+        "escalation_required": escalation_required,
+        "source_authority_status": source_authority_status,
+        "source_authority_tier": tier,
+    }
+
+
 def _attach_review_context(
     row: Mapping[str, object], *, review_context: Mapping[str, object]
 ) -> dict[str, object]:
@@ -614,8 +674,24 @@ def load_query_data_snapshot(artifact_root: Path) -> QueryDataSnapshot:
         for row in run_rows:
             fact_id = _required_text(row, "fact_id")
             existing = rows_by_fact_id.get(fact_id)
-            if existing is not None and dict(existing) != dict(row):
-                raise QueryArtifactError(f"conflicting duplicate fact_id: {fact_id}")
+            if existing is not None:
+                if _staging_row_identity(existing) != _staging_row_identity(row):
+                    raise QueryArtifactError(f"conflicting duplicate fact_id: {fact_id}")
+                existing_context = existing.get("review_context")
+                row_context = row.get("review_context")
+                if (
+                    isinstance(existing_context, Mapping)
+                    and isinstance(row_context, Mapping)
+                    and dict(existing_context) != dict(row_context)
+                ):
+                    merged_context = _reconcile_review_context((existing_context, row_context))
+                    rows_by_fact_id[fact_id] = {
+                        **dict(existing),
+                        "review_context": merged_context,
+                    }
+                    continue
+                rows_by_fact_id[fact_id] = row
+                continue
             rows_by_fact_id[fact_id] = row
 
     metric_rows = tuple(
