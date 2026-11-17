@@ -527,6 +527,7 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(
         effective_date="2024-06-30",
         ingestion_date="2026-03-03",
         source_document_id="override-doc-id",
+        source_authority_tier=replay_authority,
     )
     third = run_one_pdf_pilot(
         pilot_input=override_input,
