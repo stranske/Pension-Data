@@ -740,6 +740,8 @@ def test_escalation_and_declared_authority_survive_to_bundle_and_api(
     rebuilt_unknown_bundle = bundle_builder.build_workspace_bundle(
         Path(run_unknown["run_manifest_json"]).parent
     )
+    assert direct_unknown_bundle["datasets"][0]["rows"]
+    assert rebuilt_unknown_bundle == direct_unknown_bundle
     assert (
         [row.get("review_context") for row in direct_unknown_bundle["datasets"][0]["rows"]],
         [row.get("review_context") for row in rebuilt_unknown_bundle["datasets"][0]["rows"]],
@@ -800,6 +802,8 @@ def test_escalation_and_declared_authority_survive_to_bundle_and_api(
     rebuilt_declared_bundle = bundle_builder.build_workspace_bundle(
         Path(run_declared["run_manifest_json"]).parent
     )
+    assert direct_declared_bundle["datasets"][0]["rows"]
+    assert rebuilt_declared_bundle == direct_declared_bundle
     assert (
         [row["review_context"] for row in direct_declared_bundle["datasets"][0]["rows"]],
         [row["review_context"] for row in rebuilt_declared_bundle["datasets"][0]["rows"]],
@@ -834,6 +838,7 @@ def test_escalation_and_declared_authority_survive_to_bundle_and_api(
         "source_authority_tier": None,
     }
     rebuilt_legacy_bundle = bundle_builder.build_workspace_bundle(legacy_manifest_path.parent)
+    assert rebuilt_legacy_bundle["datasets"][0]["rows"]
     assert [row["review_context"] for row in rebuilt_legacy_bundle["datasets"][0]["rows"]] == [
         expected_legacy_context
     ] * len(rebuilt_legacy_bundle["datasets"][0]["rows"])
@@ -863,6 +868,17 @@ def test_escalation_and_declared_authority_survive_to_bundle_and_api(
     )
     assert response.status_code == 200
     api_rows = response.json()["rows"]
+    expected_metric_identities = {
+        (row["provenance"]["source_document"], row["metric"])
+        for bundle in (direct_unknown_bundle, direct_declared_bundle, rebuilt_legacy_bundle)
+        for row in bundle["datasets"][0]["rows"]
+    }
+    assert {
+        (row.source_document_id, row.metric_name) for row in snapshot.metric_history_rows
+    } == expected_metric_identities
+    assert {
+        (row["source_document_id"], row["metric_name"]) for row in api_rows
+    } == expected_metric_identities
     assert {row["source_document_id"] for row in api_rows} == set(expected_by_doc)
     for row in api_rows:
         assert row["review_context"] == expected_by_doc[row["source_document_id"]]

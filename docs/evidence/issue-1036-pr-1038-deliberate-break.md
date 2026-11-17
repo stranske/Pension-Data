@@ -472,3 +472,35 @@ code and assertions were unchanged by that workaround.
 
 PR #1038 was confirmed open and ready (`draft=false`) at `2395b55`. No branch,
 PR, workflow, or protected configuration was created or changed by this run.
+
+## Acceptance reconciliation and missing-row checks (2026-11-17)
+
+Reviewed the six recent commits through `af5e998` and the implementation. All four
+implementation tasks are already implemented and verified. The existing deliberate
+break/restoration evidence above remains applicable. The remote checkboxes are
+stale; the attempted reconciliation was rejected by automatic approval review.
+
+Strengthened the named acceptance test so empty bundle row lists cannot satisfy
+its context assertions. Direct and rebuilt bundles must match in full, and both
+the API snapshot and HTTP response must retain every document/metric identity
+from the three contributing bundles. Existing metadata tuple, renderer, and API
+multi-run assertions remain intact.
+
+Verification used `PYTHONPATH=/tmp/pension-context-verification` with the previously
+documented temporary selector-wait cap. An unmodified pilot test run hung in the
+HTTP client's selector wait; its 15-second traceback confirmed that limitation.
+Black also used `BLACK_NUM_WORKERS=1`. No workaround is committed.
+
+- [x] Pilot authority validation and manifest/direct bundle persistence verified.
+- [x] Bundle producer/runtime contracts and manifest rebuild verified.
+- [x] API attribution, renderer materialization, and existing multi-run tests verified.
+- [x] Related baseline suite: 308 passed in 6.37s.
+- [x] Strengthened named acceptance test: 1 passed in 0.65s.
+- [x] Whole pilot file after the change: 70 passed in 1.30s.
+- [x] Repository-wide required Black check: 467 files unchanged; targeted Ruff,
+      renderer synchronization, and `git diff --check` passed.
+- [ ] Commit on the checked-out branch: `git add tests/ops/test_one_pdf_pilot.py`
+      failed creating `.git/index.lock` with `Read-only file system`.
+- [ ] Update remote task/acceptance checkboxes, publish verification/blocker
+      comment, and add `needs-human`: all three mutations were rejected with
+      `MCP tool call requires approval, but approval policy is never`.
