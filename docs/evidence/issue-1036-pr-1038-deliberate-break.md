@@ -318,3 +318,60 @@ was made. Publishing the blocker comment and adding `needs-human` were also
 rejected with the same approval-policy message. A runner with Git write access
 must commit these two files on the existing branch and reconcile the remote
 checkboxes using the verified checklist above.
+
+## Independent pilot review outcomes (2026-11-17)
+
+Extended the existing pilot artifact-contract test from four authority cases to
+16 combinations. Every declared tier and unknown authority is crossed with clear,
+flags-only, escalation-only, and escalation-with-flags parser outcomes. Expected
+context is pinned to the injected outcome, independently checked against the
+parser artifact, manifest, and every nonempty direct bundle row. This catches
+deriving escalation from authority or flag presence and dropping flags when
+escalation is false. All existing artifact assertions remain intact.
+
+Replayed the deliberate omission in the shared builder:
+
+```python
+ui_rows = [map_staging_row_to_ui_row(row) for row in rows]
+```
+
+The named test failed at `tests/ops/test_one_pdf_pilot.py:678` after the manifest
+context equality passed. Both direct and rebuilt bundle row lists contained
+`actionable_flags=[]` and `escalation_required=None` instead of the manifest's
+two flags and `True`. Result: `1 failed in 0.39s`, exit code 1. The source was
+restored byte-for-byte in a `finally` block; the named test then passed:
+`1 passed in 0.67s`, exit code 0. No deliberate break remains.
+
+The sandbox still rejects socketpair sends with `PermissionError: [Errno 1]
+Operation not permitted`; the unmodified named-test command timed out after five
+seconds. HTTP verification used the previously documented selector-wait cap,
+at `/tmp/pension-review-outcome-runtime/sitecustomize.py`. This temporary file is
+outside the repository and changes no application code or assertions.
+
+```console
+PYTHONPATH=/tmp/pension-review-outcome-runtime python3 -m pytest tests/ops/test_one_pdf_pilot.py -q -m "not slow"
+# 35 passed in 0.65s
+
+PYTHONPATH=/tmp/pension-review-outcome-runtime python3 -m pytest tests/ops/test_one_pdf_pilot.py tests/export/test_workspace_bundle.py tests/web/test_build_workspace_bundle.py tests/web/test_workspace_contract.py tests/api/test_artifact_data.py tests/api/test_app_serving.py tests/ops/test_one_pdf_pilot_cli.py tests/query/test_metric_history.py tests/renderer/test_shell_import_smoke.py -q -m "not slow"
+# 273 passed in 5.21s
+
+BLACK_NUM_WORKERS=1 black --line-length 100 tests/ops/test_one_pdf_pilot.py
+# 1 file left unchanged.
+PYTHONPATH=/tmp/pension-review-outcome-runtime BLACK_NUM_WORKERS=1 black --check --line-length 100 --exclude '(\.workflows-lib|node_modules)' .
+# 467 files would be left unchanged.
+ruff check tests/ops/test_one_pdf_pilot.py
+# All checks passed!
+python3 scripts/web/sync_renderer_shell.py --check
+# Renderer-shell materialization is current.
+git diff --check
+# Passed.
+```
+
+- [x] First unchecked task: pilot validates authority and preserves review context in manifest/direct bundle across independent parser outcomes.
+- [x] Named acceptance test passes, including API attribution, legacy unknowns, and simultaneous conditions.
+- [x] Deliberate omission fails for both bundle paths while the manifest retains context; restoration passes.
+- [x] Whole pilot test file passes; metadata tuple, renderer materialization, and existing API multi-run tests remain intact.
+- [ ] Commit the changed Python test and evidence on the current branch. After the formatting gate passed, `git add tests/ops/test_one_pdf_pilot.py` failed creating `.git/index.lock`: `Read-only file system`.
+- [ ] Publish evidence and reconcile remote checkboxes. PR-body update, verification comment, and additive `needs-human` label were each rejected: `MCP tool call requires approval, but approval policy is never`.
+
+PR #1038 was confirmed open and ready (`draft=false`) at `4fd4aed`.

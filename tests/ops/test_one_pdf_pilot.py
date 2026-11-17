@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+import pension_data.ops.one_pdf_pilot as pilot_module
 from pension_data.db.models.artifacts import RawArtifactRecord
 from pension_data.ops.document_orchestration import DocumentOrchestrationState
 from pension_data.ops.one_pdf_pilot import (
@@ -24,9 +26,36 @@ def _write_pdf_like_text(path: Path, text: str) -> None:
 
 
 @pytest.mark.parametrize("authority_tier", [None, *SOURCE_AUTHORITY_TIERS])
+@pytest.mark.parametrize(
+    ("escalation_required", "actionable_flags"),
+    [
+        pytest.param(False, (), id="clear"),
+        pytest.param(False, ("native_text:missing_text",), id="flags-only"),
+        pytest.param(True, (), id="escalation-only"),
+        pytest.param(
+            True,
+            ("doc_lineage_unreadable_pages:1", "manual_review_needed"),
+            id="escalation-with-flags",
+        ),
+    ],
+)
 def test_one_pdf_pilot_writes_expected_artifact_contract(
-    tmp_path: Path, authority_tier: SourceAuthorityTier | None
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    authority_tier: SourceAuthorityTier | None,
+    escalation_required: bool,
+    actionable_flags: tuple[str, ...],
 ) -> None:
+    original_parser = pilot_module.parse_pdf_to_funded_input
+
+    def parser_with_review_outcome(payload):
+        return replace(
+            original_parser(payload),
+            escalation_required=escalation_required,
+            actionable_flags=actionable_flags,
+        )
+
+    monkeypatch.setattr(pilot_module, "parse_pdf_to_funded_input", parser_with_review_outcome)
     pdf_path = tmp_path / "pilot.pdf"
     _write_pdf_like_text(
         pdf_path,
@@ -73,9 +102,11 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     parser_payload = json.loads(parser_path.read_text(encoding="utf-8"))
+    assert parser_payload["escalation_required"] is escalation_required
+    assert parser_payload["actionable_flags"] == list(actionable_flags)
     expected_context = {
-        "actionable_flags": parser_payload["actionable_flags"],
-        "escalation_required": parser_payload["escalation_required"],
+        "actionable_flags": list(actionable_flags),
+        "escalation_required": escalation_required,
         "source_authority_status": "declared" if authority_tier is not None else "unknown",
         "source_authority_tier": authority_tier,
     }
@@ -556,11 +587,9 @@ def test_escalation_and_declared_authority_survive_to_bundle_and_api(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import importlib.util
-    from dataclasses import replace
 
     from fastapi.testclient import TestClient
 
-    import pension_data.ops.one_pdf_pilot as pilot_module
     from pension_data.api.app import create_app
     from pension_data.api.artifact_data import load_query_data_snapshot
     from pension_data.api.auth import SCOPE_QUERY, APIKeyStore
