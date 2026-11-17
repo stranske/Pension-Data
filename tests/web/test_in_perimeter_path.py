@@ -490,13 +490,13 @@ def _render_citation_href_from_shell(
     runtime_config: dict[str, object],
     workspace: dict[str, object],
 ) -> str:
-    import hashlib
-    import re
     import shutil
     import subprocess
 
-    if shutil.which("node") is not None:
-        script = f"""
+    if shutil.which("node") is None:
+        pytest.fail("node is required for pilot citation renderer coverage")
+
+    script = f"""
 const vm = require("vm");
 class Element {{
   constructor(tag = "") {{
@@ -548,32 +548,14 @@ if (!links.length || !links[0].href) {{
 }}
 process.stdout.write(links[0].href);
 """
-        completed = subprocess.run(
-            ["node", "-e", script],
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=ROOT,
-        )
-        return completed.stdout.strip()
-
-    datasets = cast(list[dict[str, object]], workspace["datasets"])
-    rows = cast(list[dict[str, object]], datasets[0]["rows"])
-    provenance = cast(dict[str, object], rows[0]["provenance"])
-    target = str(provenance.get("source_locator") or provenance["source_document"]).strip()
-    token = cast(list[str], provenance["evidence_refs"])[0].strip()
-    if "encodeArtifactPath" in app_js_source:
-        encoded_path = "/".join(quote(part, safe="") for part in target.split("/"))
-        page_match = re.match(
-            r"^(?:p(?:age)?(?:\.|\s*=\s*)|p)([1-9]\d*)(?:$|[\s#:-].*)", token, re.I
-        )
-        fragment = f"page={page_match.group(1)}" if page_match else quote(token, safe="")
-    else:
-        encoded_path = quote(target, safe="")
-        fragment = quote(token, safe="")
-    _ = hashlib
-    base = str(runtime_config["artifactBaseUrl"]).rstrip("/")
-    return f"{base}/{encoded_path}#{fragment}"
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
+    return completed.stdout.strip()
 
 
 def test_pilot_default_document_id_citation_serves_source_pdf(tmp_path: Path) -> None:
