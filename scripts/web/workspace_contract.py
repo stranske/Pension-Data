@@ -57,6 +57,28 @@ def load_runtime_contract(contract_path: Path = CONTRACT_PATH) -> dict[str, Any]
             "runtime contract missing required workspace fields: "
             + ", ".join(sorted(missing_fields))
         )
+    for field_name, required_subset in (
+        ("provenanceRequiredFields", {"source_document", "evidence_refs"}),
+        ("provenanceOptionalFields", {"source_locator"}),
+    ):
+        if field_name not in workspace_bundle:
+            continue
+        field_values = workspace_bundle.get(field_name)
+        if not isinstance(field_values, list) or not field_values:
+            raise WorkspaceContractError(f"runtime contract {field_name} must be a non-empty list")
+        normalized_values = {
+            item for item in field_values if isinstance(item, str) and item.strip()
+        }
+        if len(normalized_values) != len(field_values):
+            raise WorkspaceContractError(
+                f"runtime contract {field_name} must contain non-empty strings"
+            )
+        missing_subset = required_subset.difference(normalized_values)
+        if missing_subset:
+            raise WorkspaceContractError(
+                f"runtime contract {field_name} missing required fields: "
+                + ", ".join(sorted(missing_subset))
+            )
     return payload
 
 
@@ -107,4 +129,79 @@ def validate_workspace_bundle(
     datasets = payload.get("datasets")
     if not isinstance(datasets, list) or not datasets:
         raise WorkspaceContractError(f"workspace dataset inventory is empty in {path_label}")
+    workspace_bundle = resolved.get("workspaceBundle")
+    provenance_required = {"source_document", "evidence_refs"}
+    provenance_optional = {"source_locator"}
+    if isinstance(workspace_bundle, Mapping):
+        raw_req = workspace_bundle.get("provenanceRequiredFields")
+        if isinstance(raw_req, list):
+            provenance_required = {
+                item.strip() for item in raw_req if isinstance(item, str) and item.strip()
+            }
+        raw_opt = workspace_bundle.get("provenanceOptionalFields")
+        if isinstance(raw_opt, list):
+            provenance_optional = {
+                item.strip() for item in raw_opt if isinstance(item, str) and item.strip()
+            }
+    allowed_provenance = provenance_required | provenance_optional
+
+    for dataset_index, dataset in enumerate(datasets):
+        if not isinstance(dataset, Mapping):
+            continue
+        rows = dataset.get("rows")
+        if not isinstance(rows, list):
+            continue
+        for row_index, row in enumerate(rows):
+            if not isinstance(row, Mapping) or "provenance" not in row:
+                continue
+            provenance = row.get("provenance")
+            if not isinstance(provenance, Mapping):
+                raise WorkspaceContractError(
+                    f"workspace dataset {dataset_index} row {row_index} provenance must be an object in {path_label}"
+                )
+            missing_prov = provenance_required.difference(provenance)
+            if missing_prov:
+                raise WorkspaceContractError(
+                    f"workspace dataset {dataset_index} row {row_index} provenance missing required fields "
+                    f"{', '.join(sorted(missing_prov))} in {path_label}"
+                )
+            unknown_prov = set(provenance).difference(allowed_provenance)
+            if unknown_prov:
+                raise WorkspaceContractError(
+                    f"workspace dataset {dataset_index} row {row_index} provenance has unsupported fields "
+                    f"{', '.join(sorted(unknown_prov))} in {path_label}"
+                )
+            source_doc = provenance.get("source_document")
+            if not isinstance(source_doc, str) or not source_doc.strip():
+                raise WorkspaceContractError(
+                    f"workspace dataset {dataset_index} row {row_index} provenance.source_document must be non-empty in {path_label}"
+                )
+            evidence_refs = provenance.get("evidence_refs")
+            if not isinstance(evidence_refs, list) or any(
+                not isinstance(ref, str) or not ref.strip() for ref in evidence_refs
+            ):
+                raise WorkspaceContractError(
+                    f"workspace dataset {dataset_index} row {row_index} provenance.evidence_refs must be a list of strings in {path_label}"
+                )
+            if "source_locator" in provenance:
+                locator = provenance.get("source_locator")
+                if not isinstance(locator, str) or not _is_safe_relative_locator(locator):
+                    raise WorkspaceContractError(
+                        f"workspace dataset {dataset_index} row {row_index} provenance.source_locator must be a safe relative path in {path_label}"
+                    )
     return data_origin
+
+
+def _is_safe_relative_locator(value: str) -> bool:
+    locator = value.strip()
+    if (
+        not locator
+        or locator.startswith("/")
+        or locator.endswith("/")
+        or "\\" in locator
+        or "\x00" in locator
+        or "://" in locator
+    ):
+        return False
+    segments = locator.split("/")
+    return not any(segment in {"", ".", ".."} or ":" in segment for segment in segments)

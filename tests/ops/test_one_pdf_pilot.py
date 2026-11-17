@@ -64,6 +64,7 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
     assert Path(result["staging_manager_fund_vehicle_relationships_json"]).exists()
     assert Path(result["extraction_warnings_json"]).exists()
     assert Path(result["schema_component_datasets_manifest_json"]).exists()
+    assert Path(result["source_pdf"]).exists()
     assert Path(result["workspace_bundle_json"]).exists()
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -81,6 +82,7 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
         "orchestration_published_rows_json",
         "orchestration_review_queue_rows_json",
         "orchestration_state_json",
+        "source_pdf",
         "workspace_bundle_json",
     }
     expected_result_keys = expected_keys | {"run_id", "run_manifest_json"}
@@ -174,6 +176,12 @@ def test_one_pdf_pilot_artifacts_follow_deterministic_layout(tmp_path: Path) -> 
     )
     for artifact_path in artifact_paths.values():
         assert artifact_path.is_relative_to(expected_run_root)
+    assert Path(result["source_pdf"]).read_bytes() == pdf_path.read_bytes()
+    assert manifest["input"]["source_locator"].startswith("sources/")
+    assert manifest["input"]["source_locator"].endswith(".pdf")
+    assert manifest["source_locators"] == {
+        manifest["input"]["source_document_id"]: manifest["input"]["source_locator"]
+    }
 
 
 def test_one_pdf_pilot_fails_when_required_metrics_are_missing(tmp_path: Path) -> None:
@@ -341,6 +349,60 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(tmp_path: P
     second_bundle = json.loads(Path(second["workspace_bundle_json"]).read_text(encoding="utf-8"))
     assert first_bundle["datasets"]
     assert second_bundle == first_bundle
+    expected_doc_id = first_bundle["datasets"][0]["rows"][0]["provenance"]["source_document"]
+    for row in second_bundle["datasets"][0]["rows"]:
+        assert row["provenance"]["source_locator"].startswith("sources/")
+        assert (
+            Path(second["run_manifest_json"]).parent / row["provenance"]["source_locator"]
+        ).read_bytes() == pdf_path.read_bytes()
+
+    override_input = OnePdfPilotInput(
+        pdf_path=pdf_path,
+        plan_id="CA-PERS",
+        plan_period="FY2024",
+        effective_date="2024-06-30",
+        ingestion_date="2026-03-03",
+        source_document_id="override-doc-id",
+    )
+    third = run_one_pdf_pilot(
+        pilot_input=override_input,
+        output_root=output_root,
+        run_id="pilot-skipped-rerun",
+        state=prior_state,
+    )
+    third_bundle = json.loads(Path(third["workspace_bundle_json"]).read_text(encoding="utf-8"))
+    third_manifest = json.loads(Path(third["run_manifest_json"]).read_text(encoding="utf-8"))
+    assert third_bundle == first_bundle
+    assert third_manifest["input"]["source_document_id"] == expected_doc_id
+    for row in third_bundle["datasets"][0]["rows"]:
+        assert row["provenance"]["source_document"] == expected_doc_id
+        assert row["provenance"]["source_locator"].startswith("sources/")
+        assert (
+            Path(third["run_manifest_json"]).parent / row["provenance"]["source_locator"]
+        ).read_bytes() == pdf_path.read_bytes()
+
+    legacy_manifest = json.loads(Path(third["run_manifest_json"]).read_text(encoding="utf-8"))
+    legacy_manifest.pop("source_locators", None)
+    legacy_manifest["input"].pop("source_locator", None)
+    legacy_manifest["artifact_files"].pop("source_pdf", None)
+    Path(third["run_manifest_json"]).write_text(json.dumps(legacy_manifest), encoding="utf-8")
+    fourth = run_one_pdf_pilot(
+        pilot_input=override_input,
+        output_root=output_root,
+        run_id="pilot-skipped-rerun",
+        state=prior_state,
+    )
+    fourth_bundle = json.loads(Path(fourth["workspace_bundle_json"]).read_text(encoding="utf-8"))
+    assert fourth_bundle == first_bundle
+
+    Path(third["run_manifest_json"]).write_text("{corrupt-json", encoding="utf-8")
+    with pytest.raises(ValueError, match="Failed to read prior run manifest"):
+        run_one_pdf_pilot(
+            pilot_input=override_input,
+            output_root=output_root,
+            run_id="pilot-skipped-rerun",
+            state=prior_state,
+        )
 
 
 def test_one_pdf_input_contract_includes_required_path_env_and_metadata_fields() -> None:

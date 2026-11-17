@@ -482,3 +482,238 @@ def test_dynamic_json_head_matches_generated_get(tmp_path: Path, endpoint: str) 
             assert response.headers["Content-Type"] == content_type
             assert response.headers["Cache-Control"] == "no-store"
             assert response.headers["Content-Security-Policy"] == serve_local.CSP_HEADER
+
+
+def _render_citation_href_from_shell(
+    *,
+    app_js_source: str,
+    runtime_config: dict[str, object],
+    workspace: dict[str, object],
+) -> str:
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:
+        pytest.fail("node is required for pilot citation renderer coverage")
+
+    script = f"""
+const vm = require("vm");
+class Element {{
+  constructor(tag = "") {{
+    this.tag = tag;
+    this.children = [];
+    this.listeners = {{}};
+    this._text = "";
+    this.value = "";
+    this.href = "";
+    this.dataset = {{}};
+    this.classList = {{ add() {{}} }};
+  }}
+  get textContent() {{ return this._text; }}
+  set textContent(value) {{ this._text = String(value); this.children = []; }}
+  appendChild(child) {{ this.children.push(child); return child; }}
+  append(...children) {{ children.forEach((child) => this.appendChild(child)); }}
+  addEventListener(name, handler) {{ (this.listeners[name] ||= []).push(handler); }}
+  setAttribute() {{}}
+}}
+const elements = new Map();
+const byId = (id) => elements.get(id) || (elements.set(id, new Element(id)), elements.get(id));
+const links = [];
+const document = {{
+  getElementById: byId,
+  createElement: (tag) => {{
+    const el = new Element(tag);
+    if (tag === "a") links.push(el);
+    return el;
+  }},
+  createDocumentFragment: () => new Element("#fragment"),
+  createTextNode: (text) => {{ const node = new Element("#text"); node.textContent = text; return node; }},
+  querySelector: () => new Element(),
+}};
+const source = {json.dumps(app_js_source)}
+  .replace(/init\\(\\)\\.catch\\([\\s\\S]*$/, "")
+  + "\\nglobalThis.__app = {{ state, renderDetail }};";
+const context = {{ document, Node: Element, window: {{ setTimeout: () => 0, clearTimeout: () => {{}} }}, console, URLSearchParams }};
+vm.runInNewContext(source, context);
+const {{ state, renderDetail }} = context.__app;
+byId("detail-content");
+const workspace = {json.dumps(workspace)};
+state.config = {json.dumps(runtime_config)};
+state.datasets = workspace.datasets;
+state.selectedDatasetId = workspace.datasets[0].id;
+state.selectedRowIndex = 0;
+renderDetail();
+if (!links.length || !links[0].href) {{
+  throw new Error("no citation link rendered");
+}}
+process.stdout.write(links[0].href);
+"""
+    completed = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
+    return completed.stdout.strip()
+
+
+def test_pilot_default_document_id_citation_serves_source_pdf(tmp_path: Path) -> None:
+    """Serve the persisted source PDF from a rendered pilot citation link.
+
+    Deliberate-break: targeting ``sourceDocument`` (``pilot:CA-PERS:FY2024:...``)
+    instead of ``sourceLocator || sourceDocument`` in ``packages/renderer-shell/app.js``
+    (or omitting ``source_locator`` from provenance) emits
+    ``/artifacts/pilot%3ACA-PERS%3AFY2024%3A...#page=2``, which ``serve_local``
+    rejects with HTTP 404.
+    """
+    import copy
+    import hashlib
+
+    from pension_data.ops.one_pdf_pilot import OnePdfPilotInput, run_one_pdf_pilot
+
+    builder_path = ROOT / "scripts" / "web" / "build_workspace_bundle.py"
+    builder_spec = importlib.util.spec_from_file_location(
+        "build_workspace_bundle_for_pilot_citation", builder_path
+    )
+    assert builder_spec is not None and builder_spec.loader is not None
+    builder_module = importlib.util.module_from_spec(builder_spec)
+    builder_spec.loader.exec_module(builder_module)
+
+    fixture_pdf = ROOT / "tests" / "parser" / "fixtures" / "calpers_fy2024_excerpt.pdf"
+    expected_bytes = fixture_pdf.read_bytes()
+    expected_sha256 = hashlib.sha256(expected_bytes).hexdigest()
+
+    pilot_result = run_one_pdf_pilot(
+        pilot_input=OnePdfPilotInput(
+            pdf_path=fixture_pdf,
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            effective_date="2024-06-30",
+            ingestion_date="2026-01-01",
+        ),
+        output_root=tmp_path / "outputs",
+        run_id="calpers-citation-pilot",
+    )
+    run_root = Path(pilot_result["run_manifest_json"]).parent
+    direct_bundle = serve_local.load_workspace_bundle(Path(pilot_result["workspace_bundle_json"]))
+    rebuilt_bundle = builder_module.build_workspace_bundle(run_root)
+
+    handler = serve_local.make_handler(
+        web_root=ROOT / "apps" / "web",
+        workspace_bundle=rebuilt_bundle,
+        runtime_config=serve_local.build_runtime_config(artifact_base_url="/artifacts"),
+        artifact_root=run_root,
+    )
+    server = serve_local.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_port}"
+        runtime_config = _fetch_json(f"{base_url}/config/runtime.json")
+        workspace = _fetch_json(f"{base_url}/data/workspace.json")
+        with urlopen(f"{base_url}/renderer-shell/app.js", timeout=5) as app_response:
+            app_js_source = app_response.read().decode("utf-8")
+        citation_href = _render_citation_href_from_shell(
+            app_js_source=app_js_source,
+            runtime_config=runtime_config,
+            workspace=workspace,
+        )
+        with urlopen(f"{base_url}{citation_href}", timeout=5) as pdf_response:
+            assert pdf_response.status == 200
+            assert pdf_response.read() == expected_bytes
+            assert pdf_response.headers["Content-Type"] == "application/pdf"
+            assert pdf_response.headers["Content-Length"] == str(len(expected_bytes))
+
+        workspace_without_locator = copy.deepcopy(workspace)
+        for row in workspace_without_locator["datasets"][0]["rows"]:
+            row["provenance"].pop("source_locator", None)
+        logical_id_href = _render_citation_href_from_shell(
+            app_js_source=app_js_source,
+            runtime_config=runtime_config,
+            workspace=workspace_without_locator,
+        )
+        with pytest.raises(HTTPError) as exc_info:
+            urlopen(f"{base_url}{logical_id_href}", timeout=5)
+        assert exc_info.value.code == 404
+        exc_info.value.close()
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert rebuilt_bundle == direct_bundle
+    expected_locator = f"sources/{expected_sha256}.pdf"
+    expected_doc_id = f"pilot:CA-PERS:FY2024:{expected_sha256[:16]}"
+    assert citation_href == f"/artifacts/{expected_locator}#page=2"
+    for bundle in (direct_bundle, rebuilt_bundle):
+        rows = bundle["datasets"][0]["rows"]
+        assert rows
+        for row in rows:
+            provenance = row["provenance"]
+            assert provenance["source_document"] == expected_doc_id
+            assert provenance["source_locator"] == expected_locator
+
+
+def test_desktop_runtime_contract_validator_enforces_provenance_parity() -> None:
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:
+        pytest.fail("node is required for desktop runtime contract validator coverage")
+
+    validator_url = (
+        ROOT / "apps" / "mac-desktop" / "scripts" / "validate_runtime_contract.mjs"
+    ).as_uri()
+    contract_path = ROOT / "apps" / "contracts" / "runtime-contract.json"
+    script = f"""
+import fs from "node:fs";
+import {{ validateRuntimeContract }} from {json.dumps(validator_url)};
+
+const contract = JSON.parse(fs.readFileSync({json.dumps(str(contract_path))}, "utf8"));
+const makeBundle = (provenance) => ({{
+  contractVersion: contract.version,
+  data_origin: "generated",
+  datasets: [{{
+    id: "pilot",
+    name: "Pilot",
+    domain: "pension",
+    kind: "core_metrics",
+    freshness: "generated",
+    lastUpdated: "2026-01-01",
+    rows: [{{ entity: "CA-PERS", provenance }}],
+  }}],
+}});
+
+validateRuntimeContract(makeBundle({{
+  source_document: "pilot:CA-PERS:FY2024:deadbeef",
+  evidence_refs: ["p.2"],
+  source_locator: "sources/abc123.pdf",
+}}), contract);
+
+for (const bad of [
+  {{ source_document: null, evidence_refs: ["p.2"] }},
+  {{ source_document: "   ", evidence_refs: ["p.2"] }},
+  {{ source_document: "pilot:CA-PERS:FY2024:deadbeef", evidence_refs: 17 }},
+  {{ source_document: "pilot:CA-PERS:FY2024:deadbeef", evidence_refs: [""] }},
+  {{ source_document: "pilot:CA-PERS:FY2024:deadbeef", evidence_refs: ["p.2"], source_locator: "../escape.pdf" }},
+  {{ source_document: "pilot:CA-PERS:FY2024:deadbeef", evidence_refs: ["p.2"], source_locator: "pilot:CA-PERS:FY2024:deadbeef" }},
+]) {{
+  let failed = false;
+  try {{
+    validateRuntimeContract(makeBundle(bad), contract);
+  }} catch {{
+    failed = true;
+  }}
+  if (!failed) {{
+    throw new Error("expected validator failure for: " + JSON.stringify(bad));
+  }}
+}}
+"""
+    subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
