@@ -98,3 +98,24 @@ def test_validator_rejects_missing_dataset_contract_field() -> None:
 
     with pytest.raises(WorkspaceBundleError, match="missing required fields: freshness"):
         validate_generated_workspace_bundle(payload)
+
+
+def test_bundle_carries_and_validates_review_context() -> None:
+    review_context = {
+        "actionable_flags": ["doc_lineage_unreadable_pages:1"],
+        "escalation_required": True,
+        "source_authority_status": "declared",
+        "source_authority_tier": "official-mirror",
+    }
+    payload = build_workspace_bundle(
+        [_row()],
+        run_id="run-review",
+        last_updated="2024-06-30",
+        review_context=review_context,
+    )
+    assert payload["datasets"][0]["rows"][0]["review_context"] == review_context
+
+    broken = copy.deepcopy(payload)
+    broken["datasets"][0]["rows"][0]["review_context"]["source_authority_tier"] = "invalid-tier"
+    with pytest.raises(WorkspaceBundleError, match="source_authority_tier"):
+        validate_generated_workspace_bundle(broken)

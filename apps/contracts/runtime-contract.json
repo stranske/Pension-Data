@@ -4,6 +4,9 @@
     "requiredTopLevelFields": ["contractVersion", "data_origin", "datasets"],
     "dataOrigins": ["fixture", "generated", "live"],
     "datasetRequiredFields": ["id", "name", "domain", "kind", "freshness", "lastUpdated", "rows"],
-    "rowRecommendedFields": ["entity", "plan_period", "metric_family", "metric", "value", "confidence", "provenance"]
+    "rowRecommendedFields": ["entity", "plan_period", "metric_family", "metric", "value", "confidence", "provenance", "review_context"],
+    "reviewContextRequiredFields": ["escalation_required", "actionable_flags", "source_authority_tier", "source_authority_status"],
+    "sourceAuthorityTiers": ["official", "official-mirror", "high-confidence-third-party"],
+    "sourceAuthorityStatuses": ["declared", "unknown"]
   }
 }

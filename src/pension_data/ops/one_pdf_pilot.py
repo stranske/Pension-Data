@@ -30,6 +30,7 @@ from pension_data.ops.document_orchestration import (
     run_document_orchestration,
 )
 from pension_data.parser.pdf_pipeline import PDFParserInput, parse_pdf_to_funded_input
+from pension_data.sources.schema import SOURCE_AUTHORITY_TIERS, SourceAuthorityTier
 
 _ALLOWED_UNIT_SCALES: tuple[UnitScale, ...] = ("usd", "thousand_usd", "million_usd", "billion_usd")
 
@@ -47,6 +48,7 @@ ONE_PDF_PILOT_OPTIONAL_METADATA_FIELDS: tuple[str, ...] = (
     "fetched_at",
     "mime_type",
     "default_money_unit_scale",
+    "source_authority_tier",
 )
 ONE_PDF_PILOT_OPTIONAL_RUNTIME_FIELDS: tuple[str, ...] = ("output_root", "run_id", "parser_backend")
 
@@ -62,6 +64,7 @@ ONE_PDF_PILOT_ENV_VAR_BY_FIELD: Mapping[str, str] = MappingProxyType(
         "fetched_at": "ONE_PDF_PILOT_FETCHED_AT",
         "mime_type": "ONE_PDF_PILOT_MIME_TYPE",
         "default_money_unit_scale": "ONE_PDF_PILOT_DEFAULT_MONEY_UNIT_SCALE",
+        "source_authority_tier": "ONE_PDF_PILOT_SOURCE_AUTHORITY_TIER",
         "output_root": "ONE_PDF_PILOT_OUTPUT_ROOT",
         "run_id": "ONE_PDF_PILOT_RUN_ID",
     }
@@ -115,6 +118,20 @@ def resolve_one_pdf_pilot_runtime_options(
     return Path(output_root_value), run_id_value
 
 
+def _validate_source_authority_tier(
+    value: str | SourceAuthorityTier | None,
+) -> SourceAuthorityTier | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("source_authority_tier must be a string or None")
+    normalized = value.strip()
+    if normalized not in SOURCE_AUTHORITY_TIERS:
+        allowed = ", ".join(SOURCE_AUTHORITY_TIERS)
+        raise ValueError(f"source_authority_tier must be one of [{allowed}], got: {value}")
+    return normalized
+
+
 def resolve_one_pdf_pilot_input(
     *,
     pdf_path: str | Path | None,
@@ -127,6 +144,7 @@ def resolve_one_pdf_pilot_input(
     fetched_at: str | None = None,
     mime_type: str | None = None,
     default_money_unit_scale: str | UnitScale | None = None,
+    source_authority_tier: str | SourceAuthorityTier | None = None,
     parser_backend: Literal["auto", "doc-lineage", "legacy"] = "auto",
     env: Mapping[str, str] | None = None,
 ) -> OnePdfPilotInput:
@@ -181,6 +199,18 @@ def resolve_one_pdf_pilot_input(
             f"default_money_unit_scale must be one of [{allowed}], got: {unit_scale_value}"
         )
 
+    if source_authority_tier is not None and (
+        not isinstance(source_authority_tier, str) or not source_authority_tier.strip()
+    ):
+        _validate_source_authority_tier(source_authority_tier)
+    authority_tier_value = _validate_source_authority_tier(
+        _resolve_str_arg(
+            field="source_authority_tier",
+            value=str(source_authority_tier) if source_authority_tier is not None else None,
+            env=resolved_env,
+        )
+    )
+
     return OnePdfPilotInput(
         pdf_path=Path(resolved["pdf_path"]),
         plan_id=resolved["plan_id"],
@@ -192,6 +222,7 @@ def resolve_one_pdf_pilot_input(
         source_document_id=resolved_source_document_id,
         fetched_at=resolved_fetched_at,
         mime_type=resolved_mime_type,
+        source_authority_tier=authority_tier_value,
         parser_backend=parser_backend,
     )
 
@@ -210,7 +241,16 @@ class OnePdfPilotInput:
     source_document_id: str | None = None
     fetched_at: str | None = None
     mime_type: str = "application/pdf"
+    source_authority_tier: SourceAuthorityTier | None = None
     parser_backend: Literal["auto", "doc-lineage", "legacy"] = "auto"
+
+    def __post_init__(self) -> None:
+        if self.source_authority_tier is not None:
+            object.__setattr__(
+                self,
+                "source_authority_tier",
+                _validate_source_authority_tier(self.source_authority_tier),
+            )
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -480,11 +520,22 @@ def run_one_pdf_pilot(
     _write_json(coverage_json, coverage_summary)
     _write_json(component_coverage_report_json, component_coverage_report)
 
+    validated_authority_tier = _validate_source_authority_tier(pilot_input.source_authority_tier)
+    review_context: dict[str, object] = {
+        "actionable_flags": list(parser_result.actionable_flags),
+        "escalation_required": bool(parser_result.escalation_required),
+        "source_authority_status": (
+            "declared" if validated_authority_tier is not None else "unknown"
+        ),
+        "source_authority_tier": validated_authority_tier,
+    }
+
     workspace_bundle_json = run_root / "workspace-bundle.json"
     workspace_bundle = build_workspace_bundle(
         core_rows,
         run_id=effective_run_id,
         last_updated=pilot_input.effective_date,
+        review_context=review_context,
     )
     write_workspace_bundle(workspace_bundle_json, workspace_bundle)
 
@@ -502,7 +553,9 @@ def run_one_pdf_pilot(
             "fetched_at": fetched_at,
             "mime_type": pilot_input.mime_type,
             "default_money_unit_scale": pilot_input.default_money_unit_scale,
+            "source_authority_tier": validated_authority_tier,
         },
+        "review_context": review_context,
         "ledger_status": ledger.status,
         "document_outcome_count": len(ledger.document_outcomes),
         "state": asdict(next_state),

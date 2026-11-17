@@ -456,6 +456,24 @@ function renderTable() {
   });
 }
 
+function normalizeReviewContext(rawContext) {
+  const context = rawContext && typeof rawContext === "object" ? rawContext : {};
+  const escalationRequired =
+    typeof context.escalation_required === "boolean" ? context.escalation_required : null;
+  const actionableFlags = Array.isArray(context.actionable_flags)
+    ? context.actionable_flags.map((flag) => normalizeText(flag)).filter(Boolean)
+    : [];
+  const tier = normalizeText(context.source_authority_tier) || null;
+  const status =
+    normalizeText(context.source_authority_status) || (tier ? "declared" : "unknown");
+  return {
+    escalation_required: escalationRequired,
+    actionable_flags: actionableFlags,
+    source_authority_tier: tier,
+    source_authority_status: status,
+  };
+}
+
 function renderDetail() {
   const detail = document.getElementById("detail-content");
   const rows = filteredRows();
@@ -465,6 +483,7 @@ function renderDetail() {
   }
   const row = rows[state.selectedRowIndex];
   const provenance = row.provenance || {};
+  const reviewContext = normalizeReviewContext(row.review_context);
   const sourceDocument = normalizeText(provenance.source_document);
   const evidenceRefs = Array.isArray(provenance.evidence_refs) ? provenance.evidence_refs : [];
   detail.textContent = "";
@@ -492,6 +511,24 @@ function renderDetail() {
   addDetailItem("Metric Family / Metric", `${String(row.metric_family ?? "")} / ${String(row.metric ?? "")}`);
   addDetailItem("Value / Confidence", `${String(row.value ?? "")} / ${String(row.confidence ?? "")}`);
   addDetailItem("Source Document", sourceDocument || "n/a");
+  addDetailItem(
+    "Parser Escalation",
+    reviewContext.escalation_required === null
+      ? "unknown"
+      : reviewContext.escalation_required
+        ? "required (true)"
+        : "not required (false)"
+  );
+  addDetailItem(
+    "Actionable Flags",
+    reviewContext.actionable_flags.length ? reviewContext.actionable_flags.join(" · ") : "none"
+  );
+  addDetailItem(
+    "Source Authority",
+    reviewContext.source_authority_tier
+      ? `${reviewContext.source_authority_tier} (${reviewContext.source_authority_status})`
+      : reviewContext.source_authority_status
+  );
 
   const evidenceTokens = evidenceRefs.map((ref) => normalizeText(ref)).filter(Boolean);
   if (!evidenceTokens.length || !sourceDocument) {
@@ -610,6 +647,7 @@ function bindSavedViewHandlers() {
 function flattenRows(rows) {
   return rows.map((row) => {
     const provenance = row.provenance || {};
+    const reviewContext = normalizeReviewContext(row.review_context);
     return {
       entity: row.entity,
       plan_period: row.plan_period,
@@ -621,6 +659,10 @@ function flattenRows(rows) {
       evidence_refs: Array.isArray(provenance.evidence_refs)
         ? provenance.evidence_refs.join(" | ")
         : "",
+      escalation_required: reviewContext.escalation_required,
+      actionable_flags: reviewContext.actionable_flags.join(" | "),
+      source_authority_tier: reviewContext.source_authority_tier || "",
+      source_authority_status: reviewContext.source_authority_status,
     };
   });
 }

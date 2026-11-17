@@ -117,6 +117,12 @@ def test_generator_emits_runtime_valid_generated_bundle(tmp_path: Path) -> None:
             "evidence_refs": ["p22:cashflow"],
             "source_document": "calpers-fy2024",
         },
+        "review_context": {
+            "actionable_flags": [],
+            "escalation_required": None,
+            "source_authority_status": "unknown",
+            "source_authority_tier": None,
+        },
         "value": "$41000000",
     }
 

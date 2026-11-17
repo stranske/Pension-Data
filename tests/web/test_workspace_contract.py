@@ -367,7 +367,7 @@ vm.runInNewContext(source, context);
 const {{ state, renderTable, bindFilterHandlers }} = context.__app;
 ["table-head", "table-body", "result-count", "detail-content", "clear-filters", "filter-entity", "filter-period", "filter-family", "filter-source", "filter-confidence", "filter-confidence-value"].forEach(byId);
 state.datasets = [{{ id: "demo", rows: [
-  {{ entity: "CA", plan_period: "FY2024", metric_family: "funded", metric: "funded_ratio", value: 0.81, confidence: 0.92, provenance: {{ source_document: "calpers", evidence_refs: ["p1"] }} }},
+  {{ entity: "CA", plan_period: "FY2024", metric_family: "funded", metric: "funded_ratio", value: 0.81, confidence: 0.92, provenance: {{ source_document: "calpers", evidence_refs: ["p1"] }}, review_context: {{ escalation_required: true, actionable_flags: ["doc_lineage_unreadable_pages:1"], source_authority_tier: "high-confidence-third-party", source_authority_status: "declared" }} }},
   {{ entity: "NY", plan_period: "FY2024", metric_family: "cash", metric: "contributions", value: 1500000000, confidence: 0.75, provenance: {{ source_document: "nycers", evidence_refs: ["p2"] }} }},
 ] }}];
 state.selectedDatasetId = "demo";
@@ -386,6 +386,12 @@ if (byId("filter-entity").value !== "" || byId("result-count").textContent !== "
 byId("table-body").children[0].trigger("click");
 const detail = byId("detail-content").children[0];
 if (state.selectedRowIndex !== 0 || !detail || detail.children.length === 0) throw new Error("row click did not render record details");
+const detailEntries = Object.fromEntries(detail.children.map((item) => [item.children[0].textContent, item.children[1].textContent]));
+if (detailEntries["Parser Escalation"] !== "required (true)" || detailEntries["Actionable Flags"] !== "doc_lineage_unreadable_pages:1" || detailEntries["Source Authority"] !== "high-confidence-third-party (declared)") throw new Error("review_context details were not rendered");
+byId("table-body").children[1].trigger("click");
+const legacyDetail = byId("detail-content").children[0];
+const legacyEntries = Object.fromEntries(legacyDetail.children.map((item) => [item.children[0].textContent, item.children[1].textContent]));
+if (legacyEntries["Parser Escalation"] !== "unknown" || legacyEntries["Actionable Flags"] !== "none" || legacyEntries["Source Authority"] !== "unknown") throw new Error("legacy unknown review_context details were not rendered");
 """
     subprocess.run(["node", "-e", script], check=True, cwd=ROOT)
 

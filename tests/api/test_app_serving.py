@@ -236,7 +236,11 @@ def test_metric_history_serves_two_plans_under_one_artifact_root(
         "fetched_at": "2026-01-01T00:00:00Z",
     }
     result_alpha = run_one_pdf_pilot(
-        pilot_input=OnePdfPilotInput(plan_id="PLAN-ALPHA", **pilot_input_base),
+        pilot_input=OnePdfPilotInput(
+            plan_id="PLAN-ALPHA",
+            source_authority_tier="official",
+            **pilot_input_base,
+        ),
         output_root=output_root,
         run_id="run-alpha",
     )
@@ -278,6 +282,18 @@ def test_metric_history_serves_two_plans_under_one_artifact_root(
     assert beta_rows[0]["normalized_value"] == pytest.approx(expected_beta)
     assert alpha_rows[0]["entity_id"] == "PLAN-ALPHA"
     assert beta_rows[0]["entity_id"] == "PLAN-BETA"
+    assert alpha_rows[0]["review_context"] == {
+        "actionable_flags": [],
+        "escalation_required": False,
+        "source_authority_status": "declared",
+        "source_authority_tier": "official",
+    }
+    assert beta_rows[0]["review_context"] == {
+        "actionable_flags": [],
+        "escalation_required": False,
+        "source_authority_status": "unknown",
+        "source_authority_tier": None,
+    }
 
     trend_response = client.get("/api/saved-views/funding-trend", headers=headers)
     assert trend_response.status_code == 200
@@ -317,6 +333,12 @@ def test_metric_history_returns_both_revised_versions_with_provenance(
             )
         ],
         source_document_id="doc:syn-plan:revised",
+        review_context={
+            "actionable_flags": ["low_confidence_stage:table_assist"],
+            "escalation_required": True,
+            "source_authority_status": "declared",
+            "source_authority_tier": "high-confidence-third-party",
+        },
     )
 
     monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
@@ -336,6 +358,20 @@ def test_metric_history_returns_both_revised_versions_with_provenance(
     }
     assert {row["effective_date"] for row in funded_rows} == {"2024-06-30"}
     assert {row["ingestion_date"] for row in funded_rows} == {"2026-01-01", "2026-02-01"}
+    assert {row["source_document_id"]: row["review_context"] for row in funded_rows} == {
+        "doc:syn-plan:original": {
+            "actionable_flags": [],
+            "escalation_required": None,
+            "source_authority_status": "unknown",
+            "source_authority_tier": None,
+        },
+        "doc:syn-plan:revised": {
+            "actionable_flags": ["low_confidence_stage:table_assist"],
+            "escalation_required": True,
+            "source_authority_status": "declared",
+            "source_authority_tier": "high-confidence-third-party",
+        },
+    }
 
 
 def test_conflicted_plan_period_does_not_disable_metric_history_for_other_plan(

@@ -8,6 +8,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from pension_data.sources.schema import SOURCE_AUTHORITY_TIERS
+
 WORKSPACE_CONTRACT_VERSION = "1.0.0"
 GENERATED_DATA_ORIGIN = "generated"
 
@@ -15,10 +17,131 @@ _REQUIRED_TOP_LEVEL_FIELDS = frozenset({"contractVersion", "data_origin", "datas
 _REQUIRED_DATASET_FIELDS = frozenset(
     {"id", "name", "domain", "kind", "freshness", "lastUpdated", "rows"}
 )
+_REQUIRED_ROW_FIELDS = frozenset(
+    {
+        "confidence",
+        "entity",
+        "metric",
+        "metric_family",
+        "plan_period",
+        "provenance",
+        "review_context",
+        "value",
+    }
+)
+_REQUIRED_REVIEW_CONTEXT_FIELDS = frozenset(
+    {
+        "actionable_flags",
+        "escalation_required",
+        "source_authority_status",
+        "source_authority_tier",
+    }
+)
+_ALLOWED_AUTHORITY_STATUSES = frozenset({"declared", "unknown"})
 
 
 class WorkspaceBundleError(ValueError):
     """Raised when generated workspace-bundle data violates the producer contract."""
+
+
+def default_review_context() -> dict[str, Any]:
+    """Return explicit unknown review context values for legacy artifacts."""
+    return {
+        "actionable_flags": [],
+        "escalation_required": None,
+        "source_authority_status": "unknown",
+        "source_authority_tier": None,
+    }
+
+
+def normalize_review_context(
+    value: Mapping[str, Any] | None,
+    *,
+    require_all_fields: bool = False,
+) -> dict[str, Any]:
+    """Validate and normalize per-run/document review context."""
+    if value is None:
+        if require_all_fields:
+            raise WorkspaceBundleError("workspace review_context must be an object")
+        return default_review_context()
+    if not isinstance(value, Mapping):
+        raise WorkspaceBundleError("workspace review_context must be an object")
+    if require_all_fields:
+        missing = _REQUIRED_REVIEW_CONTEXT_FIELDS.difference(value)
+        if missing:
+            raise WorkspaceBundleError(
+                "workspace review_context missing required fields: " + ", ".join(sorted(missing))
+            )
+
+    escalation_required = value.get("escalation_required")
+    if escalation_required is not None and not isinstance(escalation_required, bool):
+        raise WorkspaceBundleError(
+            "workspace review_context escalation_required must be boolean or null"
+        )
+
+    raw_flags = value.get("actionable_flags")
+    if raw_flags is None:
+        if require_all_fields:
+            raise WorkspaceBundleError(
+                "workspace review_context actionable_flags must be a list of strings"
+            )
+        flags: list[str] = []
+    elif isinstance(raw_flags, Sequence) and not isinstance(raw_flags, (str, bytes, bytearray)):
+        if require_all_fields and not isinstance(raw_flags, list):
+            raise WorkspaceBundleError(
+                "workspace review_context actionable_flags must be a list of strings"
+            )
+        flags = []
+        for item in raw_flags:
+            if not isinstance(item, str) or not item.strip():
+                raise WorkspaceBundleError(
+                    "workspace review_context actionable_flags must contain non-empty strings"
+                )
+            token = item.strip()
+            if token not in flags:
+                flags.append(token)
+    else:
+        raise WorkspaceBundleError(
+            "workspace review_context actionable_flags must be a list of strings"
+        )
+
+    raw_tier = value.get("source_authority_tier")
+    if raw_tier is None:
+        tier: str | None = None
+    elif isinstance(raw_tier, str) and raw_tier.strip() in SOURCE_AUTHORITY_TIERS:
+        tier = raw_tier.strip()
+    else:
+        allowed = ", ".join(SOURCE_AUTHORITY_TIERS)
+        raise WorkspaceBundleError(
+            f"workspace review_context source_authority_tier must be one of [{allowed}] or null"
+        )
+
+    expected_status = "declared" if tier is not None else "unknown"
+    raw_status = value.get("source_authority_status")
+    if raw_status is None:
+        if require_all_fields:
+            raise WorkspaceBundleError(
+                "workspace review_context source_authority_status must be 'declared' or 'unknown'"
+            )
+        status = expected_status
+    elif isinstance(raw_status, str) and raw_status.strip() in _ALLOWED_AUTHORITY_STATUSES:
+        status = raw_status.strip()
+        if status != expected_status:
+            raise WorkspaceBundleError(
+                f"workspace review_context source_authority_status='{status}' "
+                f"conflicts with source_authority_tier={tier!r}"
+            )
+    else:
+        raise WorkspaceBundleError(
+            "workspace review_context source_authority_status must be 'declared' or 'unknown'"
+        )
+
+    return {
+        "actionable_flags": flags,
+        "escalation_required": escalation_required,
+        "source_authority_status": status,
+        "source_authority_tier": tier,
+    }
 
 
 def _as_text(value: Any) -> str:
@@ -54,13 +177,27 @@ def _evidence_refs(value: Any) -> list[str]:
     return [_as_text(value)] if _as_text(value) else []
 
 
-def map_staging_row_to_ui_row(row: Mapping[str, Any]) -> dict[str, Any]:
+def map_staging_row_to_ui_row(
+    row: Mapping[str, Any],
+    *,
+    review_context: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Convert one staged core-metric row into the renderer-shell row contract."""
     value = row.get("normalized_value")
     if value in (None, ""):
         value = row.get("as_reported_value")
     if isinstance(value, float) and not math.isfinite(value):
         raise WorkspaceBundleError("workspace metric value must be finite")
+    raw_row_context = row.get("review_context")
+    resolved_context = normalize_review_context(
+        review_context if review_context is not None else raw_row_context
+    )
+    if (
+        review_context is not None
+        and raw_row_context is not None
+        and normalize_review_context(raw_row_context) != resolved_context
+    ):
+        raise WorkspaceBundleError("staging row review_context conflicts with run review_context")
     return {
         "confidence": _as_number(row.get("confidence")),
         "entity": _as_text(row.get("plan_id")) or "unknown-plan",
@@ -71,6 +208,7 @@ def map_staging_row_to_ui_row(row: Mapping[str, Any]) -> dict[str, Any]:
             "evidence_refs": _evidence_refs(row.get("evidence_refs")),
             "source_document": _as_text(row.get("source_document_id")),
         },
+        "review_context": resolved_context,
         "value": value,
     }
 
@@ -80,15 +218,26 @@ def build_workspace_bundle(
     *,
     run_id: str,
     last_updated: str,
+    review_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a generated bundle for one extraction run."""
+    """Build a generated bundle for one extraction run.
+
+    Deliberate-break anchor: omitting ``review_context=resolved_review_context``
+    when mapping rows causes both direct and rebuilt bundles to fall back to
+    unknown review_context even when ``run_manifest.json`` retains it.
+    """
     if not rows:
         raise WorkspaceBundleError("workspace bundle requires at least one staging row")
     normalized_run_id = run_id.strip()
     if not normalized_run_id:
         raise WorkspaceBundleError("workspace bundle run_id is required")
 
-    ui_rows = [map_staging_row_to_ui_row(row) for row in rows]
+    resolved_review_context = (
+        normalize_review_context(review_context) if review_context is not None else None
+    )
+    ui_rows = [
+        map_staging_row_to_ui_row(row, review_context=resolved_review_context) for row in rows
+    ]
     ui_rows.sort(
         key=lambda row: (
             _as_text(row["entity"]),
@@ -143,8 +292,21 @@ def validate_generated_workspace_bundle(payload: Mapping[str, Any]) -> None:
                 f"workspace dataset {index} missing required fields: "
                 + ", ".join(sorted(missing_dataset))
             )
-        if not isinstance(dataset.get("rows"), list) or not dataset["rows"]:
+        rows = dataset.get("rows")
+        if not isinstance(rows, list) or not rows:
             raise WorkspaceBundleError(f"workspace dataset {index} rows must be non-empty")
+        for row_index, row in enumerate(rows):
+            if not isinstance(row, Mapping):
+                raise WorkspaceBundleError(
+                    f"workspace dataset {index} row {row_index} must be an object"
+                )
+            missing_row = _REQUIRED_ROW_FIELDS.difference(row)
+            if missing_row:
+                raise WorkspaceBundleError(
+                    f"workspace dataset {index} row {row_index} missing required fields: "
+                    + ", ".join(sorted(missing_row))
+                )
+            normalize_review_context(row.get("review_context"), require_all_fields=True)
 
     try:
         json.dumps(payload, sort_keys=True, allow_nan=False)
