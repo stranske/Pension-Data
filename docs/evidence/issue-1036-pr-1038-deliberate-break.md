@@ -536,3 +536,34 @@ Black also used `BLACK_NUM_WORKERS=1`. No workaround is committed.
 - [ ] Update remote task/acceptance checkboxes, publish verification/blocker
       comment, and add `needs-human`: all three mutations were rejected with
       `MCP tool call requires approval, but approval policy is never`.
+
+## Skipped-rerun API attribution verification (2026-11-17)
+
+At `0ecbddf`, extended the existing skipped-rerun regression to inspect API
+snapshots before and after all four authority transitions. Both snapshots must
+retain every bundle document/metric identity. Every row must carry the current
+authority alongside escalation and actionable flags, while all other metric
+fields remain equal across the replay. Existing bundle assertions remain intact.
+
+- [x] Pilot declaration validation and manifest/direct bundle propagation verified.
+- [x] Producer/runtime contracts, manifest rebuild, and API attribution verified.
+- [x] Named acceptance test: 1 passed; whole pilot file: 70 passed.
+- [x] Related bundle, rebuild, runtime, API, CLI, query, and renderer tests: 246 passed.
+- [x] Optional metadata tuple includes authority; existing API multi-run and renderer checks pass.
+- [x] Required repository Black check: 467 files unchanged; targeted Ruff and diff checks pass.
+- [x] Existing deliberate-break/restoration evidence above remains applicable.
+
+All pytest commands used `-m "not slow"`. The unmodified named test timed out
+after 15 seconds in asyncio's selector; a socketpair send independently raised
+`PermissionError: [Errno 1] Operation not permitted`. HTTP verification and the
+repository Black check used the previously documented temporary selector-wait
+cap at `/tmp/pension-replay-api-runtime/sitecustomize.py`; Black also used
+`BLACK_NUM_WORKERS=1`. No runtime workaround is committed.
+
+- [ ] Commit on the checked-out branch: `git add tests/ops/test_one_pdf_pilot.py`
+      failed creating `.git/index.lock` with `Read-only file system`.
+- [ ] Reconcile remote checkboxes, publish the blocker comment, and add
+      `needs-human`: automatic approval review rejected all three operations with
+      `MCP tool call requires approval, but approval policy is never`.
+
+PR #1038 was confirmed open and ready (`draft=false`) at `0ecbddf`.

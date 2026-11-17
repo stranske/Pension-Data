@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import pension_data.ops.one_pdf_pilot as pilot_module
+from pension_data.api.artifact_data import load_query_data_snapshot
 from pension_data.db.models.artifacts import RawArtifactRecord
 from pension_data.ops.document_orchestration import DocumentOrchestrationState
 from pension_data.ops.one_pdf_pilot import (
@@ -423,6 +424,13 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(
     }
     assert first_manifest["review_context"] == initial_context
     assert all(row["review_context"] == initial_context for row in first_rows)
+    first_snapshot = load_query_data_snapshot(output_root)
+    expected_row_ids = {(row["provenance"]["source_document"], row["metric"]) for row in first_rows}
+    assert {
+        (row.source_document_id, row.metric_name) for row in first_snapshot.metric_history_rows
+    } == expected_row_ids
+    for row in first_snapshot.metric_history_rows:
+        assert row.review_context.to_dict() == initial_context
     prior_state_payload = json.loads(
         Path(first["orchestration_state_json"]).read_text(encoding="utf-8")
     )
@@ -452,6 +460,16 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(
     }
     assert second_manifest["input"]["source_authority_tier"] == replay_authority
     assert second_manifest["review_context"] == replay_context
+    second_snapshot = load_query_data_snapshot(output_root)
+    assert {
+        (row.source_document_id, row.metric_name) for row in second_snapshot.metric_history_rows
+    } == expected_row_ids
+    for row in second_snapshot.metric_history_rows:
+        assert row.review_context.to_dict() == replay_context
+    for first_row, second_row in zip(
+        first_snapshot.metric_history_rows, second_snapshot.metric_history_rows, strict=True
+    ):
+        assert replace(second_row, review_context=first_row.review_context) == first_row
     for row in first_rows:
         row["review_context"] = replay_context
     assert second_bundle == first_bundle
