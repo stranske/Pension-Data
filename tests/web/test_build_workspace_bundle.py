@@ -410,3 +410,13 @@ def test_generator_reads_source_locator_from_run_manifest(tmp_path: Path) -> Non
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="source_pdf conflicts with declared source_locator"):
         build_workspace_bundle.build_workspace_bundle(run_dir)
+
+    symlink_locator = "sources/alias.pdf"
+    symlink_pdf = run_dir / symlink_locator
+    os.symlink(source_pdf, symlink_pdf)
+    manifest["input"]["source_locator"] = symlink_locator
+    manifest["source_locators"] = {"calpers-fy2024": symlink_locator}
+    manifest.get("artifact_files", {}).pop("source_pdf", None)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="must not traverse symlinks inside the pilot run"):
+        build_workspace_bundle.build_workspace_bundle(run_dir)

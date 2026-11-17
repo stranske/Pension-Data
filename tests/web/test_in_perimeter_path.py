@@ -559,6 +559,15 @@ process.stdout.write(links[0].href);
 
 
 def test_pilot_default_document_id_citation_serves_source_pdf(tmp_path: Path) -> None:
+    """Serve the persisted source PDF from a rendered pilot citation link.
+
+    Deliberate-break: targeting ``sourceDocument`` (``pilot:CA-PERS:FY2024:...``)
+    instead of ``sourceLocator || sourceDocument`` in ``packages/renderer-shell/app.js``
+    (or omitting ``source_locator`` from provenance) emits
+    ``/artifacts/pilot%3ACA-PERS%3AFY2024%3A...#page=2``, which ``serve_local``
+    rejects with HTTP 404.
+    """
+    import copy
     import hashlib
 
     from pension_data.ops.one_pdf_pilot import OnePdfPilotInput, run_one_pdf_pilot
@@ -615,6 +624,19 @@ def test_pilot_default_document_id_citation_serves_source_pdf(tmp_path: Path) ->
             assert pdf_response.read() == expected_bytes
             assert pdf_response.headers["Content-Type"] == "application/pdf"
             assert pdf_response.headers["Content-Length"] == str(len(expected_bytes))
+
+        workspace_without_locator = copy.deepcopy(workspace)
+        for row in workspace_without_locator["datasets"][0]["rows"]:
+            row["provenance"].pop("source_locator", None)
+        logical_id_href = _render_citation_href_from_shell(
+            app_js_source=app_js_source,
+            runtime_config=runtime_config,
+            workspace=workspace_without_locator,
+        )
+        with pytest.raises(HTTPError) as exc_info:
+            urlopen(f"{base_url}{logical_id_href}", timeout=5)
+        assert exc_info.value.code == 404
+        exc_info.value.close()
     finally:
         server.shutdown()
         thread.join(timeout=5)

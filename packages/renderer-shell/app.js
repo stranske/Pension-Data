@@ -527,6 +527,9 @@ function renderDetail() {
   addDetailItem("Source Document", sourceDocument || "n/a");
 
   const sourceLocator = normalizeText(provenance.source_locator);
+  // Deliberate-break anchor: targeting `sourceDocument` (`pilot:...` logical ID)
+  // instead of `sourceLocator || sourceDocument` causes citation links to request
+  // `/artifacts/pilot%3A...` from `serve_local.py`, which returns 404.
   const artifactPath = encodeArtifactPath(sourceLocator || sourceDocument);
   const artifactBaseUrl = normalizeText(state.config?.artifactBaseUrl).replace(/\/+$/, "");
   const evidenceTokens = evidenceRefs.map((ref) => normalizeText(ref)).filter(Boolean);

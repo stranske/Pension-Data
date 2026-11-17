@@ -157,9 +157,12 @@ def _resolve_declared_locator(pilot_run_dir: Path, raw_locator: Any, *, label: s
     segments = locator.split("/")
     if any(segment in {"", ".", ".."} or ":" in segment for segment in segments):
         raise ValueError(f"{label} must be a safe relative path inside the pilot run")
-    return _relative_locator_from_file(
+    resolved_locator = _relative_locator_from_file(
         pilot_run_dir, pilot_run_dir.resolve() / locator, label=label
     )
+    if resolved_locator != locator:
+        raise ValueError(f"{label} must not traverse symlinks inside the pilot run")
+    return resolved_locator
 
 
 def _manifest_source_locators(

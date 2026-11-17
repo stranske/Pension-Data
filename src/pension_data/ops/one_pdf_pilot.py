@@ -252,6 +252,10 @@ def _resolve_source_locators_for_run(
                 f"Prior run manifest must be a JSON object for skipped rerun: {manifest_path}"
             )
         prior_locators = prior_manifest.get("source_locators")
+        if prior_locators is not None and not isinstance(prior_locators, Mapping):
+            raise ValueError(
+                f"Prior run manifest source_locators must be an object for skipped rerun: {manifest_path}"
+            )
         if isinstance(prior_locators, Mapping):
             for doc_id, loc in prior_locators.items():
                 if (
@@ -292,6 +296,7 @@ def _resolve_source_locators_for_run(
                             prior_doc_id.strip(),
                             resolved_pdf.relative_to(run_root).as_posix(),
                         )
+                locators.setdefault(prior_doc_id.strip(), source_locator)
     locators[source_document_id] = source_locator
     return locators
 
@@ -552,17 +557,24 @@ def run_one_pdf_pilot(
         source_pdf_artifact.write_bytes(pdf_bytes)
 
     manifest_json = run_root / "run_manifest.json"
+    skipped_outcomes = _ledger_has_skipped_outcomes(ledger)
     source_locators = _resolve_source_locators_for_run(
         manifest_path=manifest_json,
         source_document_id=source_document_id,
         source_locator=source_locator,
-        skipped_outcomes=_ledger_has_skipped_outcomes(ledger),
+        skipped_outcomes=skipped_outcomes,
     )
     resolved_run_root = run_root.resolve()
+    persisted_doc_ids: list[str] = []
     for row in core_rows:
         row_doc_id = str(row.get("source_document_id") or "").strip()
         if not row_doc_id:
             continue
+        if row_doc_id not in persisted_doc_ids:
+            persisted_doc_ids.append(row_doc_id)
+    if skipped_outcomes and not manifest_json.exists() and len(persisted_doc_ids) == 1:
+        source_locators.setdefault(persisted_doc_ids[0], source_locator)
+    for row_doc_id in persisted_doc_ids:
         locator_for_row = source_locators.get(row_doc_id)
         if not locator_for_row:
             raise ValueError(f"Missing source_locator for persisted document {row_doc_id!r}")
@@ -574,6 +586,13 @@ def run_one_pdf_pilot(
             raise ValueError(
                 f"Persisted source_locator for {row_doc_id!r} must resolve inside run root"
             )
+    effective_source_document_id = (
+        persisted_doc_ids[0]
+        if skipped_outcomes and len(persisted_doc_ids) == 1
+        else source_document_id
+    )
+    effective_source_locator = source_locators.get(effective_source_document_id, source_locator)
+    effective_source_pdf = run_root / effective_source_locator
 
     workspace_bundle_json = run_root / "workspace-bundle.json"
     workspace_bundle = build_workspace_bundle(
@@ -592,8 +611,8 @@ def run_one_pdf_pilot(
             "plan_period": pilot_input.plan_period,
             "effective_date": pilot_input.effective_date,
             "ingestion_date": pilot_input.ingestion_date,
-            "source_document_id": source_document_id,
-            "source_locator": source_locator,
+            "source_document_id": effective_source_document_id,
+            "source_locator": effective_source_locator,
             "source_url": source_url,
             "fetched_at": fetched_at,
             "mime_type": pilot_input.mime_type,
@@ -615,7 +634,7 @@ def run_one_pdf_pilot(
             "parser_result_json": str(parser_json),
             "coverage_summary_json": str(coverage_json),
             "component_coverage_report_json": str(component_coverage_report_json),
-            "source_pdf": str(source_pdf_artifact),
+            "source_pdf": str(effective_source_pdf),
             "workspace_bundle_json": str(workspace_bundle_json),
             "persistence_contract_json": persistence_paths["persistence_contract_json"],
             "staging_core_metrics_json": persistence_paths["staging_core_metrics_json"],
@@ -648,7 +667,7 @@ def run_one_pdf_pilot(
         "parser_result_json": str(parser_json),
         "coverage_summary_json": str(coverage_json),
         "component_coverage_report_json": str(component_coverage_report_json),
-        "source_pdf": str(source_pdf_artifact),
+        "source_pdf": str(effective_source_pdf),
         "workspace_bundle_json": str(workspace_bundle_json),
         "persistence_contract_json": persistence_paths["persistence_contract_json"],
         "staging_core_metrics_json": persistence_paths["staging_core_metrics_json"],
