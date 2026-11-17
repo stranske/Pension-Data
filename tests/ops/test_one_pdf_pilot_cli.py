@@ -25,6 +25,7 @@ import pytest
 
 from pension_data.ops import one_pdf_pilot_cli as cli
 from pension_data.ops.one_pdf_pilot import one_pdf_pilot_input_contract
+from pension_data.sources.schema import SOURCE_AUTHORITY_TIERS
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FIXTURE = _REPO_ROOT / "tests" / "parser" / "fixtures" / "calpers_fy2024_excerpt.pdf"
@@ -211,6 +212,74 @@ def test_a_flag_beats_an_exported_variable(tmp_path, monkeypatch, capsys):
     result = json.loads(out)
     assert result["run_id"] == "typed-by-hand"
     assert str(tmp_path / "typed") in result["run_manifest_json"]
+
+
+@pytest.mark.parametrize("authority_tier", SOURCE_AUTHORITY_TIERS)
+@pytest.mark.parametrize("input_source", ["flag", "environment"])
+def test_declared_authority_reaches_manifest_and_bundle_from_cli(
+    tmp_path, monkeypatch, capsys, authority_tier, input_source
+):
+    authority_args = ()
+    if input_source == "flag":
+        # A valid flag must override even an invalid inherited declaration.
+        monkeypatch.setenv("ONE_PDF_PILOT_SOURCE_AUTHORITY_TIER", "unverified-blog")
+        authority_args = ("--source-authority-tier", authority_tier)
+    else:
+        monkeypatch.setenv("ONE_PDF_PILOT_SOURCE_AUTHORITY_TIER", authority_tier)
+
+    code, out, err = _run(
+        monkeypatch,
+        capsys,
+        "--pdf-path",
+        str(_FIXTURE),
+        *_REQUIRED,
+        "--output-root",
+        str(tmp_path / "authority"),
+        *authority_args,
+    )
+
+    assert code == 0, err
+    result = json.loads(out)
+    manifest = json.loads(Path(result["run_manifest_json"]).read_text(encoding="utf-8"))
+    context = manifest["review_context"]
+    assert manifest["input"]["source_authority_tier"] == authority_tier
+    assert context["source_authority_tier"] == authority_tier
+    assert context["source_authority_status"] == "declared"
+    bundle = json.loads(Path(result["workspace_bundle_json"]).read_text(encoding="utf-8"))
+    rows = [row for dataset in bundle["datasets"] for row in dataset["rows"]]
+    assert rows
+    assert all(row["review_context"] == context for row in rows)
+
+
+@pytest.mark.parametrize("input_source", ["flag", "environment"])
+def test_cli_rejects_invalid_authority_before_starting_pilot(
+    tmp_path, monkeypatch, capsys, input_source
+):
+    def unexpected_pilot(**kwargs):
+        pytest.fail("invalid authority must be rejected before starting the pilot")
+
+    monkeypatch.setattr(cli, "run_one_pdf_pilot", unexpected_pilot)
+    monkeypatch.setenv("ONE_PDF_PILOT_SOURCE_AUTHORITY_TIER", "unverified-blog")
+    authority_args = ()
+    if input_source == "flag":
+        monkeypatch.setenv("ONE_PDF_PILOT_SOURCE_AUTHORITY_TIER", "official")
+        authority_args = ("--source-authority-tier", "unverified-blog")
+    output_root = tmp_path / "invalid-authority"
+    code, out, err = _run(
+        monkeypatch,
+        capsys,
+        "--pdf-path",
+        str(_FIXTURE),
+        *_REQUIRED,
+        "--output-root",
+        str(output_root),
+        *authority_args,
+    )
+
+    assert code == 1
+    assert out == ""
+    assert "source_authority_tier must be one of" in err
+    assert not output_root.exists()
 
 
 # ---------------------------------------------------------------------------------------------

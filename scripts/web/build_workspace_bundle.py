@@ -23,8 +23,11 @@ from pension_data.export.workspace_bundle import (  # noqa: E402
     build_workspace_bundle as build_generated_workspace_bundle,
 )
 from pension_data.export.workspace_bundle import (  # noqa: E402
+    default_review_context,
+    normalize_review_context,
     write_workspace_bundle,
 )
+from pension_data.sources.schema import SOURCE_AUTHORITY_TIERS  # noqa: E402
 
 CONTRACT_PATH = ROOT / "apps" / "contracts" / "runtime-contract.json"
 
@@ -131,6 +134,36 @@ def _last_updated(manifest: Mapping[str, Any]) -> str:
     return ""
 
 
+def _manifest_review_context(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    input_payload = manifest.get("input")
+    if not isinstance(input_payload, Mapping):
+        raise ValueError("run_manifest.json missing input object")
+    raw_input_tier = input_payload.get("source_authority_tier")
+    if raw_input_tier is None:
+        input_tier: str | None = None
+    elif isinstance(raw_input_tier, str) and raw_input_tier.strip() in SOURCE_AUTHORITY_TIERS:
+        input_tier = raw_input_tier.strip()
+    else:
+        raise ValueError("run manifest input source_authority_tier is invalid")
+
+    if "review_context" not in manifest:
+        legacy = default_review_context()
+        if input_tier is not None:
+            legacy["source_authority_tier"] = input_tier
+            legacy["source_authority_status"] = "declared"
+        return legacy
+
+    raw_review_context = manifest.get("review_context")
+    if not isinstance(raw_review_context, Mapping):
+        raise ValueError("run_manifest.json review_context must be an object")
+    normalized = normalize_review_context(raw_review_context, require_all_fields=True)
+    if input_tier is not None and normalized["source_authority_tier"] != input_tier:
+        raise ValueError(
+            "run_manifest.json review_context source_authority_tier differs from input"
+        )
+    return normalized
+
+
 def _relative_locator_from_file(pilot_run_dir: Path, artifact_file: Path, *, label: str) -> str:
     resolved_run = pilot_run_dir.resolve()
     try:
@@ -229,6 +262,7 @@ def build_workspace_bundle(pilot_run_dir: Path) -> dict[str, Any]:
         _artifact_path(pilot_run_dir, manifest, "staging_core_metrics_json")
     )
     _validate_staging_rows_match_manifest(staging_rows, manifest)
+    review_context = _manifest_review_context(manifest)
     source_locators = _manifest_source_locators(pilot_run_dir, manifest)
     run_id = _as_text(manifest.get("run_id")) or pilot_run_dir.name
     contract = load_runtime_contract(CONTRACT_PATH)
@@ -236,6 +270,7 @@ def build_workspace_bundle(pilot_run_dir: Path) -> dict[str, Any]:
         staging_rows,
         run_id=run_id,
         last_updated=_last_updated(manifest),
+        review_context=review_context,
         source_locators=source_locators,
     )
     # This builder emits real generated data, so "fixture" is not an acceptable

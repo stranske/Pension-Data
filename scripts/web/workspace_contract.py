@@ -129,7 +129,23 @@ def validate_workspace_bundle(
     datasets = payload.get("datasets")
     if not isinstance(datasets, list) or not datasets:
         raise WorkspaceContractError(f"workspace dataset inventory is empty in {path_label}")
+
     workspace_bundle = resolved.get("workspaceBundle")
+    review_fields = (
+        frozenset(workspace_bundle.get("reviewContextRequiredFields", ()))
+        if isinstance(workspace_bundle, Mapping)
+        else frozenset()
+    )
+    allowed_tiers = (
+        frozenset(workspace_bundle.get("sourceAuthorityTiers", ()))
+        if isinstance(workspace_bundle, Mapping)
+        else frozenset()
+    )
+    allowed_statuses = (
+        frozenset(workspace_bundle.get("sourceAuthorityStatuses", ()))
+        if isinstance(workspace_bundle, Mapping)
+        else frozenset()
+    )
     provenance_required = {"source_document", "evidence_refs"}
     provenance_optional = {"source_locator"}
     if isinstance(workspace_bundle, Mapping):
@@ -152,43 +168,91 @@ def validate_workspace_bundle(
         if not isinstance(rows, list):
             continue
         for row_index, row in enumerate(rows):
-            if not isinstance(row, Mapping) or "provenance" not in row:
+            if not isinstance(row, Mapping):
                 continue
-            provenance = row.get("provenance")
-            if not isinstance(provenance, Mapping):
-                raise WorkspaceContractError(
-                    f"workspace dataset {dataset_index} row {row_index} provenance must be an object in {path_label}"
-                )
-            missing_prov = provenance_required.difference(provenance)
-            if missing_prov:
-                raise WorkspaceContractError(
-                    f"workspace dataset {dataset_index} row {row_index} provenance missing required fields "
-                    f"{', '.join(sorted(missing_prov))} in {path_label}"
-                )
-            unknown_prov = set(provenance).difference(allowed_provenance)
-            if unknown_prov:
-                raise WorkspaceContractError(
-                    f"workspace dataset {dataset_index} row {row_index} provenance has unsupported fields "
-                    f"{', '.join(sorted(unknown_prov))} in {path_label}"
-                )
-            source_doc = provenance.get("source_document")
-            if not isinstance(source_doc, str) or not source_doc.strip():
-                raise WorkspaceContractError(
-                    f"workspace dataset {dataset_index} row {row_index} provenance.source_document must be non-empty in {path_label}"
-                )
-            evidence_refs = provenance.get("evidence_refs")
-            if not isinstance(evidence_refs, list) or any(
-                not isinstance(ref, str) or not ref.strip() for ref in evidence_refs
-            ):
-                raise WorkspaceContractError(
-                    f"workspace dataset {dataset_index} row {row_index} provenance.evidence_refs must be a list of strings in {path_label}"
-                )
-            if "source_locator" in provenance:
-                locator = provenance.get("source_locator")
-                if not isinstance(locator, str) or not _is_safe_relative_locator(locator):
+            if "review_context" in row:
+                review_context = row.get("review_context")
+                if not isinstance(review_context, Mapping):
                     raise WorkspaceContractError(
-                        f"workspace dataset {dataset_index} row {row_index} provenance.source_locator must be a safe relative path in {path_label}"
+                        f"dataset {dataset_index} row {row_index} review_context must be an object "
+                        f"in {path_label}"
                     )
+                if review_fields:
+                    missing_review = review_fields.difference(review_context)
+                    if missing_review:
+                        raise WorkspaceContractError(
+                            f"dataset {dataset_index} row {row_index} review_context missing fields "
+                            f"{', '.join(sorted(missing_review))} in {path_label}"
+                        )
+                escalation = review_context.get("escalation_required")
+                if escalation is not None and not isinstance(escalation, bool):
+                    raise WorkspaceContractError(
+                        f"dataset {dataset_index} row {row_index} escalation_required must be "
+                        f"boolean or null in {path_label}"
+                    )
+                flags = review_context.get("actionable_flags")
+                if not isinstance(flags, list) or any(
+                    not isinstance(flag, str) or not flag.strip() for flag in flags
+                ):
+                    raise WorkspaceContractError(
+                        f"dataset {dataset_index} row {row_index} actionable_flags must be "
+                        f"a list of non-empty strings in {path_label}"
+                    )
+                tier = review_context.get("source_authority_tier")
+                if tier is not None and (
+                    not isinstance(tier, str) or (allowed_tiers and tier not in allowed_tiers)
+                ):
+                    raise WorkspaceContractError(
+                        f"dataset {dataset_index} row {row_index} source_authority_tier is invalid "
+                        f"in {path_label}"
+                    )
+                status = review_context.get("source_authority_status")
+                expected_status = "declared" if tier is not None else "unknown"
+                if (
+                    not isinstance(status, str)
+                    or (allowed_statuses and status not in allowed_statuses)
+                    or status != expected_status
+                ):
+                    raise WorkspaceContractError(
+                        f"dataset {dataset_index} row {row_index} source_authority_status is invalid "
+                        f"in {path_label}"
+                    )
+            if "provenance" in row:
+                provenance = row.get("provenance")
+                if not isinstance(provenance, Mapping):
+                    raise WorkspaceContractError(
+                        f"workspace dataset {dataset_index} row {row_index} provenance must be an object in {path_label}"
+                    )
+                missing_prov = provenance_required.difference(provenance)
+                if missing_prov:
+                    raise WorkspaceContractError(
+                        f"workspace dataset {dataset_index} row {row_index} provenance missing required fields "
+                        f"{', '.join(sorted(missing_prov))} in {path_label}"
+                    )
+                unknown_prov = set(provenance).difference(allowed_provenance)
+                if unknown_prov:
+                    raise WorkspaceContractError(
+                        f"workspace dataset {dataset_index} row {row_index} provenance has unsupported fields "
+                        f"{', '.join(sorted(unknown_prov))} in {path_label}"
+                    )
+                source_doc = provenance.get("source_document")
+                if not isinstance(source_doc, str) or not source_doc.strip():
+                    raise WorkspaceContractError(
+                        f"workspace dataset {dataset_index} row {row_index} provenance.source_document must be non-empty in {path_label}"
+                    )
+                evidence_refs = provenance.get("evidence_refs")
+                if not isinstance(evidence_refs, list) or any(
+                    not isinstance(ref, str) or not ref.strip() for ref in evidence_refs
+                ):
+                    raise WorkspaceContractError(
+                        f"workspace dataset {dataset_index} row {row_index} provenance.evidence_refs must be a list of strings in {path_label}"
+                    )
+                if "source_locator" in provenance:
+                    locator = provenance.get("source_locator")
+                    if not isinstance(locator, str) or not _is_safe_relative_locator(locator):
+                        raise WorkspaceContractError(
+                            f"workspace dataset {dataset_index} row {row_index} provenance.source_locator must be a safe relative path in {path_label}"
+                        )
     return data_origin
 
 

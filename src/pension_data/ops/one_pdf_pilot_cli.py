@@ -87,6 +87,15 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--source-authority-tier",
+        default=None,
+        help=(
+            "Optional declared source authority tier "
+            "(official|official-mirror|high-confidence-third-party, or "
+            f"${env_var_by_field['source_authority_tier']})."
+        ),
+    )
+    parser.add_argument(
         "--run-id",
         default=None,
         help=f"Optional deterministic run ID override (or ${env_var_by_field['run_id']}).",
@@ -115,6 +124,7 @@ def main() -> int:
             source_document_id=args.source_document_id,
             fetched_at=args.fetched_at,
             mime_type=args.mime_type,
+            source_authority_tier=args.source_authority_tier,
             parser_backend=args.parser_backend,
         )
         output_root, run_id = resolve_one_pdf_pilot_runtime_options(

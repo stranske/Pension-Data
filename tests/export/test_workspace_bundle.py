@@ -15,6 +15,7 @@ from pension_data.export.workspace_bundle import (
     validate_generated_workspace_bundle,
     write_workspace_bundle,
 )
+from pension_data.sources.schema import SOURCE_AUTHORITY_TIERS
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_CONTRACT = ROOT / "apps" / "contracts" / "runtime-contract.json"
@@ -97,6 +98,96 @@ def test_validator_rejects_missing_dataset_contract_field() -> None:
     del payload["datasets"][0]["freshness"]
 
     with pytest.raises(WorkspaceBundleError, match="missing required fields: freshness"):
+        validate_generated_workspace_bundle(payload)
+
+
+@pytest.mark.parametrize("authority_tier", [None, *SOURCE_AUTHORITY_TIERS])
+@pytest.mark.parametrize("escalation_required", [None, False, True])
+def test_bundle_carries_and_validates_review_context(
+    authority_tier: str | None, escalation_required: bool | None
+) -> None:
+    review_context = {
+        "actionable_flags": ["doc_lineage_unreadable_pages:1"],
+        "escalation_required": escalation_required,
+        "source_authority_status": "declared" if authority_tier is not None else "unknown",
+        "source_authority_tier": authority_tier,
+    }
+    payload = build_workspace_bundle(
+        [_row(), _row(metric="aal_usd")],
+        run_id="run-review",
+        last_updated="2024-06-30",
+        review_context=review_context,
+        source_locators={"calpers-fy2024": "sources/annual-report.pdf"},
+    )
+    assert all(row["review_context"] == review_context for row in payload["datasets"][0]["rows"])
+    assert all(
+        row["provenance"]["source_locator"] == "sources/annual-report.pdf"
+        for row in payload["datasets"][0]["rows"]
+    )
+
+    broken = copy.deepcopy(payload)
+    broken["datasets"][0]["rows"][0]["review_context"]["source_authority_tier"] = "invalid-tier"
+    with pytest.raises(WorkspaceBundleError, match="source_authority_tier"):
+        validate_generated_workspace_bundle(broken)
+
+
+def test_legacy_bundle_rows_have_explicit_unknown_review_context() -> None:
+    payload = build_workspace_bundle([_row()], run_id="legacy", last_updated="2024-06-30")
+    assert payload["datasets"][0]["rows"][0]["review_context"] == {
+        "actionable_flags": [],
+        "escalation_required": None,
+        "source_authority_status": "unknown",
+        "source_authority_tier": None,
+    }
+
+
+def test_runtime_contract_authority_tiers_match_source_schema() -> None:
+    contract = json.loads(RUNTIME_CONTRACT.read_text(encoding="utf-8"))
+    assert tuple(contract["workspaceBundle"]["sourceAuthorityTiers"]) == SOURCE_AUTHORITY_TIERS
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("actionable_flags", ["manual_review_needed", "manual_review_needed"]),
+        ("actionable_flags", [" manual_review_needed "]),
+        ("source_authority_status", " declared "),
+        ("source_authority_tier", " official "),
+    ],
+)
+def test_writer_rejects_noncanonical_review_context_without_replacing_file(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    payload = build_workspace_bundle(
+        [_row()],
+        run_id="run-review",
+        last_updated="2024-06-30",
+        review_context={
+            "actionable_flags": ["manual_review_needed"],
+            "escalation_required": True,
+            "source_authority_status": "declared",
+            "source_authority_tier": "official",
+        },
+    )
+    output = write_workspace_bundle(tmp_path / "workspace-bundle.json", payload)
+    before = output.read_bytes()
+    payload["datasets"][0]["rows"][0]["review_context"][field] = value
+
+    with pytest.raises(WorkspaceBundleError, match="review_context must use canonical values"):
+        write_workspace_bundle(output, payload)
+
+    assert output.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["actionable_flags", "escalation_required", "source_authority_status", "source_authority_tier"],
+)
+def test_producer_rejects_missing_review_context_fields(field: str) -> None:
+    payload = build_workspace_bundle([_row()], run_id="run-review", last_updated="2024-06-30")
+    del payload["datasets"][0]["rows"][0]["review_context"][field]
+
+    with pytest.raises(WorkspaceBundleError, match=f"missing required fields: {field}"):
         validate_generated_workspace_bundle(payload)
 
 

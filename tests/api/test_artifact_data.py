@@ -46,11 +46,12 @@ def _write_run(
     plan_id: str = "SYN-PLAN",
     plan_period: str = "FY2024",
     source_document_id: str = "doc:syn-plan",
+    review_context: dict[str, object] | None = None,
 ) -> Path:
     run_root = root / "one_pdf_pilot" / run_id
     persistence_root = run_root / "extraction_persistence"
     persistence_root.mkdir(parents=True)
-    manifest = {
+    manifest: dict[str, object] = {
         "run_id": run_id,
         "ledger_status": "success",
         "input": {
@@ -59,6 +60,8 @@ def _write_run(
             "source_document_id": source_document_id,
         },
     }
+    if review_context is not None:
+        manifest["review_context"] = review_context
     (run_root / "run_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     (persistence_root / "staging_core_metrics.json").write_text(json.dumps(rows), encoding="utf-8")
     return run_root
@@ -603,6 +606,41 @@ def test_load_query_data_snapshot_rejects_conflicting_duplicate_fact_id(
         load_query_data_snapshot(tmp_path)
 
 
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+def test_load_query_data_snapshot_reconciles_same_fact_review_context(
+    tmp_path: Path, reverse_run_order: bool
+) -> None:
+    """Same staged fact from two runs with different review metadata stays loadable."""
+    first_context = {
+        "actionable_flags": ["manual_review_needed"],
+        "escalation_required": True,
+        "source_authority_status": "unknown",
+        "source_authority_tier": None,
+    }
+    second_context = {
+        "actionable_flags": ["doc_lineage_unreadable_pages:1"],
+        "escalation_required": False,
+        "source_authority_status": "declared",
+        "source_authority_tier": "official-mirror",
+    }
+    runs = [
+        ("run-a", second_context if reverse_run_order else first_context),
+        ("run-b", first_context if reverse_run_order else second_context),
+    ]
+    for run_id, review_context in runs:
+        _write_run(tmp_path, run_id, [_metric_row()], review_context=review_context)
+
+    snapshot = load_query_data_snapshot(tmp_path)
+
+    assert len(snapshot.metric_history_rows) == 1
+    assert snapshot.metric_history_rows[0].review_context.to_dict() == {
+        "actionable_flags": ["doc_lineage_unreadable_pages:1", "manual_review_needed"],
+        "escalation_required": True,
+        "source_authority_status": "unknown",
+        "source_authority_tier": None,
+    }
+
+
 def test_load_query_data_snapshot_rejects_manifest_identity_mismatch(tmp_path: Path) -> None:
     _write_run(tmp_path, "run-a", [_metric_row(plan_id="OTHER")])
 
@@ -644,6 +682,12 @@ def test_load_query_data_snapshot_keeps_revised_rows_and_marks_cross_document_co
             )
         ],
         source_document_id="doc:syn-plan:revised",
+        review_context={
+            "actionable_flags": ["manual_review_needed"],
+            "escalation_required": True,
+            "source_authority_status": "declared",
+            "source_authority_tier": "official",
+        },
     )
 
     snapshot = load_query_data_snapshot(tmp_path)
@@ -651,6 +695,21 @@ def test_load_query_data_snapshot_keeps_revised_rows_and_marks_cross_document_co
     funded_rows = [row for row in snapshot.metric_history_rows if row.metric_name == "funded_ratio"]
     assert len(funded_rows) == 2
     assert {row.normalized_value for row in funded_rows} == {0.784, 0.8}
+    contexts_by_doc = {row.source_document_id: row.review_context.to_dict() for row in funded_rows}
+    assert contexts_by_doc == {
+        "doc:syn-plan:original": {
+            "actionable_flags": [],
+            "escalation_required": None,
+            "source_authority_status": "unknown",
+            "source_authority_tier": None,
+        },
+        "doc:syn-plan:revised": {
+            "actionable_flags": ["manual_review_needed"],
+            "escalation_required": True,
+            "source_authority_status": "declared",
+            "source_authority_tier": "official",
+        },
+    }
     assert snapshot.funding_trend_inputs == ()
     assert len(snapshot.funding_trend_unresolved_periods) == 1
     unresolved = snapshot.funding_trend_unresolved_periods[0]
@@ -658,6 +717,10 @@ def test_load_query_data_snapshot_keeps_revised_rows_and_marks_cross_document_co
     assert unresolved.plan_period == "FY2024"
     assert unresolved.conflicts[0].metric_target == "funded_ratio"
     assert len(unresolved.conflicts[0].versions) == 2
+    assert {
+        version.source_document_id: version.review_context.to_dict()
+        for version in unresolved.conflicts[0].versions
+    } == contexts_by_doc
 
 
 @pytest.mark.parametrize("other_ingestion_date", ["2026-01-01", "2026-02-01"])
@@ -670,6 +733,20 @@ def test_load_query_data_snapshot_agreeing_documents_remain_resolved(
         ("doc:syn-plan:original", "2026-01-01"),
         ("doc:syn-plan:other", other_ingestion_date),
     ]
+    contexts = {
+        "doc:syn-plan:original": {
+            "actionable_flags": ["manual_review_needed"],
+            "escalation_required": True,
+            "source_authority_status": "unknown",
+            "source_authority_tier": None,
+        },
+        "doc:syn-plan:other": {
+            "actionable_flags": [],
+            "escalation_required": False,
+            "source_authority_status": "declared",
+            "source_authority_tier": "official-mirror",
+        },
+    }
     if reverse_run_order:
         observations.reverse()
     for index, (source_document_id, ingestion_date) in enumerate(observations):
@@ -683,12 +760,14 @@ def test_load_query_data_snapshot_agreeing_documents_remain_resolved(
             f"run-{index}",
             [row],
             source_document_id=source_document_id,
+            review_context=contexts[source_document_id],
         )
         _write_run(
             tmp_path,
             f"run-{index}-copy",
             [row],
             source_document_id=source_document_id,
+            review_context=contexts[source_document_id],
         )
 
     snapshot = load_query_data_snapshot(tmp_path)
@@ -698,6 +777,8 @@ def test_load_query_data_snapshot_agreeing_documents_remain_resolved(
         (row.source_document_id, row.ingestion_date) for row in snapshot.metric_history_rows
     } == set(observations)
     assert {row.normalized_value for row in snapshot.metric_history_rows} == {0.784}
+    for row in snapshot.metric_history_rows:
+        assert row.review_context.to_dict() == contexts[row.source_document_id]
     assert len(snapshot.funding_trend_inputs) == 1
     trend_input = snapshot.funding_trend_inputs[0]
     assert (trend_input.plan_id, trend_input.plan_period) == ("SYN-PLAN", "FY2024")
@@ -706,35 +787,54 @@ def test_load_query_data_snapshot_agreeing_documents_remain_resolved(
     assert snapshot.funding_trend_unresolved_periods == ()
 
 
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+@pytest.mark.parametrize("legacy_original", [False, True])
 def test_load_query_data_snapshot_same_document_revision_supersedes_for_trend(
-    tmp_path: Path,
+    tmp_path: Path, reverse_run_order: bool, legacy_original: bool
 ) -> None:
-    _write_run(
-        tmp_path,
-        "run-original",
-        [
-            _metric_row(
-                fact_id="fact:funded:original",
-                normalized_value=0.784,
-                ingestion_date="2026-01-01",
-            )
-        ],
-    )
-    _write_run(
-        tmp_path,
-        "run-revised",
-        [
-            _metric_row(
-                fact_id="fact:funded:revised",
-                normalized_value=0.8,
-                ingestion_date="2026-02-01",
-            )
-        ],
-    )
+    original_context = {
+        "actionable_flags": [] if legacy_original else ["manual_review_needed"],
+        "escalation_required": None if legacy_original else True,
+        "source_authority_status": "unknown",
+        "source_authority_tier": None,
+    }
+    revised_context = {
+        "actionable_flags": [],
+        "escalation_required": False,
+        "source_authority_status": "declared",
+        "source_authority_tier": "official-mirror",
+    }
+    revisions = [
+        ("original", "2026-01-01", 0.784, None if legacy_original else original_context),
+        ("revised", "2026-02-01", 0.8, revised_context),
+    ]
+    if reverse_run_order:
+        revisions.reverse()
+    for index, (revision, ingestion_date, value, context) in enumerate(revisions):
+        _write_run(
+            tmp_path,
+            f"run-{index}",
+            [
+                _metric_row(
+                    fact_id=f"fact:funded:{revision}",
+                    normalized_value=value,
+                    ingestion_date=ingestion_date,
+                )
+            ],
+            review_context=context,
+        )
 
     snapshot = load_query_data_snapshot(tmp_path)
 
     assert len(snapshot.metric_history_rows) == 2
+    assert {row.source_document_id for row in snapshot.metric_history_rows} == {"doc:syn-plan"}
+    assert {
+        row.ingestion_date: (row.normalized_value, row.review_context.to_dict())
+        for row in snapshot.metric_history_rows
+    } == {
+        "2026-01-01": (0.784, original_context),
+        "2026-02-01": (0.8, revised_context),
+    }
     assert snapshot.funding_trend_inputs[0].funded_ratio == pytest.approx(0.8)
     assert snapshot.funding_trend_unresolved_periods == ()
 

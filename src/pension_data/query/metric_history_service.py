@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import ItemsView, Iterator, Mapping, Sequence, ValuesView
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 from pension_data.db.models.core_facts import (
     ActuarialFact,
@@ -20,6 +21,88 @@ from pension_data.extract.common.evidence import (
     build_evidence_reference,
     canonicalize_evidence_ref,
 )
+from pension_data.sources.schema import SourceAuthorityTier
+
+
+@dataclass(frozen=True, slots=True)
+class MetricHistoryReviewContext:
+    """Per-run/document review context for parser escalation and declared authority."""
+
+    escalation_required: bool | None = None
+    actionable_flags: tuple[str, ...] = ()
+    source_authority_tier: SourceAuthorityTier | None = None
+    source_authority_status: Literal["declared", "unknown"] = "unknown"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "actionable_flags": list(self.actionable_flags),
+            "escalation_required": self.escalation_required,
+            "source_authority_status": self.source_authority_status,
+            "source_authority_tier": self.source_authority_tier,
+        }
+
+    def __getitem__(self, key: str) -> object:
+        return self.to_dict()[key]
+
+    def get(self, key: str, default: object = None) -> object:
+        return self.to_dict().get(key, default)
+
+    def keys(self) -> tuple[str, ...]:
+        return (
+            "actionable_flags",
+            "escalation_required",
+            "source_authority_status",
+            "source_authority_tier",
+        )
+
+    def items(self) -> ItemsView[str, object]:
+        return self.to_dict().items()
+
+    def values(self) -> ValuesView[object]:
+        return self.to_dict().values()
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.keys())
+
+    def __len__(self) -> int:
+        return 4
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, MetricHistoryReviewContext):
+            return (
+                self.escalation_required,
+                self.actionable_flags,
+                self.source_authority_tier,
+                self.source_authority_status,
+            ) == (
+                other.escalation_required,
+                other.actionable_flags,
+                other.source_authority_tier,
+                other.source_authority_status,
+            )
+        if isinstance(other, Mapping):
+            other_flags = other.get("actionable_flags")
+            normalized_flags = (
+                list(other_flags) if isinstance(other_flags, (list, tuple)) else other_flags
+            )
+            return (
+                set(other.keys()) == set(self.keys())
+                and other.get("escalation_required") == self.escalation_required
+                and normalized_flags == list(self.actionable_flags)
+                and other.get("source_authority_tier") == self.source_authority_tier
+                and other.get("source_authority_status") == self.source_authority_status
+            )
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.escalation_required,
+                self.actionable_flags,
+                self.source_authority_tier,
+                self.source_authority_status,
+            )
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +140,7 @@ class MetricHistoryRow:
     valid_to: str | None = None
     superseded_at: str | None = None
     is_restated: bool = False
+    review_context: MetricHistoryReviewContext = MetricHistoryReviewContext()
 
 
 @dataclass(frozen=True, slots=True)

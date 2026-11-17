@@ -8,17 +8,24 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
+from pension_data.export.workspace_bundle import (
+    WorkspaceBundleError,
+    default_review_context,
+    normalize_review_context,
+)
 from pension_data.extract.common.evidence import (
     build_evidence_reference,
     canonicalize_evidence_ref,
 )
 from pension_data.query.metric_history_service import (
     MetricHistoryProvenanceRef,
+    MetricHistoryReviewContext,
     MetricHistoryRow,
 )
 from pension_data.query.saved_views.models import FundingTrendInput
+from pension_data.sources.schema import SOURCE_AUTHORITY_TIERS, SourceAuthorityTier
 
 
 class QueryArtifactError(ValueError):
@@ -33,6 +40,7 @@ class FundingTrendMetricVersion:
     effective_date: str
     ingestion_date: str
     normalized_value: float
+    review_context: MetricHistoryReviewContext = MetricHistoryReviewContext()
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +185,135 @@ def _provenance_refs(
     return tuple(sorted(refs.values(), key=lambda item: item.evidence_ref_id))
 
 
+def _metric_review_context(value: object) -> MetricHistoryReviewContext:
+    if isinstance(value, MetricHistoryReviewContext):
+        return value
+    if value is None:
+        return MetricHistoryReviewContext()
+    if not isinstance(value, Mapping):
+        raise QueryArtifactError("query artifact row review_context must be an object")
+    try:
+        normalized = normalize_review_context(value, require_all_fields=True)
+    except WorkspaceBundleError as exc:
+        raise QueryArtifactError(str(exc)) from exc
+    return MetricHistoryReviewContext(
+        escalation_required=cast(bool | None, normalized["escalation_required"]),
+        actionable_flags=tuple(cast(list[str], normalized["actionable_flags"])),
+        source_authority_tier=cast(SourceAuthorityTier | None, normalized["source_authority_tier"]),
+        source_authority_status=cast(
+            Literal["declared", "unknown"], normalized["source_authority_status"]
+        ),
+    )
+
+
+def _manifest_review_context(
+    manifest: Mapping[str, object], *, manifest_input: Mapping[str, object]
+) -> dict[str, object]:
+    raw_input_tier = manifest_input.get("source_authority_tier")
+    if raw_input_tier is None:
+        input_tier: str | None = None
+    elif isinstance(raw_input_tier, str) and raw_input_tier.strip() in SOURCE_AUTHORITY_TIERS:
+        input_tier = raw_input_tier.strip()
+    else:
+        raise QueryArtifactError("query run manifest input source_authority_tier is invalid")
+
+    if "review_context" not in manifest:
+        legacy = default_review_context()
+        if input_tier is not None:
+            legacy["source_authority_tier"] = input_tier
+            legacy["source_authority_status"] = "declared"
+        return legacy
+
+    raw_context = _required_mapping(
+        manifest.get("review_context"), field="run_manifest.review_context"
+    )
+    try:
+        normalized = normalize_review_context(raw_context, require_all_fields=True)
+    except WorkspaceBundleError as exc:
+        raise QueryArtifactError(str(exc)) from exc
+    if input_tier is not None and normalized["source_authority_tier"] != input_tier:
+        raise QueryArtifactError(
+            "query run manifest review_context source_authority_tier conflicts with input"
+        )
+    return normalized
+
+
+def _staging_row_identity(row: Mapping[str, object]) -> dict[str, object]:
+    """Compare staging rows across runs without run-local review metadata."""
+    identity = dict(row)
+    identity.pop("review_context", None)
+    return identity
+
+
+def _reconcile_review_context(
+    contexts: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    """Merge review metadata for duplicate fact rows in an order-independent way.
+
+    Escalation stays true when any contributing run requires it, becomes false only
+    when every run explicitly clears it, and is otherwise null. Actionable flags are
+    the sorted union of all contributing runs. A declared authority tier is kept only
+    when every contributing run declares the same tier; mixed or absent tiers become
+    unknown authority.
+    """
+    if not contexts:
+        return default_review_context()
+    normalized: list[dict[str, object]] = []
+    for context in contexts:
+        try:
+            normalized.append(normalize_review_context(context, require_all_fields=True))
+        except WorkspaceBundleError as exc:
+            raise QueryArtifactError(str(exc)) from exc
+
+    escalation_values = [context["escalation_required"] for context in normalized]
+    if any(value is True for value in escalation_values):
+        escalation_required: bool | None = True
+    elif all(value is False for value in escalation_values):
+        escalation_required = False
+    else:
+        escalation_required = None
+
+    flags: list[str] = []
+    for context in normalized:
+        for flag in cast(list[str], context["actionable_flags"]):
+            if flag not in flags:
+                flags.append(flag)
+    flags.sort()
+
+    tiers = {context["source_authority_tier"] for context in normalized}
+    if len(tiers) == 1:
+        tier = next(iter(tiers))
+        source_authority_status: Literal["declared", "unknown"] = (
+            "declared" if tier is not None else "unknown"
+        )
+    else:
+        tier = None
+        source_authority_status = "unknown"
+
+    return {
+        "actionable_flags": flags,
+        "escalation_required": escalation_required,
+        "source_authority_status": source_authority_status,
+        "source_authority_tier": tier,
+    }
+
+
+def _attach_review_context(
+    row: Mapping[str, object], *, review_context: Mapping[str, object]
+) -> dict[str, object]:
+    if "review_context" in row and row["review_context"] is not None:
+        row_context = _required_mapping(row["review_context"], field="row.review_context")
+        try:
+            normalized_row_context = normalize_review_context(row_context, require_all_fields=True)
+        except WorkspaceBundleError as exc:
+            raise QueryArtifactError(str(exc)) from exc
+        if normalized_row_context != dict(review_context):
+            raise QueryArtifactError(
+                "query artifact row review_context conflicts with run manifest"
+            )
+    return {**row, "review_context": dict(review_context)}
+
+
 def _metric_history_row(row: Mapping[str, object]) -> MetricHistoryRow:
     source_document_id = _required_text(row, "source_document_id")
     as_reported_value = _optional_finite_number(row, "as_reported_value")
@@ -205,6 +342,7 @@ def _metric_history_row(row: Mapping[str, object]) -> MetricHistoryRow:
     if not isinstance(restated, bool):
         raise QueryArtifactError("query artifact row restated must be boolean")
     refs = _evidence_refs(row)
+    review_context = _metric_review_context(row.get("review_context"))
 
     return MetricHistoryRow(
         entity_id=_required_text(row, "plan_id"),
@@ -231,6 +369,7 @@ def _metric_history_row(row: Mapping[str, object]) -> MetricHistoryRow:
         valid_to=valid_to,
         superseded_at=superseded_at,
         is_restated=restated,
+        review_context=review_context,
     )
 
 
@@ -281,6 +420,7 @@ def _load_run_rows(
     if manifest.get("ledger_status") != "success":
         raise QueryArtifactError("query run manifest is not successful")
     manifest_input = _required_mapping(manifest.get("input"), field="run_manifest.input")
+    review_context = _manifest_review_context(manifest, manifest_input=manifest_input)
 
     rows_path = _contained_existing_path(
         root,
@@ -295,7 +435,7 @@ def _load_run_rows(
     for item in payload:
         row = _required_mapping(item, field="staging_core_metrics row")
         _validate_manifest_row(row, manifest_input=manifest_input)
-        rows.append(row)
+        rows.append(_attach_review_context(row, review_context=review_context))
     # Old runs without a declared flow artifact remain usable: missing disclosure
     # is unknown, never an invented zero. A declared but invalid artifact fails closed.
     artifacts = _required_mapping(manifest.get("artifact_files", {}), field="artifact_files")
@@ -316,7 +456,7 @@ def _load_run_rows(
         for item in flow_payload:
             flow = _required_mapping(item, field="financial_flow row")
             _validate_flow_row(flow, manifest_input=manifest_input)
-            flows.append(flow)
+            flows.append(_attach_review_context(flow, review_context=review_context))
     return rows, flows
 
 
@@ -366,6 +506,11 @@ def _resolve_metric_versions(
                     version.ingestion_date,
                     version.effective_date,
                     version.normalized_value,
+                    version.review_context.escalation_required is True,
+                    version.review_context.escalation_required is not None,
+                    version.review_context.actionable_flags,
+                    version.review_context.source_authority_status,
+                    version.review_context.source_authority_tier or "",
                 ),
             )
         ),
@@ -401,6 +546,7 @@ def _build_funding_trend_projection(
                 effective_date=row.effective_date,
                 ingestion_date=row.ingestion_date,
                 normalized_value=value,
+                review_context=row.review_context,
             )
         )
 
@@ -409,6 +555,7 @@ def _build_funding_trend_projection(
     # unresolved instead of silently choosing one document.
     for flow in flow_rows:
         key = (_required_text(flow, "plan_id"), _required_text(flow, "plan_period"))
+        flow_review_context = _metric_review_context(flow.get("review_context"))
         for target in (
             "employer_contributions_usd",
             "employee_contributions_usd",
@@ -428,6 +575,7 @@ def _build_funding_trend_projection(
                     effective_date=_required_text(flow, "effective_period"),
                     ingestion_date=_required_text(flow, "reported_at"),
                     normalized_value=flow_value,
+                    review_context=flow_review_context,
                 )
             )
 
@@ -526,8 +674,24 @@ def load_query_data_snapshot(artifact_root: Path) -> QueryDataSnapshot:
         for row in run_rows:
             fact_id = _required_text(row, "fact_id")
             existing = rows_by_fact_id.get(fact_id)
-            if existing is not None and dict(existing) != dict(row):
-                raise QueryArtifactError(f"conflicting duplicate fact_id: {fact_id}")
+            if existing is not None:
+                if _staging_row_identity(existing) != _staging_row_identity(row):
+                    raise QueryArtifactError(f"conflicting duplicate fact_id: {fact_id}")
+                existing_context = existing.get("review_context")
+                row_context = row.get("review_context")
+                if (
+                    isinstance(existing_context, Mapping)
+                    and isinstance(row_context, Mapping)
+                    and dict(existing_context) != dict(row_context)
+                ):
+                    merged_context = _reconcile_review_context((existing_context, row_context))
+                    rows_by_fact_id[fact_id] = {
+                        **dict(existing),
+                        "review_context": merged_context,
+                    }
+                    continue
+                rows_by_fact_id[fact_id] = row
+                continue
             rows_by_fact_id[fact_id] = row
 
     metric_rows = tuple(
