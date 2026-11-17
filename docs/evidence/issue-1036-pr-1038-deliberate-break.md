@@ -375,3 +375,54 @@ git diff --check
 - [ ] Publish evidence and reconcile remote checkboxes. PR-body update, verification comment, and additive `needs-human` label were each rejected: `MCP tool call requires approval, but approval policy is never`.
 
 PR #1038 was confirmed open and ready (`draft=false`) at `4fd4aed`.
+
+## Authority input paths and reconciliation (2026-11-17)
+
+Reviewed the eight PR commits through `e29a188`. The implementation and previous
+acceptance evidence are present, but the remote acceptance checkboxes remain
+unchecked. Before editing, all 273 related tests passed. The attempted PR-body
+reconciliation was rejected: `MCP tool call requires approval, but approval policy
+is never`.
+
+Extended the existing pilot artifact-contract test to cover direct construction,
+argument resolution, and environment resolution. Each path exercises every
+declared authority tier and unknown authority against four independent parser
+outcomes. Declared values include surrounding whitespace; blank environment
+metadata must remain unknown. The manifest and every nonempty direct bundle row
+must retain normalized authority, escalation, and actionable flags. Existing
+artifact assertions, metadata tuple, renderer checks, and API multi-run tests
+remain intact.
+
+Repeated the deliberate omission in the shared bundle builder. The manifest
+assertion passed, then the named test failed at line 695: both direct and rebuilt
+bundle contexts had empty flags and null escalation instead of the manifest's
+two flags and `true`. Result: `1 failed in 0.36s`, exit 1. Restoring the original
+source bytes in `finally` produced `1 passed in 0.47s`, exit 0. No deliberate
+break remains.
+
+An unmodified whole-file run timed out after 15 seconds in the HTTP test's
+selector wait. Verification used the previously documented temporary selector
+cap at `/tmp/pension-review-context-runtime/sitecustomize.py`; application code
+and assertions were unchanged.
+
+```console
+PYTHONPATH=/tmp/pension-review-context-runtime python3 -m pytest tests/ops/test_one_pdf_pilot.py -q -m "not slow"
+# 67 passed in 0.79s
+PYTHONPATH=/tmp/pension-review-context-runtime python3 -m pytest tests/ops/test_one_pdf_pilot.py tests/export/test_workspace_bundle.py tests/web/test_build_workspace_bundle.py tests/web/test_workspace_contract.py tests/api/test_artifact_data.py tests/api/test_app_serving.py tests/ops/test_one_pdf_pilot_cli.py tests/query/test_metric_history.py tests/renderer/test_shell_import_smoke.py -q -m "not slow"
+# 305 passed in 4.85s
+PYTHONPATH=/tmp/pension-review-context-runtime BLACK_NUM_WORKERS=1 black --line-length 100 tests/ops/test_one_pdf_pilot.py
+# 1 file left unchanged.
+PYTHONPATH=/tmp/pension-review-context-runtime BLACK_NUM_WORKERS=1 black --check --line-length 100 --exclude '(\.workflows-lib|node_modules)' .
+# 467 files would be left unchanged.
+ruff check tests/ops/test_one_pdf_pilot.py
+# All checks passed!
+python3 scripts/web/sync_renderer_shell.py --check
+# Renderer-shell materialization is current.
+```
+
+- [x] Pilot authority validation and manifest/direct bundle context verified through all input paths.
+- [x] Bundle producer/runtime validation, manifest rebuild, API attribution, and synchronized renderer verified.
+- [x] Named test and deliberate break/restoration verified.
+- [x] Whole pilot file, optional metadata tuple, existing API multi-run tests, and renderer materialization verified.
+- [ ] Commit on the existing branch: `git add` cannot create `.git/index.lock` (`Read-only file system`).
+- [ ] Reconcile remote checkboxes and publish evidence: PR-body update, blocker comment, and additive `needs-human` label were rejected because approval is required and the approval policy is `never`.

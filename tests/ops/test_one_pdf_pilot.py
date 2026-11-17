@@ -26,6 +26,7 @@ def _write_pdf_like_text(path: Path, text: str) -> None:
 
 
 @pytest.mark.parametrize("authority_tier", [None, *SOURCE_AUTHORITY_TIERS])
+@pytest.mark.parametrize("metadata_source", ["direct", "argument", "environment"])
 @pytest.mark.parametrize(
     ("escalation_required", "actionable_flags"),
     [
@@ -43,6 +44,7 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     authority_tier: SourceAuthorityTier | None,
+    metadata_source: str,
     escalation_required: bool,
     actionable_flags: tuple[str, ...],
 ) -> None:
@@ -72,15 +74,30 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(
         ),
     )
 
+    inputs = {
+        "pdf_path": pdf_path,
+        "plan_id": "CA-PERS",
+        "plan_period": "FY2024",
+        "effective_date": "2024-06-30",
+        "ingestion_date": "2026-03-03",
+    }
+    padded_authority = f" {authority_tier} " if authority_tier is not None else None
+    if metadata_source == "direct":
+        pilot_input = OnePdfPilotInput(**inputs, source_authority_tier=padded_authority)
+    else:
+        from_environment = metadata_source == "environment"
+        pilot_input = resolve_one_pdf_pilot_input(
+            **inputs,
+            source_authority_tier=None if from_environment else padded_authority,
+            env=(
+                {"ONE_PDF_PILOT_SOURCE_AUTHORITY_TIER": padded_authority or " "}
+                if from_environment
+                else {}
+            ),
+        )
+
     result = run_one_pdf_pilot(
-        pilot_input=OnePdfPilotInput(
-            pdf_path=pdf_path,
-            plan_id="CA-PERS",
-            plan_period="FY2024",
-            effective_date="2024-06-30",
-            ingestion_date="2026-03-03",
-            source_authority_tier=authority_tier,
-        ),
+        pilot_input=pilot_input,
         output_root=tmp_path / "outputs",
         run_id="pilot-contract",
     )
