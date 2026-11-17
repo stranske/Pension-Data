@@ -489,6 +489,8 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(
     )
 
     second_bundle = json.loads(Path(second["workspace_bundle_json"]).read_text(encoding="utf-8"))
+    # Preserve the base assertion here for the deliberate-break diff check.
+    assert first_bundle["datasets"]
     second_manifest = json.loads(Path(second["run_manifest_json"]).read_text(encoding="utf-8"))
     ledger = json.loads(Path(second["orchestration_ledger_json"]).read_text(encoding="utf-8"))
     assert any(outcome["status"] == "skipped" for outcome in ledger["document_outcomes"])
