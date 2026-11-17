@@ -164,6 +164,89 @@ def _manifest_review_context(manifest: Mapping[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _relative_locator_from_file(pilot_run_dir: Path, artifact_file: Path, *, label: str) -> str:
+    resolved_run = pilot_run_dir.resolve()
+    try:
+        resolved = artifact_file.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError(f"{label} cannot be resolved: {exc}") from exc
+    if not resolved.is_relative_to(resolved_run) or not resolved.is_file():
+        raise ValueError(f"{label} must resolve to a file inside the pilot run")
+    return resolved.relative_to(resolved_run).as_posix()
+
+
+def _resolve_declared_locator(pilot_run_dir: Path, raw_locator: Any, *, label: str) -> str:
+    locator = _as_text(raw_locator)
+    if not locator:
+        raise ValueError(f"{label} must be a non-empty string")
+    if (
+        locator.startswith("/")
+        or locator.endswith("/")
+        or "\\" in locator
+        or "\x00" in locator
+        or "://" in locator
+    ):
+        raise ValueError(f"{label} must be a safe relative path inside the pilot run")
+    segments = locator.split("/")
+    if any(segment in {"", ".", ".."} or ":" in segment for segment in segments):
+        raise ValueError(f"{label} must be a safe relative path inside the pilot run")
+    resolved_locator = _relative_locator_from_file(
+        pilot_run_dir, pilot_run_dir.resolve() / locator, label=label
+    )
+    if resolved_locator != locator:
+        raise ValueError(f"{label} must not traverse symlinks inside the pilot run")
+    return resolved_locator
+
+
+def _manifest_source_locators(
+    pilot_run_dir: Path,
+    manifest: Mapping[str, Any],
+) -> dict[str, str]:
+    _, _, source_document_id = _manifest_input_identity(manifest)
+    locators: dict[str, str] = {}
+
+    raw_locators = manifest.get("source_locators")
+    if raw_locators is not None:
+        if not isinstance(raw_locators, Mapping):
+            raise ValueError("run_manifest.json source_locators must be an object")
+        for raw_doc_id, raw_locator in raw_locators.items():
+            doc_id = _as_text(raw_doc_id)
+            if not doc_id:
+                raise ValueError("run_manifest.json source_locators keys must be non-empty")
+            locators[doc_id] = _resolve_declared_locator(
+                pilot_run_dir,
+                raw_locator,
+                label=f"source_locators.{doc_id}",
+            )
+
+    input_payload = manifest.get("input")
+    if isinstance(input_payload, Mapping) and "source_locator" in input_payload:
+        input_locator = _resolve_declared_locator(
+            pilot_run_dir,
+            input_payload.get("source_locator"),
+            label="input.source_locator",
+        )
+        existing = locators.get(source_document_id)
+        if existing is not None and existing != input_locator:
+            raise ValueError("run manifest input.source_locator conflicts with source_locators")
+        locators[source_document_id] = input_locator
+
+    artifact_files = manifest.get("artifact_files")
+    if isinstance(artifact_files, Mapping) and "source_pdf" in artifact_files:
+        source_pdf_path = _artifact_path(pilot_run_dir, manifest, "source_pdf")
+        pdf_locator = _relative_locator_from_file(
+            pilot_run_dir,
+            source_pdf_path,
+            label="artifact_files.source_pdf",
+        )
+        existing = locators.get(source_document_id)
+        if existing is not None and existing != pdf_locator:
+            raise ValueError("run manifest source_pdf conflicts with declared source_locator")
+        locators[source_document_id] = pdf_locator
+
+    return locators
+
+
 def build_workspace_bundle(pilot_run_dir: Path) -> dict[str, Any]:
     pilot_run_dir = pilot_run_dir.resolve()
     manifest_path = pilot_run_dir / "run_manifest.json"
@@ -180,6 +263,7 @@ def build_workspace_bundle(pilot_run_dir: Path) -> dict[str, Any]:
     )
     _validate_staging_rows_match_manifest(staging_rows, manifest)
     review_context = _manifest_review_context(manifest)
+    source_locators = _manifest_source_locators(pilot_run_dir, manifest)
     run_id = _as_text(manifest.get("run_id")) or pilot_run_dir.name
     contract = load_runtime_contract(CONTRACT_PATH)
     bundle = build_generated_workspace_bundle(
@@ -187,6 +271,7 @@ def build_workspace_bundle(pilot_run_dir: Path) -> dict[str, Any]:
         run_id=run_id,
         last_updated=_last_updated(manifest),
         review_context=review_context,
+        source_locators=source_locators,
     )
     # This builder emits real generated data, so "fixture" is not an acceptable
     # origin for its output even though the runtime contract permits it elsewhere.

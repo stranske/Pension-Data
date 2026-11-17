@@ -57,6 +57,28 @@ def load_runtime_contract(contract_path: Path = CONTRACT_PATH) -> dict[str, Any]
             "runtime contract missing required workspace fields: "
             + ", ".join(sorted(missing_fields))
         )
+    for field_name, required_subset in (
+        ("provenanceRequiredFields", {"source_document", "evidence_refs"}),
+        ("provenanceOptionalFields", {"source_locator"}),
+    ):
+        if field_name not in workspace_bundle:
+            continue
+        field_values = workspace_bundle.get(field_name)
+        if not isinstance(field_values, list) or not field_values:
+            raise WorkspaceContractError(f"runtime contract {field_name} must be a non-empty list")
+        normalized_values = {
+            item for item in field_values if isinstance(item, str) and item.strip()
+        }
+        if len(normalized_values) != len(field_values):
+            raise WorkspaceContractError(
+                f"runtime contract {field_name} must contain non-empty strings"
+            )
+        missing_subset = required_subset.difference(normalized_values)
+        if missing_subset:
+            raise WorkspaceContractError(
+                f"runtime contract {field_name} missing required fields: "
+                + ", ".join(sorted(missing_subset))
+            )
     return payload
 
 
@@ -124,6 +146,21 @@ def validate_workspace_bundle(
         if isinstance(workspace_bundle, Mapping)
         else frozenset()
     )
+    provenance_required = {"source_document", "evidence_refs"}
+    provenance_optional = {"source_locator"}
+    if isinstance(workspace_bundle, Mapping):
+        raw_req = workspace_bundle.get("provenanceRequiredFields")
+        if isinstance(raw_req, list):
+            provenance_required = {
+                item.strip() for item in raw_req if isinstance(item, str) and item.strip()
+            }
+        raw_opt = workspace_bundle.get("provenanceOptionalFields")
+        if isinstance(raw_opt, list):
+            provenance_optional = {
+                item.strip() for item in raw_opt if isinstance(item, str) and item.strip()
+            }
+    allowed_provenance = provenance_required | provenance_optional
+
     for dataset_index, dataset in enumerate(datasets):
         if not isinstance(dataset, Mapping):
             continue
@@ -131,52 +168,104 @@ def validate_workspace_bundle(
         if not isinstance(rows, list):
             continue
         for row_index, row in enumerate(rows):
-            if not isinstance(row, Mapping) or "review_context" not in row:
+            if not isinstance(row, Mapping):
                 continue
-            review_context = row.get("review_context")
-            if not isinstance(review_context, Mapping):
-                raise WorkspaceContractError(
-                    f"dataset {dataset_index} row {row_index} review_context must be an object "
-                    f"in {path_label}"
-                )
-            if review_fields:
-                missing_review = review_fields.difference(review_context)
-                if missing_review:
+            if "review_context" in row:
+                review_context = row.get("review_context")
+                if not isinstance(review_context, Mapping):
                     raise WorkspaceContractError(
-                        f"dataset {dataset_index} row {row_index} review_context missing fields "
-                        f"{', '.join(sorted(missing_review))} in {path_label}"
+                        f"dataset {dataset_index} row {row_index} review_context must be an object "
+                        f"in {path_label}"
                     )
-            escalation = review_context.get("escalation_required")
-            if escalation is not None and not isinstance(escalation, bool):
-                raise WorkspaceContractError(
-                    f"dataset {dataset_index} row {row_index} escalation_required must be "
-                    f"boolean or null in {path_label}"
-                )
-            flags = review_context.get("actionable_flags")
-            if not isinstance(flags, list) or any(
-                not isinstance(flag, str) or not flag.strip() for flag in flags
-            ):
-                raise WorkspaceContractError(
-                    f"dataset {dataset_index} row {row_index} actionable_flags must be "
-                    f"a list of non-empty strings in {path_label}"
-                )
-            tier = review_context.get("source_authority_tier")
-            if tier is not None and (
-                not isinstance(tier, str) or (allowed_tiers and tier not in allowed_tiers)
-            ):
-                raise WorkspaceContractError(
-                    f"dataset {dataset_index} row {row_index} source_authority_tier is invalid "
-                    f"in {path_label}"
-                )
-            status = review_context.get("source_authority_status")
-            expected_status = "declared" if tier is not None else "unknown"
-            if (
-                not isinstance(status, str)
-                or (allowed_statuses and status not in allowed_statuses)
-                or status != expected_status
-            ):
-                raise WorkspaceContractError(
-                    f"dataset {dataset_index} row {row_index} source_authority_status is invalid "
-                    f"in {path_label}"
-                )
+                if review_fields:
+                    missing_review = review_fields.difference(review_context)
+                    if missing_review:
+                        raise WorkspaceContractError(
+                            f"dataset {dataset_index} row {row_index} review_context missing fields "
+                            f"{', '.join(sorted(missing_review))} in {path_label}"
+                        )
+                escalation = review_context.get("escalation_required")
+                if escalation is not None and not isinstance(escalation, bool):
+                    raise WorkspaceContractError(
+                        f"dataset {dataset_index} row {row_index} escalation_required must be "
+                        f"boolean or null in {path_label}"
+                    )
+                flags = review_context.get("actionable_flags")
+                if not isinstance(flags, list) or any(
+                    not isinstance(flag, str) or not flag.strip() for flag in flags
+                ):
+                    raise WorkspaceContractError(
+                        f"dataset {dataset_index} row {row_index} actionable_flags must be "
+                        f"a list of non-empty strings in {path_label}"
+                    )
+                tier = review_context.get("source_authority_tier")
+                if tier is not None and (
+                    not isinstance(tier, str) or (allowed_tiers and tier not in allowed_tiers)
+                ):
+                    raise WorkspaceContractError(
+                        f"dataset {dataset_index} row {row_index} source_authority_tier is invalid "
+                        f"in {path_label}"
+                    )
+                status = review_context.get("source_authority_status")
+                expected_status = "declared" if tier is not None else "unknown"
+                if (
+                    not isinstance(status, str)
+                    or (allowed_statuses and status not in allowed_statuses)
+                    or status != expected_status
+                ):
+                    raise WorkspaceContractError(
+                        f"dataset {dataset_index} row {row_index} source_authority_status is invalid "
+                        f"in {path_label}"
+                    )
+            if "provenance" in row:
+                provenance = row.get("provenance")
+                if not isinstance(provenance, Mapping):
+                    raise WorkspaceContractError(
+                        f"workspace dataset {dataset_index} row {row_index} provenance must be an object in {path_label}"
+                    )
+                missing_prov = provenance_required.difference(provenance)
+                if missing_prov:
+                    raise WorkspaceContractError(
+                        f"workspace dataset {dataset_index} row {row_index} provenance missing required fields "
+                        f"{', '.join(sorted(missing_prov))} in {path_label}"
+                    )
+                unknown_prov = set(provenance).difference(allowed_provenance)
+                if unknown_prov:
+                    raise WorkspaceContractError(
+                        f"workspace dataset {dataset_index} row {row_index} provenance has unsupported fields "
+                        f"{', '.join(sorted(unknown_prov))} in {path_label}"
+                    )
+                source_doc = provenance.get("source_document")
+                if not isinstance(source_doc, str) or not source_doc.strip():
+                    raise WorkspaceContractError(
+                        f"workspace dataset {dataset_index} row {row_index} provenance.source_document must be non-empty in {path_label}"
+                    )
+                evidence_refs = provenance.get("evidence_refs")
+                if not isinstance(evidence_refs, list) or any(
+                    not isinstance(ref, str) or not ref.strip() for ref in evidence_refs
+                ):
+                    raise WorkspaceContractError(
+                        f"workspace dataset {dataset_index} row {row_index} provenance.evidence_refs must be a list of strings in {path_label}"
+                    )
+                if "source_locator" in provenance:
+                    locator = provenance.get("source_locator")
+                    if not isinstance(locator, str) or not _is_safe_relative_locator(locator):
+                        raise WorkspaceContractError(
+                            f"workspace dataset {dataset_index} row {row_index} provenance.source_locator must be a safe relative path in {path_label}"
+                        )
     return data_origin
+
+
+def _is_safe_relative_locator(value: str) -> bool:
+    locator = value.strip()
+    if (
+        not locator
+        or locator.startswith("/")
+        or locator.endswith("/")
+        or "\\" in locator
+        or "\x00" in locator
+        or "://" in locator
+    ):
+        return False
+    segments = locator.split("/")
+    return not any(segment in {"", ".", ".."} or ":" in segment for segment in segments)

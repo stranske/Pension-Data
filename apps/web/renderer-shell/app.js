@@ -474,6 +474,39 @@ function normalizeReviewContext(rawContext) {
   };
 }
 
+function encodeArtifactPath(locator) {
+  const normalized = normalizeText(locator);
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    normalized.endsWith("/") ||
+    normalized.includes("\\") ||
+    normalized.includes("\0") ||
+    /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(normalized)
+  ) {
+    return "";
+  }
+  const segments = normalized.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
+    return "";
+  }
+  return segments.map((segment) => encodeURIComponent(segment)).join("/");
+}
+
+function formatEvidenceFragment(token) {
+  const normalized = normalizeText(token);
+  if (!normalized) {
+    return "";
+  }
+  const pageMatch = normalized.match(
+    /^(?:p(?:age)?(?:\.\s*|\s*=\s*|\s+)|p)([1-9]\d*)(?:$|[\s#:-].*)/i
+  );
+  if (pageMatch) {
+    return `page=${pageMatch[1]}`;
+  }
+  return encodeURIComponent(normalized);
+}
+
 function renderDetail() {
   const detail = document.getElementById("detail-content");
   const rows = filteredRows();
@@ -530,14 +563,20 @@ function renderDetail() {
       : reviewContext.source_authority_status
   );
 
+  const sourceLocator = normalizeText(provenance.source_locator);
+  // Deliberate-break anchor: targeting `sourceDocument` (`pilot:...` logical ID)
+  // instead of `sourceLocator || sourceDocument` causes citation links to request
+  // `/artifacts/pilot%3A...` from `serve_local.py`, which returns 404.
+  const artifactPath = encodeArtifactPath(sourceLocator || sourceDocument);
+  const artifactBaseUrl = normalizeText(state.config?.artifactBaseUrl).replace(/\/+$/, "");
   const evidenceTokens = evidenceRefs.map((ref) => normalizeText(ref)).filter(Boolean);
-  if (!evidenceTokens.length || !sourceDocument) {
+  if (!evidenceTokens.length || !artifactPath || !artifactBaseUrl) {
     addDetailItem("Evidence References", evidenceTokens.join(" · ") || "n/a");
   } else {
     const fragment = document.createDocumentFragment();
     evidenceTokens.forEach((token, index) => {
       const link = document.createElement("a");
-      link.href = `${state.config.artifactBaseUrl}/${encodeURIComponent(sourceDocument)}#${encodeURIComponent(token)}`;
+      link.href = `${artifactBaseUrl}/${artifactPath}#${formatEvidenceFragment(token)}`;
       link.target = "_blank";
       link.rel = "noreferrer";
       link.textContent = token;

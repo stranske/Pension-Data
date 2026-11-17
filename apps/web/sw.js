@@ -1,4 +1,4 @@
-const CACHE_NAME = "pension-data-web-2a33fc23e72d";
+const CACHE_NAME = "pension-data-web-bcb9624db549";
 const CORE_ASSETS = [
   "./",
   "./index.html",

@@ -93,7 +93,13 @@ def test_runtime_consumers_reject_invalid_review_context(
     field: str, value: object, message: str
 ) -> None:
     payload = build_workspace_bundle(
-        [{"metric_name": "funded_ratio", "normalized_value": 0.81}],
+        [
+            {
+                "metric_name": "funded_ratio",
+                "normalized_value": 0.81,
+                "source_document_id": "annual-report",
+            }
+        ],
         run_id="run-review",
         last_updated="2024-06-30",
         review_context={

@@ -117,8 +117,13 @@ def test_bundle_carries_and_validates_review_context(
         run_id="run-review",
         last_updated="2024-06-30",
         review_context=review_context,
+        source_locators={"calpers-fy2024": "sources/annual-report.pdf"},
     )
     assert all(row["review_context"] == review_context for row in payload["datasets"][0]["rows"])
+    assert all(
+        row["provenance"]["source_locator"] == "sources/annual-report.pdf"
+        for row in payload["datasets"][0]["rows"]
+    )
 
     broken = copy.deepcopy(payload)
     broken["datasets"][0]["rows"][0]["review_context"]["source_authority_tier"] = "invalid-tier"
@@ -184,3 +189,46 @@ def test_producer_rejects_missing_review_context_fields(field: str) -> None:
 
     with pytest.raises(WorkspaceBundleError, match=f"missing required fields: {field}"):
         validate_generated_workspace_bundle(payload)
+
+
+def test_bundle_carries_source_locator_while_retaining_logical_identity(tmp_path: Path) -> None:
+    contract = json.loads(RUNTIME_CONTRACT.read_text(encoding="utf-8"))
+    locator = f"sources/{'a' * 64}.pdf"
+    payload = build_workspace_bundle(
+        [_row()],
+        run_id="run-123",
+        last_updated="2024-06-30",
+        source_locators={"calpers-fy2024": locator},
+    )
+    output = write_workspace_bundle(tmp_path / "workspace-bundle.json", payload)
+    persisted = json.loads(output.read_text(encoding="utf-8"))
+    provenance = persisted["datasets"][0]["rows"][0]["provenance"]
+    assert provenance["source_document"] == "calpers-fy2024"
+    assert provenance["source_locator"] == locator
+    assert "source_locator" in contract["workspaceBundle"]["provenanceOptionalFields"]
+
+
+@pytest.mark.parametrize(
+    "unsafe_locator",
+    [
+        "../outside.pdf",
+        "/etc/passwd",
+        "sources//double.pdf",
+        "sources/./dot.pdf",
+        "sources\\backslash.pdf",
+        "https://example.test/doc.pdf",
+        "pilot:CA-PERS:FY2024:deadbeef",
+    ],
+)
+def test_builder_and_validator_reject_unsafe_source_locator(unsafe_locator: str) -> None:
+    with pytest.raises(WorkspaceBundleError, match="source_locator"):
+        build_workspace_bundle(
+            [_row()],
+            run_id="run-123",
+            last_updated="2024-06-30",
+            source_locators={"calpers-fy2024": unsafe_locator},
+        )
+    valid = build_workspace_bundle([_row()], run_id="run-123", last_updated="2024-06-30")
+    valid["datasets"][0]["rows"][0]["provenance"]["source_locator"] = unsafe_locator
+    with pytest.raises(WorkspaceBundleError, match="source_locator"):
+        validate_generated_workspace_bundle(valid)

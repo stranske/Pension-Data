@@ -193,6 +193,11 @@ def validate_reviewable_findings_artifact(artifact: Mapping[str, Any]) -> None:
             "metric",
         ):
             _require_string(finding[field], path=f"artifact.findings[{index}].{field}")
+        if finding["finding_id"] in finding_ids:
+            raise ReviewableFindingsArtifactError(
+                f"artifact.findings[{index}].finding_id duplicates an earlier finding: "
+                f"{finding['finding_id']}"
+            )
         finding_ids.add(finding["finding_id"])
         confidence = finding["confidence"]
         if (
@@ -247,10 +252,10 @@ def validate_reviewable_findings_artifact(artifact: Mapping[str, Any]) -> None:
                 f"artifact.langchain_actions[{index}].finding_ids reference "
                 f"unknown findings: {', '.join(unknown_finding_ids)}"
             )
-        if name == "compare" and len(action_finding_ids) < 2:
+        if name == "compare" and len(set(action_finding_ids)) < 2:
             raise ReviewableFindingsArtifactError(
                 f"artifact.langchain_actions[{index}].finding_ids must include "
-                "at least two findings for compare"
+                "at least two distinct findings for compare"
             )
         available_actions.add(name)
     required_actions = {"explain"}
@@ -359,16 +364,108 @@ def _read_readiness_rows(path: Path) -> list[dict[str, str]]:
     return rows
 
 
-def _finding_from_readiness_row(
-    row: Mapping[str, str], *, contract_path: Path, readiness_path: Path
-) -> dict[str, Any] | None:
+def _readiness_row_key(row: Mapping[str, str]) -> tuple[str, str] | None:
     plan_id = (row.get("plan_id") or "").strip()
     plan_period = (row.get("plan_period") or "").strip()
     if not plan_id or not plan_period:
         return None
-    is_ready_raw = (row.get("is_extraction_ready") or "").strip().lower()
-    is_ready = is_ready_raw in {"true", "1", "yes"}
-    severity = "info" if is_ready else "warning"
+    return plan_id, plan_period
+
+
+def _readiness_row_is_ready(row: Mapping[str, str]) -> bool:
+    return (row.get("is_extraction_ready") or "").strip().lower() in {"true", "1", "yes"}
+
+
+def _readiness_row_is_official_ready(row: Mapping[str, str]) -> bool:
+    if not _readiness_row_is_ready(row):
+        return False
+    tier = (row.get("source_authority_tier") or "").strip().lower()
+    resolution = (row.get("official_resolution_state") or "").strip().lower()
+    if resolution in {"available_non_official_only", "not_found", "unresolved"}:
+        return False
+    return tier not in {
+        "high-confidence-third-party",
+        "tier_2",
+        "tier_3",
+        "third_party",
+        "non_official",
+    }
+
+
+def _readiness_has_source_context(row: Mapping[str, str]) -> bool:
+    return any(
+        (row.get(column) or "").strip()
+        for column in (
+            "source_authority_tier",
+            "readiness_state",
+            "extraction_blocker_reason",
+            "mismatch_reason",
+        )
+    )
+
+
+def _readiness_source_context_ref(
+    row: Mapping[str, str], *, readiness_path: Path, plan_id: str, plan_period: str
+) -> str:
+    tier = (row.get("source_authority_tier") or "").strip() or "unknown"
+    state = (row.get("readiness_state") or "").strip() or (
+        "ready" if _readiness_row_is_ready(row) else "not_ready"
+    )
+    blocker = (
+        (row.get("extraction_blocker_reason") or "").strip()
+        or (row.get("mismatch_reason") or "").strip()
+        or "none"
+    )
+    return (
+        f"{readiness_path.as_posix()}#{plan_id}:{plan_period}"
+        f":source_authority_tier={tier}:readiness_state={state}"
+        f":extraction_blocker_reason={blocker}"
+    )
+
+
+def _finding_from_readiness_rows(
+    rows: Sequence[Mapping[str, str]],
+    *,
+    plan_id: str,
+    plan_period: str,
+    contract_path: Path,
+    readiness_path: Path,
+) -> dict[str, Any]:
+    """Aggregate source rows for one plan-period into a single deterministic finding."""
+    all_ready = all(_readiness_row_is_ready(row) for row in rows)
+    has_official_ready = any(_readiness_row_is_official_ready(row) for row in rows)
+    is_ready = all_ready or has_official_ready
+
+    provenance_refs = [f"{readiness_path.as_posix()}#{plan_id}:{plan_period}"]
+    if len(rows) > 1 or any(_readiness_has_source_context(row) for row in rows):
+        provenance_refs.extend(
+            sorted(
+                {
+                    _readiness_source_context_ref(
+                        row,
+                        readiness_path=readiness_path,
+                        plan_id=plan_id,
+                        plan_period=plan_period,
+                    )
+                    for row in rows
+                }
+            )
+        )
+    citations = [
+        contract_path.as_posix(),
+        readiness_path.as_posix(),
+    ]
+    extra_citations = sorted(
+        {
+            (row.get(col) or "").strip()
+            for row in rows
+            for col in ("source_url", "annual_report_source_url")
+            if (row.get(col) or "").strip()
+            and (row.get(col) or "").strip() not in {"not_found", *citations}
+        }
+    )
+    citations.extend(extra_citations)
+
     return {
         "finding_id": f"finding:{plan_id}:{plan_period}:extraction-readiness",
         "entity": plan_id,
@@ -377,15 +474,26 @@ def _finding_from_readiness_row(
         "metric": "extraction_readiness",
         "value": 1.0 if is_ready else 0.0,
         "confidence": 1.0,
-        "severity": severity,
-        "provenance_refs": [
-            f"{readiness_path.as_posix()}#{plan_id}:{plan_period}",
-        ],
-        "citations": [
-            contract_path.as_posix(),
-            readiness_path.as_posix(),
-        ],
+        "severity": "info" if is_ready else "warning",
+        "provenance_refs": provenance_refs,
+        "citations": citations,
     }
+
+
+def _finding_from_readiness_row(
+    row: Mapping[str, str], *, contract_path: Path, readiness_path: Path
+) -> dict[str, Any] | None:
+    key = _readiness_row_key(row)
+    if key is None:
+        return None
+    plan_id, plan_period = key
+    return _finding_from_readiness_rows(
+        (row,),
+        plan_id=plan_id,
+        plan_period=plan_period,
+        contract_path=contract_path,
+        readiness_path=readiness_path,
+    )
 
 
 def _build_from_sources(
@@ -410,19 +518,24 @@ def _build_from_sources(
         )
     rows = _read_readiness_rows(readiness_csv_path)
 
-    findings: list[dict[str, Any]] = []
-    candidate_count = 0
+    rows_by_plan_period: dict[tuple[str, str], list[dict[str, str]]] = {}
     for row in rows:
-        finding = _finding_from_readiness_row(
-            row,
-            contract_path=persistence_contract_path,
-            readiness_path=readiness_csv_path,
+        key = _readiness_row_key(row)
+        if key is not None:
+            rows_by_plan_period.setdefault(key, []).append(row)
+
+    findings: list[dict[str, Any]] = []
+    candidate_count = len(rows_by_plan_period)
+    for plan_id, plan_period in sorted(rows_by_plan_period)[:MAX_REAL_DATA_FINDINGS]:
+        findings.append(
+            _finding_from_readiness_rows(
+                rows_by_plan_period[(plan_id, plan_period)],
+                plan_id=plan_id,
+                plan_period=plan_period,
+                contract_path=persistence_contract_path,
+                readiness_path=readiness_csv_path,
+            )
         )
-        if finding is None:
-            continue
-        candidate_count += 1
-        if len(findings) < MAX_REAL_DATA_FINDINGS:
-            findings.append(finding)
     if not findings:
         raise ReviewableFindingsArtifactError(
             f"readiness CSV at {readiness_csv_path} contains no rows with plan_id and plan_period"
