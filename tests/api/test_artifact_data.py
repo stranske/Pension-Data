@@ -624,11 +624,9 @@ def test_load_query_data_snapshot_reconciles_same_fact_review_context(
         "source_authority_tier": "official-mirror",
     }
     runs = [
-        ("run-a", first_context),
-        ("run-b", second_context),
+        ("run-a", second_context if reverse_run_order else first_context),
+        ("run-b", first_context if reverse_run_order else second_context),
     ]
-    if reverse_run_order:
-        runs.reverse()
     for run_id, review_context in runs:
         _write_run(tmp_path, run_id, [_metric_row()], review_context=review_context)
 

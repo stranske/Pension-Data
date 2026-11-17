@@ -451,6 +451,7 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(
     # Read before the replay overwrites these same artifact paths.
     first_bundle = json.loads(Path(first["workspace_bundle_json"]).read_text(encoding="utf-8"))
     first_manifest = json.loads(Path(first["run_manifest_json"]).read_text(encoding="utf-8"))
+    assert first_bundle["datasets"]
     first_rows = first_bundle["datasets"][0]["rows"]
     assert first_rows
     initial_context = {
