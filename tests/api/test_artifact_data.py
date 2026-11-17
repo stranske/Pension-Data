@@ -698,6 +698,20 @@ def test_load_query_data_snapshot_agreeing_documents_remain_resolved(
         ("doc:syn-plan:original", "2026-01-01"),
         ("doc:syn-plan:other", other_ingestion_date),
     ]
+    contexts = {
+        "doc:syn-plan:original": {
+            "actionable_flags": ["manual_review_needed"],
+            "escalation_required": True,
+            "source_authority_status": "unknown",
+            "source_authority_tier": None,
+        },
+        "doc:syn-plan:other": {
+            "actionable_flags": [],
+            "escalation_required": False,
+            "source_authority_status": "declared",
+            "source_authority_tier": "official-mirror",
+        },
+    }
     if reverse_run_order:
         observations.reverse()
     for index, (source_document_id, ingestion_date) in enumerate(observations):
@@ -711,12 +725,14 @@ def test_load_query_data_snapshot_agreeing_documents_remain_resolved(
             f"run-{index}",
             [row],
             source_document_id=source_document_id,
+            review_context=contexts[source_document_id],
         )
         _write_run(
             tmp_path,
             f"run-{index}-copy",
             [row],
             source_document_id=source_document_id,
+            review_context=contexts[source_document_id],
         )
 
     snapshot = load_query_data_snapshot(tmp_path)
@@ -726,6 +742,8 @@ def test_load_query_data_snapshot_agreeing_documents_remain_resolved(
         (row.source_document_id, row.ingestion_date) for row in snapshot.metric_history_rows
     } == set(observations)
     assert {row.normalized_value for row in snapshot.metric_history_rows} == {0.784}
+    for row in snapshot.metric_history_rows:
+        assert row.review_context.to_dict() == contexts[row.source_document_id]
     assert len(snapshot.funding_trend_inputs) == 1
     trend_input = snapshot.funding_trend_inputs[0]
     assert (trend_input.plan_id, trend_input.plan_period) == ("SYN-PLAN", "FY2024")

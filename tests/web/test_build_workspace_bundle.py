@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from pension_data.sources.schema import SOURCE_AUTHORITY_TIERS, SourceAuthorityTier
+
 ROOT = Path(__file__).resolve().parents[2]
 BUILDER_PATH = ROOT / "scripts" / "web" / "build_workspace_bundle.py"
 SMOKE_PATH = ROOT / "scripts" / "web" / "smoke_test.py"
@@ -125,6 +127,77 @@ def test_generator_emits_runtime_valid_generated_bundle(tmp_path: Path) -> None:
         },
         "value": "$41000000",
     }
+
+
+@pytest.mark.parametrize("authority_tier", [None, *SOURCE_AUTHORITY_TIERS])
+@pytest.mark.parametrize("escalation_required", [None, False, True])
+def test_generator_preserves_manifest_review_context_on_every_row(
+    tmp_path: Path, authority_tier: SourceAuthorityTier | None, escalation_required: bool | None
+) -> None:
+    run_dir = _write_fixture_pilot_run(tmp_path)
+    manifest_path = run_dir / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    context = {
+        "actionable_flags": ["manual_review_needed"],
+        "escalation_required": escalation_required,
+        "source_authority_status": "declared" if authority_tier is not None else "unknown",
+        "source_authority_tier": authority_tier,
+    }
+    manifest["input"]["source_authority_tier"] = authority_tier
+    manifest["review_context"] = context
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    payload = build_workspace_bundle.build_workspace_bundle(run_dir)
+
+    rows = payload["datasets"][0]["rows"]
+    assert len(rows) == 2
+    assert [row["review_context"] for row in rows] == [context, context]
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        None,
+        {},
+        {
+            "actionable_flags": [],
+            "escalation_required": False,
+            "source_authority_status": "declared",
+            "source_authority_tier": "official-mirror",
+        },
+        {
+            "actionable_flags": [],
+            "escalation_required": False,
+            "source_authority_status": "unknown",
+            "source_authority_tier": None,
+        },
+    ],
+    ids=["null-context", "partial-context", "different-tier", "lost-declaration"],
+)
+def test_cli_rejects_invalid_manifest_review_context_without_overwriting_output(
+    tmp_path: Path, context: object
+) -> None:
+    run_dir = _write_fixture_pilot_run(tmp_path)
+    manifest_path = run_dir / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["input"]["source_authority_tier"] = "official"
+    manifest["review_context"] = context
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    out = tmp_path / "workspace.json"
+    out.write_text('{"existing": true}', encoding="utf-8")
+    before = out.read_bytes()
+
+    result = subprocess.run(
+        [sys.executable, str(BUILDER_PATH), "--pilot-run-dir", str(run_dir), "--out", str(out)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert result.stderr.startswith("error:")
+    assert "review_context" in result.stderr
+    assert "wrote generated workspace bundle" not in result.stdout
+    assert out.read_bytes() == before
 
 
 def test_generator_accepts_paths_already_rooted_at_output_root(tmp_path: Path, monkeypatch) -> None:

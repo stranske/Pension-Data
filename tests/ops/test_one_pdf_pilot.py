@@ -16,13 +16,17 @@ from pension_data.ops.one_pdf_pilot import (
     resolve_one_pdf_pilot_runtime_options,
     run_one_pdf_pilot,
 )
+from pension_data.sources.schema import SOURCE_AUTHORITY_TIERS, SourceAuthorityTier
 
 
 def _write_pdf_like_text(path: Path, text: str) -> None:
     path.write_bytes(text.encode("latin-1"))
 
 
-def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None:
+@pytest.mark.parametrize("authority_tier", [None, *SOURCE_AUTHORITY_TIERS])
+def test_one_pdf_pilot_writes_expected_artifact_contract(
+    tmp_path: Path, authority_tier: SourceAuthorityTier | None
+) -> None:
     pdf_path = tmp_path / "pilot.pdf"
     _write_pdf_like_text(
         pdf_path,
@@ -46,6 +50,7 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
             plan_period="FY2024",
             effective_date="2024-06-30",
             ingestion_date="2026-03-03",
+            source_authority_tier=authority_tier,
         ),
         output_root=tmp_path / "outputs",
         run_id="pilot-contract",
@@ -67,6 +72,19 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
     assert Path(result["workspace_bundle_json"]).exists()
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    parser_payload = json.loads(parser_path.read_text(encoding="utf-8"))
+    expected_context = {
+        "actionable_flags": parser_payload["actionable_flags"],
+        "escalation_required": parser_payload["escalation_required"],
+        "source_authority_status": "declared" if authority_tier is not None else "unknown",
+        "source_authority_tier": authority_tier,
+    }
+    assert manifest["input"]["source_authority_tier"] == authority_tier
+    assert manifest["review_context"] == expected_context
+    bundle = json.loads(Path(result["workspace_bundle_json"]).read_text(encoding="utf-8"))
+    assert bundle["datasets"][0]["rows"]
+    for row in bundle["datasets"][0]["rows"]:
+        assert row["review_context"] == expected_context
     artifact_files = manifest["artifact_files"]
     expected_keys = {
         "parser_result_json",
@@ -386,6 +404,7 @@ def test_resolve_one_pdf_pilot_input_uses_env_fallback(tmp_path: Path) -> None:
         "ONE_PDF_PILOT_INGESTION_DATE": "2026-03-03",
         "ONE_PDF_PILOT_SOURCE_URL": "https://example.org/ca-2024.pdf",
         "ONE_PDF_PILOT_DEFAULT_MONEY_UNIT_SCALE": "million_usd",
+        "ONE_PDF_PILOT_SOURCE_AUTHORITY_TIER": " official-mirror ",
     }
     resolved = resolve_one_pdf_pilot_input(
         pdf_path=None,
@@ -401,6 +420,7 @@ def test_resolve_one_pdf_pilot_input_uses_env_fallback(tmp_path: Path) -> None:
     assert resolved.plan_period == "FY2024"
     assert resolved.source_url == "https://example.org/ca-2024.pdf"
     assert resolved.default_money_unit_scale == "million_usd"
+    assert resolved.source_authority_tier == "official-mirror"
 
 
 def test_resolve_one_pdf_pilot_input_prefers_cli_values_over_env(tmp_path: Path) -> None:
@@ -415,6 +435,7 @@ def test_resolve_one_pdf_pilot_input_prefers_cli_values_over_env(tmp_path: Path)
         "ONE_PDF_PILOT_EFFECTIVE_DATE": "2023-06-30",
         "ONE_PDF_PILOT_INGESTION_DATE": "2026-01-01",
         "ONE_PDF_PILOT_DEFAULT_MONEY_UNIT_SCALE": "usd",
+        "ONE_PDF_PILOT_SOURCE_AUTHORITY_TIER": "official",
     }
     resolved = resolve_one_pdf_pilot_input(
         pdf_path=cli_pdf_path,
@@ -423,6 +444,7 @@ def test_resolve_one_pdf_pilot_input_prefers_cli_values_over_env(tmp_path: Path)
         effective_date="2024-06-30",
         ingestion_date="2026-03-03",
         default_money_unit_scale="thousand_usd",
+        source_authority_tier=" high-confidence-third-party ",
         env=env,
     )
 
@@ -430,6 +452,32 @@ def test_resolve_one_pdf_pilot_input_prefers_cli_values_over_env(tmp_path: Path)
     assert resolved.plan_id == "CLI"
     assert resolved.plan_period == "FY2024"
     assert resolved.default_money_unit_scale == "thousand_usd"
+    assert resolved.source_authority_tier == "high-confidence-third-party"
+
+
+@pytest.mark.parametrize(
+    "authority_tier", ["unverified-blog", "OFFICIAL", "", " ", False, 1, [], {}]
+)
+def test_one_pdf_input_rejects_invalid_declared_authority(
+    tmp_path: Path, authority_tier: object
+) -> None:
+    inputs = {
+        "pdf_path": tmp_path / "pilot.pdf",
+        "plan_id": "CA-PERS",
+        "plan_period": "FY2024",
+        "effective_date": "2024-06-30",
+        "ingestion_date": "2026-03-03",
+    }
+    with pytest.raises(ValueError, match="source_authority_tier"):
+        OnePdfPilotInput(**inputs, source_authority_tier=authority_tier)
+
+    # An explicitly invalid value must not silently fall back to valid environment metadata.
+    with pytest.raises(ValueError, match="source_authority_tier"):
+        resolve_one_pdf_pilot_input(
+            **inputs,
+            source_authority_tier=authority_tier,
+            env={"ONE_PDF_PILOT_SOURCE_AUTHORITY_TIER": "official"},
+        )
 
 
 def test_resolve_runtime_options_uses_contract_defaults_and_env() -> None:
@@ -707,6 +755,8 @@ def test_escalation_and_declared_authority_survive_to_bundle_and_api(
         row.source_document_id: row.review_context.to_dict() for row in snapshot.metric_history_rows
     }
     assert observed_snapshot_contexts == expected_by_doc
+    for row in snapshot.metric_history_rows:
+        assert row.review_context.to_dict() == expected_by_doc[row.source_document_id]
 
     monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
     monkeypatch.setenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", str(output_root))

@@ -112,3 +112,78 @@ Commit blocker: staging the verified source and tests failed with
 `fatal: Unable to create '.git/index.lock': Read-only file system`. The sandbox
 mounts `.git` read-only, so this run leaves its follow-up changes in the working
 tree for a runner with Git write access to commit on the existing PR branch.
+
+## Pilot and rebuild regression follow-up (2026-11-17)
+
+Extended the existing pilot artifact test across every `SOURCE_AUTHORITY_TIERS`
+value and absent authority, checking both the manifest and every direct bundle
+row against the persisted parser result. Extended the existing environment and
+CLI precedence tests to cover authority and added eight invalid declaration
+cases, including rejection before falling back to a valid environment value.
+
+Added twelve rebuild cases spanning every authority tier and nullable/false/true
+escalation, plus four CLI rejection cases for null, partial, or conflicting
+manifest contexts. Invalid inputs preserve the existing output file bytes.
+Extended the existing multi-run API test to preserve distinct per-document review
+contexts across run order, ingestion dates, and duplicate runs without changing
+value resolution. The named acceptance test now checks every snapshot row.
+
+The sandbox still denies socket writes. An unmodified named-test run timed out
+after 20 seconds while waiting in asyncio's selector. Verification used the same
+temporary selector-wait cap described above, now located at
+`/tmp/pension-review-context-test-runtime/sitecustomize.py`; it is outside the
+repository and changes no application behavior or assertions.
+
+```console
+PYTHONPATH=/tmp/pension-review-context-test-runtime python3 -m pytest tests/ops/test_one_pdf_pilot.py::test_escalation_and_declared_authority_survive_to_bundle_and_api -q -m "not slow"
+# 1 passed in 0.44s (before the deliberate break)
+
+# Temporarily omit review_context=resolved_review_context in build_workspace_bundle.
+# The manifest equality assertion passes; the direct/rebuilt tuple assertion fails.
+# Both bundle lists contain empty flags and null escalation instead of the manifest context.
+# 1 failed in 0.44s
+
+# Restore the exact source bytes in a finally block and rerun the named test.
+# 1 passed in 0.54s
+
+PYTHONPATH=/tmp/pension-review-context-test-runtime python3 -m pytest tests/ops/test_one_pdf_pilot.py -q -m "not slow"
+# 23 passed in 0.78s (after restoring the source and formatting)
+
+PYTHONPATH=/tmp/pension-review-context-test-runtime python3 -m pytest tests/export/test_workspace_bundle.py tests/web/test_build_workspace_bundle.py tests/web/test_workspace_contract.py tests/api/test_artifact_data.py tests/api/test_app_serving.py tests/ops/test_one_pdf_pilot_cli.py tests/query/test_metric_history.py tests/renderer/test_shell_import_smoke.py -q -m "not slow"
+# 224 passed in 4.23s
+
+PYTHONPATH=/tmp/pension-review-context-test-runtime BLACK_NUM_WORKERS=1 black --check --line-length 100 --exclude '(\.workflows-lib|node_modules)' .
+# 467 files would be left unchanged.
+
+ruff check tests/ops/test_one_pdf_pilot.py tests/web/test_build_workspace_bundle.py tests/api/test_artifact_data.py
+# All checks passed!
+
+python3 scripts/web/sync_renderer_shell.py --check
+# Renderer-shell materialization is current.
+
+git diff --check
+# Passed.
+```
+
+The commit remains blocked: `git add` of the three changed Python test files
+failed with `fatal: Unable to create '.git/index.lock': Read-only file system`.
+No commit or push was made. These regression-test additions and this transcript
+remain in the working tree for a runner with Git write access.
+
+Verified functional checklist for this working tree:
+
+- [x] Pilot validates declared authority and persists context in the manifest and direct bundle.
+- [x] Bundle producer and runtime consumers carry and validate review context.
+- [x] Rebuild script supplies manifest context for every contributing bundle row.
+- [x] API preserves per-run/document attribution; renderer details and materialization checks pass.
+- [x] Named escalation/authority/legacy acceptance test passes.
+- [x] Deliberate break fails for direct and rebuilt bundles; restoring the source passes.
+- [x] Whole pilot test file passes.
+- [x] Optional metadata tuple includes authority; existing API multi-run tests are extended.
+- [ ] Commit the regression-test additions on the existing PR branch (read-only `.git`).
+- [ ] Publish this verification and update the PR checkboxes (`approval_policy=never`).
+
+The GitHub connector rejected the PR-body checkbox update, verification comment,
+and additive `needs-human` label with `MCP tool call requires approval, but
+approval policy is never`. No remote metadata changes were made. PR #1038 was
+confirmed open and ready for review (`draft=false`).
