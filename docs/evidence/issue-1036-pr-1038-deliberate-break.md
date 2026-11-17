@@ -426,3 +426,49 @@ python3 scripts/web/sync_renderer_shell.py --check
 - [x] Whole pilot file, optional metadata tuple, existing API multi-run tests, and renderer materialization verified.
 - [ ] Commit on the existing branch: `git add` cannot create `.git/index.lock` (`Read-only file system`).
 - [ ] Reconcile remote checkboxes and publish evidence: PR-body update, blocker comment, and additive `needs-human` label were rejected because approval is required and the approval policy is `never`.
+
+## Skipped-rerun authority regression (2026-11-17)
+
+Fixed the existing skipped-rerun test's vacuous bundle comparison: it previously
+read both bundles after the second run had overwritten their shared path. It now
+captures the first manifest and bundle before replay, proves that orchestration
+skipped the document, and verifies four authority transitions: unknown unchanged,
+unknown to declared, declared to unknown, and one declared tier to another.
+Escalation and actionable flags remain present in each case; the complete bundle
+comparison also verifies that the persisted metric rows and other fields survive.
+No production change was needed. The previous deliberate-break/restoration
+transcripts above remain applicable; no deliberate break was left in the tree.
+
+```console
+python3 -m pytest tests/ops/test_one_pdf_pilot.py::test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows -q -m "not slow"
+# 4 passed in 0.22s
+PYTHONPATH=/tmp/pension-review-rerun-runtime python3 -m pytest tests/ops/test_one_pdf_pilot.py::test_escalation_and_declared_authority_survive_to_bundle_and_api -q -m "not slow"
+# 1 passed in 0.45s
+PYTHONPATH=/tmp/pension-review-rerun-runtime python3 -m pytest tests/ops/test_one_pdf_pilot.py tests/export/test_workspace_bundle.py tests/web/test_build_workspace_bundle.py tests/web/test_workspace_contract.py tests/api/test_artifact_data.py tests/api/test_app_serving.py tests/ops/test_one_pdf_pilot_cli.py tests/query/test_metric_history.py tests/renderer/test_shell_import_smoke.py -q -m "not slow"
+# 308 passed in 4.91s, including all 70 pilot tests
+PYTHONPATH=/tmp/pension-review-rerun-runtime BLACK_NUM_WORKERS=1 black --line-length 100 tests/ops/test_one_pdf_pilot.py
+# 1 file left unchanged.
+PYTHONPATH=/tmp/pension-review-rerun-runtime BLACK_NUM_WORKERS=1 black --check --line-length 100 --exclude '(\.workflows-lib|node_modules)' .
+# 467 files would be left unchanged.
+ruff check tests/ops/test_one_pdf_pilot.py
+# All checks passed!
+python3 scripts/web/sync_renderer_shell.py --check
+# Renderer-shell materialization is current.
+git diff --check
+# Passed.
+```
+
+The unmodified named HTTP test timed out after 20 seconds. A socketpair send
+independently raised `PermissionError: [Errno 1] Operation not permitted`.
+The HTTP commands above use the previously documented temporary selector-wait
+cap, located at `/tmp/pension-review-rerun-runtime/sitecustomize.py`; application
+code and assertions were unchanged by that workaround.
+
+- [x] Pilot authority validation and manifest/direct bundle propagation verified.
+- [x] Producer/runtime contracts, rebuild, API attribution, and renderer checks pass.
+- [x] Named test and whole pilot file pass; metadata tuple includes authority and existing API multi-run tests are retained.
+- [ ] Commit regression test and this evidence on the existing branch: `git add tests/ops/test_one_pdf_pilot.py` failed creating `.git/index.lock` with `Read-only file system`.
+- [ ] Reconcile PR checkboxes, publish the verification/blocker comment, and add `needs-human`: all three connector mutations were rejected with `MCP tool call requires approval, but approval policy is never`.
+
+PR #1038 was confirmed open and ready (`draft=false`) at `2395b55`. No branch,
+PR, workflow, or protected configuration was created or changed by this run.

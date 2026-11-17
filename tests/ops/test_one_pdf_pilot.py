@@ -355,7 +355,31 @@ def test_one_pdf_pilot_default_run_id_is_input_stable(tmp_path: Path) -> None:
     assert first["run_manifest_json"] == second["run_manifest_json"]
 
 
-def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("initial_authority", "replay_authority"),
+    [
+        (None, None),
+        (None, "official"),
+        ("official", None),
+        ("official", "official-mirror"),
+    ],
+)
+def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    initial_authority: SourceAuthorityTier | None,
+    replay_authority: SourceAuthorityTier | None,
+) -> None:
+    original_parser = pilot_module.parse_pdf_to_funded_input
+
+    def escalated_parser(payload):
+        return replace(
+            original_parser(payload),
+            escalation_required=True,
+            actionable_flags=("manual_review_needed",),
+        )
+
+    monkeypatch.setattr(pilot_module, "parse_pdf_to_funded_input", escalated_parser)
     pdf_path = tmp_path / "pilot.pdf"
     _write_pdf_like_text(
         pdf_path,
@@ -377,6 +401,7 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(tmp_path: P
         plan_period="FY2024",
         effective_date="2024-06-30",
         ingestion_date="2026-03-03",
+        source_authority_tier=initial_authority,
     )
     output_root = tmp_path / "outputs"
 
@@ -385,6 +410,19 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(tmp_path: P
         output_root=output_root,
         run_id="pilot-skipped-rerun",
     )
+    # Read before the replay overwrites these same artifact paths.
+    first_bundle = json.loads(Path(first["workspace_bundle_json"]).read_text(encoding="utf-8"))
+    first_manifest = json.loads(Path(first["run_manifest_json"]).read_text(encoding="utf-8"))
+    first_rows = first_bundle["datasets"][0]["rows"]
+    assert first_rows
+    initial_context = {
+        "escalation_required": True,
+        "actionable_flags": ["manual_review_needed"],
+        "source_authority_status": "declared" if initial_authority is not None else "unknown",
+        "source_authority_tier": initial_authority,
+    }
+    assert first_manifest["review_context"] == initial_context
+    assert all(row["review_context"] == initial_context for row in first_rows)
     prior_state_payload = json.loads(
         Path(first["orchestration_state_json"]).read_text(encoding="utf-8")
     )
@@ -397,15 +435,25 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(tmp_path: P
     )
 
     second = run_one_pdf_pilot(
-        pilot_input=pilot_input,
+        pilot_input=replace(pilot_input, source_authority_tier=replay_authority),
         output_root=output_root,
         run_id="pilot-skipped-rerun",
         state=prior_state,
     )
 
-    first_bundle = json.loads(Path(first["workspace_bundle_json"]).read_text(encoding="utf-8"))
     second_bundle = json.loads(Path(second["workspace_bundle_json"]).read_text(encoding="utf-8"))
-    assert first_bundle["datasets"]
+    second_manifest = json.loads(Path(second["run_manifest_json"]).read_text(encoding="utf-8"))
+    ledger = json.loads(Path(second["orchestration_ledger_json"]).read_text(encoding="utf-8"))
+    assert any(outcome["status"] == "skipped" for outcome in ledger["document_outcomes"])
+    replay_context = {
+        **initial_context,
+        "source_authority_status": "declared" if replay_authority is not None else "unknown",
+        "source_authority_tier": replay_authority,
+    }
+    assert second_manifest["input"]["source_authority_tier"] == replay_authority
+    assert second_manifest["review_context"] == replay_context
+    for row in first_rows:
+        row["review_context"] = replay_context
     assert second_bundle == first_bundle
 
 
