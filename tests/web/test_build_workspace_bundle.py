@@ -375,3 +375,23 @@ def test_cli_reports_missing_run_manifest_without_overwriting_output(tmp_path: P
     assert result.stderr.startswith("error: run manifest not found:")
     assert "Traceback" not in result.stderr
     assert out.read_bytes() == before
+
+
+def test_generator_reads_source_locator_from_run_manifest(tmp_path: Path) -> None:
+    run_dir = _write_fixture_pilot_run(tmp_path)
+    locator = f"sources/{'b' * 64}.pdf"
+    source_pdf = run_dir / locator
+    source_pdf.parent.mkdir(parents=True, exist_ok=True)
+    source_pdf.write_bytes(b"%PDF-1.4\nsource copy\n")
+
+    manifest_path = run_dir / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["input"]["source_locator"] = locator
+    manifest["source_locators"] = {"calpers-fy2024": locator}
+    manifest["artifact_files"]["source_pdf"] = str(source_pdf)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    payload = build_workspace_bundle.build_workspace_bundle(run_dir)
+    for row in payload["datasets"][0]["rows"]:
+        assert row["provenance"]["source_document"] == "calpers-fy2024"
+        assert row["provenance"]["source_locator"] == locator

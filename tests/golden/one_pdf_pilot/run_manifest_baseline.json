@@ -11,6 +11,7 @@
     "parser_result_json",
     "persistence_contract_json",
     "schema_component_datasets_manifest_json",
+    "source_pdf",
     "staging_core_metrics_json",
     "staging_manager_fund_vehicle_relationships_json",
     "workspace_bundle_json"

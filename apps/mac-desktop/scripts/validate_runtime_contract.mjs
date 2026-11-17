@@ -38,6 +38,43 @@ for (const [index, dataset] of workspace.datasets.entries()) {
   if (!Array.isArray(dataset.rows)) {
     throw new Error(`dataset ${index} has non-array rows`);
   }
+  const requiredProv = contract.workspaceBundle.provenanceRequiredFields || ["source_document", "evidence_refs"];
+  const optionalProv = contract.workspaceBundle.provenanceOptionalFields || ["source_locator"];
+  const allowedProv = new Set([...requiredProv, ...optionalProv]);
+  for (const [rowIndex, row] of dataset.rows.entries()) {
+    if (!row || typeof row !== "object" || !("provenance" in row)) {
+      continue;
+    }
+    const provenance = row.provenance;
+    if (!provenance || typeof provenance !== "object" || Array.isArray(provenance)) {
+      throw new Error(`dataset ${index} row ${rowIndex} provenance must be an object`);
+    }
+    for (const reqField of requiredProv) {
+      if (!(reqField in provenance)) {
+        throw new Error(`dataset ${index} row ${rowIndex} provenance missing '${reqField}'`);
+      }
+    }
+    for (const key of Object.keys(provenance)) {
+      if (!allowedProv.has(key)) {
+        throw new Error(`dataset ${index} row ${rowIndex} provenance has unsupported field '${key}'`);
+      }
+    }
+    if ("source_locator" in provenance) {
+      const locator = provenance.source_locator;
+      if (
+        typeof locator !== "string" ||
+        !locator.trim() ||
+        locator.startsWith("/") ||
+        locator.endsWith("/") ||
+        locator.includes("\\") ||
+        locator.includes("\0") ||
+        locator.includes("://") ||
+        locator.split("/").some((segment) => !segment || segment === "." || segment === ".." || segment.includes(":"))
+      ) {
+        throw new Error(`dataset ${index} row ${rowIndex} provenance.source_locator is invalid`);
+      }
+    }
+  }
 }
 
 console.log("Runtime contract validation passed.");

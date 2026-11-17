@@ -232,6 +232,45 @@ def _ledger_has_skipped_outcomes(ledger: object) -> bool:
     return any(getattr(outcome, "status", None) == "skipped" for outcome in document_outcomes)
 
 
+def _resolve_source_locators_for_run(
+    *,
+    manifest_path: Path,
+    source_document_id: str,
+    source_locator: str,
+    skipped_outcomes: bool,
+) -> dict[str, str]:
+    locators: dict[str, str] = {}
+    if skipped_outcomes and manifest_path.is_file():
+        try:
+            prior_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            prior_manifest = None
+        if isinstance(prior_manifest, Mapping):
+            prior_locators = prior_manifest.get("source_locators")
+            if isinstance(prior_locators, Mapping):
+                for doc_id, loc in prior_locators.items():
+                    if (
+                        isinstance(doc_id, str)
+                        and doc_id.strip()
+                        and isinstance(loc, str)
+                        and loc.strip()
+                    ):
+                        locators[doc_id.strip()] = loc.strip()
+            prior_input = prior_manifest.get("input")
+            if isinstance(prior_input, Mapping):
+                prior_doc_id = prior_input.get("source_document_id")
+                prior_loc = prior_input.get("source_locator")
+                if (
+                    isinstance(prior_doc_id, str)
+                    and prior_doc_id.strip()
+                    and isinstance(prior_loc, str)
+                    and prior_loc.strip()
+                ):
+                    locators.setdefault(prior_doc_id.strip(), prior_loc.strip())
+    locators[source_document_id] = source_locator
+    return locators
+
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -480,15 +519,30 @@ def run_one_pdf_pilot(
     _write_json(coverage_json, coverage_summary)
     _write_json(component_coverage_report_json, component_coverage_report)
 
+    pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+    source_locator = f"sources/{pdf_sha256}.pdf"
+    source_pdf_artifact = run_root / source_locator
+    source_pdf_artifact.parent.mkdir(parents=True, exist_ok=True)
+    if not source_pdf_artifact.is_file() or source_pdf_artifact.read_bytes() != pdf_bytes:
+        source_pdf_artifact.write_bytes(pdf_bytes)
+
+    manifest_json = run_root / "run_manifest.json"
+    source_locators = _resolve_source_locators_for_run(
+        manifest_path=manifest_json,
+        source_document_id=source_document_id,
+        source_locator=source_locator,
+        skipped_outcomes=_ledger_has_skipped_outcomes(ledger),
+    )
+
     workspace_bundle_json = run_root / "workspace-bundle.json"
     workspace_bundle = build_workspace_bundle(
         core_rows,
         run_id=effective_run_id,
         last_updated=pilot_input.effective_date,
+        source_locators=source_locators,
     )
     write_workspace_bundle(workspace_bundle_json, workspace_bundle)
 
-    manifest_json = run_root / "run_manifest.json"
     manifest = {
         "run_id": effective_run_id,
         "input": {
@@ -498,11 +552,13 @@ def run_one_pdf_pilot(
             "effective_date": pilot_input.effective_date,
             "ingestion_date": pilot_input.ingestion_date,
             "source_document_id": source_document_id,
+            "source_locator": source_locator,
             "source_url": source_url,
             "fetched_at": fetched_at,
             "mime_type": pilot_input.mime_type,
             "default_money_unit_scale": pilot_input.default_money_unit_scale,
         },
+        "source_locators": source_locators,
         "ledger_status": ledger.status,
         "document_outcome_count": len(ledger.document_outcomes),
         "state": asdict(next_state),
@@ -518,6 +574,7 @@ def run_one_pdf_pilot(
             "parser_result_json": str(parser_json),
             "coverage_summary_json": str(coverage_json),
             "component_coverage_report_json": str(component_coverage_report_json),
+            "source_pdf": str(source_pdf_artifact),
             "workspace_bundle_json": str(workspace_bundle_json),
             "persistence_contract_json": persistence_paths["persistence_contract_json"],
             "staging_core_metrics_json": persistence_paths["staging_core_metrics_json"],
@@ -550,6 +607,7 @@ def run_one_pdf_pilot(
         "parser_result_json": str(parser_json),
         "coverage_summary_json": str(coverage_json),
         "component_coverage_report_json": str(component_coverage_report_json),
+        "source_pdf": str(source_pdf_artifact),
         "workspace_bundle_json": str(workspace_bundle_json),
         "persistence_contract_json": persistence_paths["persistence_contract_json"],
         "staging_core_metrics_json": persistence_paths["staging_core_metrics_json"],

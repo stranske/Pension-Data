@@ -4,6 +4,8 @@
     "requiredTopLevelFields": ["contractVersion", "data_origin", "datasets"],
     "dataOrigins": ["fixture", "generated", "live"],
     "datasetRequiredFields": ["id", "name", "domain", "kind", "freshness", "lastUpdated", "rows"],
-    "rowRecommendedFields": ["entity", "plan_period", "metric_family", "metric", "value", "confidence", "provenance"]
+    "rowRecommendedFields": ["entity", "plan_period", "metric_family", "metric", "value", "confidence", "provenance"],
+    "provenanceRequiredFields": ["source_document", "evidence_refs"],
+    "provenanceOptionalFields": ["source_locator"]
   }
 }

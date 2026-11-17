@@ -64,6 +64,7 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
     assert Path(result["staging_manager_fund_vehicle_relationships_json"]).exists()
     assert Path(result["extraction_warnings_json"]).exists()
     assert Path(result["schema_component_datasets_manifest_json"]).exists()
+    assert Path(result["source_pdf"]).exists()
     assert Path(result["workspace_bundle_json"]).exists()
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -81,6 +82,7 @@ def test_one_pdf_pilot_writes_expected_artifact_contract(tmp_path: Path) -> None
         "orchestration_published_rows_json",
         "orchestration_review_queue_rows_json",
         "orchestration_state_json",
+        "source_pdf",
         "workspace_bundle_json",
     }
     expected_result_keys = expected_keys | {"run_id", "run_manifest_json"}
