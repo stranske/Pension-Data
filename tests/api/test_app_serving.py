@@ -259,6 +259,8 @@ def test_metric_history_serves_two_plans_under_one_artifact_root(
 
     expected_alpha = _expected_funded_ratio(result_alpha)
     expected_beta = _expected_funded_ratio(result_beta)
+    parser_alpha = json.loads(Path(result_alpha["parser_result_json"]).read_text(encoding="utf-8"))
+    parser_beta = json.loads(Path(result_beta["parser_result_json"]).read_text(encoding="utf-8"))
 
     monkeypatch.setenv("PENSION_DATA_DATA_ZONE", "proprietary")
     monkeypatch.setenv("PENSION_DATA_QUERY_ARTIFACT_ROOT", str(output_root))
@@ -283,13 +285,13 @@ def test_metric_history_serves_two_plans_under_one_artifact_root(
     assert alpha_rows[0]["entity_id"] == "PLAN-ALPHA"
     assert beta_rows[0]["entity_id"] == "PLAN-BETA"
     assert alpha_rows[0]["review_context"] == {
-        "actionable_flags": [],
+        "actionable_flags": parser_alpha["actionable_flags"],
         "escalation_required": False,
         "source_authority_status": "declared",
         "source_authority_tier": "official",
     }
     assert beta_rows[0]["review_context"] == {
-        "actionable_flags": [],
+        "actionable_flags": parser_beta["actionable_flags"],
         "escalation_required": False,
         "source_authority_status": "unknown",
         "source_authority_tier": None,
