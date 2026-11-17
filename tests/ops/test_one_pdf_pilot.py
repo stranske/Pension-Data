@@ -365,22 +365,51 @@ def test_one_pdf_pilot_default_run_id_is_input_stable(tmp_path: Path) -> None:
         ("official", "official-mirror"),
     ],
 )
+@pytest.mark.parametrize(
+    ("initial_review_outcome", "replay_review_outcome"),
+    [
+        pytest.param(
+            (True, ("manual_review_needed",)),
+            (True, ("manual_review_needed",)),
+            id="escalation-retained",
+        ),
+        pytest.param(
+            (False, ()),
+            (True, ("manual_review_needed",)),
+            id="escalation-added",
+        ),
+        pytest.param(
+            (True, ("manual_review_needed",)),
+            (False, ()),
+            id="escalation-cleared",
+        ),
+        pytest.param(
+            (False, ("native_text:missing_text",)),
+            (False, ("table_assist:low_confidence",)),
+            id="flags-replaced-without-escalation",
+        ),
+    ],
+)
 def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     initial_authority: SourceAuthorityTier | None,
     replay_authority: SourceAuthorityTier | None,
+    initial_review_outcome: tuple[bool, tuple[str, ...]],
+    replay_review_outcome: tuple[bool, tuple[str, ...]],
 ) -> None:
     original_parser = pilot_module.parse_pdf_to_funded_input
+    review_outcome = initial_review_outcome
 
-    def escalated_parser(payload):
+    def parser_with_review_outcome(payload):
+        escalation_required, actionable_flags = review_outcome
         return replace(
             original_parser(payload),
-            escalation_required=True,
-            actionable_flags=("manual_review_needed",),
+            escalation_required=escalation_required,
+            actionable_flags=actionable_flags,
         )
 
-    monkeypatch.setattr(pilot_module, "parse_pdf_to_funded_input", escalated_parser)
+    monkeypatch.setattr(pilot_module, "parse_pdf_to_funded_input", parser_with_review_outcome)
     pdf_path = tmp_path / "pilot.pdf"
     _write_pdf_like_text(
         pdf_path,
@@ -417,8 +446,8 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(
     first_rows = first_bundle["datasets"][0]["rows"]
     assert first_rows
     initial_context = {
-        "escalation_required": True,
-        "actionable_flags": ["manual_review_needed"],
+        "escalation_required": initial_review_outcome[0],
+        "actionable_flags": list(initial_review_outcome[1]),
         "source_authority_status": "declared" if initial_authority is not None else "unknown",
         "source_authority_tier": initial_authority,
     }
@@ -442,6 +471,7 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(
         published_fact_ids=tuple(prior_state_payload["published_fact_ids"]),
     )
 
+    review_outcome = replay_review_outcome
     second = run_one_pdf_pilot(
         pilot_input=replace(pilot_input, source_authority_tier=replay_authority),
         output_root=output_root,
@@ -455,6 +485,8 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(
     assert any(outcome["status"] == "skipped" for outcome in ledger["document_outcomes"])
     replay_context = {
         **initial_context,
+        "escalation_required": replay_review_outcome[0],
+        "actionable_flags": list(replay_review_outcome[1]),
         "source_authority_status": "declared" if replay_authority is not None else "unknown",
         "source_authority_tier": replay_authority,
     }

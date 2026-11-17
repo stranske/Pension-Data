@@ -567,3 +567,34 @@ cap at `/tmp/pension-replay-api-runtime/sitecustomize.py`; Black also used
       `MCP tool call requires approval, but approval policy is never`.
 
 PR #1038 was confirmed open and ready (`draft=false`) at `0ecbddf`.
+
+## Review outcome changes on skipped reruns (2026-11-17)
+
+At `6a459eb`, extended the existing skipped-rerun test across four parser review
+transitions: escalation retained, added, cleared, and flags replaced without
+escalation. Each runs across the four existing authority transitions. The
+manifest, direct bundle, and API snapshot must carry the latest review outcome
+while preserving every metric identity and all other metric fields.
+
+- [x] All 16 skipped-rerun cases pass without a runtime workaround.
+- [x] Named escalation/authority/bundle/API/legacy acceptance test passes.
+- [x] Whole pilot file passes (82 cases), as part of 328 related tests.
+- [x] Existing metadata tuple, multi-run API, and renderer materialization checks pass.
+- [x] Black formats the changed Python file; required repository check reports
+      467 files unchanged. Targeted Ruff and `git diff --check` pass.
+
+All pytest commands used `-m "not slow"`. The unmodified baseline reached the
+named test's HTTP request and stalled in asyncio's selector; an independent
+socketpair send raised `PermissionError: [Errno 1] Operation not permitted`.
+HTTP verification and the repository Black check used the documented temporary
+selector-wait cap at `/tmp/pension-review-refresh-runtime/sitecustomize.py`;
+Black also used `BLACK_NUM_WORKERS=1`. No runtime workaround is committed.
+
+- [ ] Commit the Python test and evidence on the current branch: `git add`
+      failed creating `.git/index.lock` with `Read-only file system`.
+- [ ] Reconcile verified PR task checkboxes: automatic approval review rejected
+      the update with `MCP tool call requires approval, but approval policy is never`.
+      The verification/blocker comment and additive `needs-human` label were
+      rejected with the same message; no remote metadata changed.
+
+PR #1038 was confirmed open and ready (`draft=false`) at `6a459eb`.
