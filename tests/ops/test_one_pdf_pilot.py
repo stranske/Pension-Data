@@ -349,11 +349,44 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(tmp_path: P
     second_bundle = json.loads(Path(second["workspace_bundle_json"]).read_text(encoding="utf-8"))
     assert first_bundle["datasets"]
     assert second_bundle == first_bundle
+    expected_doc_id = first_bundle["datasets"][0]["rows"][0]["provenance"]["source_document"]
     for row in second_bundle["datasets"][0]["rows"]:
         assert row["provenance"]["source_locator"].startswith("sources/")
         assert (
             Path(second["run_manifest_json"]).parent / row["provenance"]["source_locator"]
         ).read_bytes() == pdf_path.read_bytes()
+
+    override_input = OnePdfPilotInput(
+        pdf_path=pdf_path,
+        plan_id="CA-PERS",
+        plan_period="FY2024",
+        effective_date="2024-06-30",
+        ingestion_date="2026-03-03",
+        source_document_id="override-doc-id",
+    )
+    third = run_one_pdf_pilot(
+        pilot_input=override_input,
+        output_root=output_root,
+        run_id="pilot-skipped-rerun",
+        state=prior_state,
+    )
+    third_bundle = json.loads(Path(third["workspace_bundle_json"]).read_text(encoding="utf-8"))
+    assert third_bundle == first_bundle
+    for row in third_bundle["datasets"][0]["rows"]:
+        assert row["provenance"]["source_document"] == expected_doc_id
+        assert row["provenance"]["source_locator"].startswith("sources/")
+        assert (
+            Path(third["run_manifest_json"]).parent / row["provenance"]["source_locator"]
+        ).read_bytes() == pdf_path.read_bytes()
+
+    Path(third["run_manifest_json"]).write_text("{corrupt-json", encoding="utf-8")
+    with pytest.raises(ValueError, match="Failed to read prior run manifest"):
+        run_one_pdf_pilot(
+            pilot_input=override_input,
+            output_root=output_root,
+            run_id="pilot-skipped-rerun",
+            state=prior_state,
+        )
 
 
 def test_one_pdf_input_contract_includes_required_path_env_and_metadata_fields() -> None:

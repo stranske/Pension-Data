@@ -240,53 +240,58 @@ def _resolve_source_locators_for_run(
     skipped_outcomes: bool,
 ) -> dict[str, str]:
     locators: dict[str, str] = {}
-    if skipped_outcomes and manifest_path.is_file():
+    if skipped_outcomes and manifest_path.exists():
         try:
             prior_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            prior_manifest = None
-        if isinstance(prior_manifest, Mapping):
-            prior_locators = prior_manifest.get("source_locators")
-            if isinstance(prior_locators, Mapping):
-                for doc_id, loc in prior_locators.items():
-                    if (
-                        isinstance(doc_id, str)
-                        and doc_id.strip()
-                        and isinstance(loc, str)
-                        and loc.strip()
-                    ):
-                        locators[doc_id.strip()] = loc.strip()
-            prior_input = prior_manifest.get("input")
-            if isinstance(prior_input, Mapping):
-                prior_doc_id = prior_input.get("source_document_id")
-                prior_loc = prior_input.get("source_locator")
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                f"Failed to read prior run manifest for skipped rerun: {manifest_path}"
+            ) from exc
+        if not isinstance(prior_manifest, Mapping):
+            raise ValueError(
+                f"Prior run manifest must be a JSON object for skipped rerun: {manifest_path}"
+            )
+        prior_locators = prior_manifest.get("source_locators")
+        if isinstance(prior_locators, Mapping):
+            for doc_id, loc in prior_locators.items():
                 if (
-                    isinstance(prior_doc_id, str)
-                    and prior_doc_id.strip()
-                    and isinstance(prior_loc, str)
-                    and prior_loc.strip()
+                    isinstance(doc_id, str)
+                    and doc_id.strip()
+                    and isinstance(loc, str)
+                    and loc.strip()
                 ):
-                    locators.setdefault(prior_doc_id.strip(), prior_loc.strip())
-                elif isinstance(prior_doc_id, str) and prior_doc_id.strip():
-                    prior_artifacts = prior_manifest.get("artifact_files")
-                    raw_source_pdf = (
-                        prior_artifacts.get("source_pdf")
-                        if isinstance(prior_artifacts, Mapping)
-                        else None
+                    locators[doc_id.strip()] = loc.strip()
+        prior_input = prior_manifest.get("input")
+        if isinstance(prior_input, Mapping):
+            prior_doc_id = prior_input.get("source_document_id")
+            prior_loc = prior_input.get("source_locator")
+            if (
+                isinstance(prior_doc_id, str)
+                and prior_doc_id.strip()
+                and isinstance(prior_loc, str)
+                and prior_loc.strip()
+            ):
+                locators.setdefault(prior_doc_id.strip(), prior_loc.strip())
+            elif isinstance(prior_doc_id, str) and prior_doc_id.strip():
+                prior_artifacts = prior_manifest.get("artifact_files")
+                raw_source_pdf = (
+                    prior_artifacts.get("source_pdf")
+                    if isinstance(prior_artifacts, Mapping)
+                    else None
+                )
+                if isinstance(raw_source_pdf, str) and raw_source_pdf.strip():
+                    run_root = manifest_path.parent.resolve()
+                    candidate = Path(raw_source_pdf.strip())
+                    resolved_pdf = (
+                        candidate.resolve()
+                        if candidate.is_absolute()
+                        else (run_root / candidate).resolve()
                     )
-                    if isinstance(raw_source_pdf, str) and raw_source_pdf.strip():
-                        run_root = manifest_path.parent.resolve()
-                        candidate = Path(raw_source_pdf.strip())
-                        resolved_pdf = (
-                            candidate.resolve()
-                            if candidate.is_absolute()
-                            else (run_root / candidate).resolve()
+                    if resolved_pdf.is_relative_to(run_root):
+                        locators.setdefault(
+                            prior_doc_id.strip(),
+                            resolved_pdf.relative_to(run_root).as_posix(),
                         )
-                        if resolved_pdf.is_relative_to(run_root):
-                            locators.setdefault(
-                                prior_doc_id.strip(),
-                                resolved_pdf.relative_to(run_root).as_posix(),
-                            )
     locators[source_document_id] = source_locator
     return locators
 
@@ -553,6 +558,22 @@ def run_one_pdf_pilot(
         source_locator=source_locator,
         skipped_outcomes=_ledger_has_skipped_outcomes(ledger),
     )
+    resolved_run_root = run_root.resolve()
+    for row in core_rows:
+        row_doc_id = str(row.get("source_document_id") or "").strip()
+        if not row_doc_id:
+            continue
+        locator_for_row = source_locators.get(row_doc_id)
+        if not locator_for_row:
+            raise ValueError(f"Missing source_locator for persisted document {row_doc_id!r}")
+        resolved_locator_path = (resolved_run_root / locator_for_row).resolve()
+        if (
+            not resolved_locator_path.is_relative_to(resolved_run_root)
+            or not resolved_locator_path.is_file()
+        ):
+            raise ValueError(
+                f"Persisted source_locator for {row_doc_id!r} must resolve inside run root"
+            )
 
     workspace_bundle_json = run_root / "workspace-bundle.json"
     workspace_bundle = build_workspace_bundle(

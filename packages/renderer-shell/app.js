@@ -480,7 +480,9 @@ function formatEvidenceFragment(token) {
   if (!normalized) {
     return "";
   }
-  const pageMatch = normalized.match(/^(?:p(?:age)?(?:\.|\s*=\s*)|p)([1-9]\d*)(?:$|[\s#:-].*)/i);
+  const pageMatch = normalized.match(
+    /^(?:p(?:age)?(?:\.\s*|\s*=\s*|\s+)|p)([1-9]\d*)(?:$|[\s#:-].*)/i
+  );
   if (pageMatch) {
     return `page=${pageMatch[1]}`;
   }

@@ -396,7 +396,17 @@ def test_generator_reads_source_locator_from_run_manifest(tmp_path: Path) -> Non
         assert row["provenance"]["source_document"] == "calpers-fy2024"
         assert row["provenance"]["source_locator"] == locator
 
-    manifest["source_locators"] = {"calpers-fy2024": f"sources/{'c' * 64}.pdf"}
+    other_locator = f"sources/{'c' * 64}.pdf"
+    other_pdf = run_dir / other_locator
+    other_pdf.write_bytes(b"%PDF-1.4\nconflicting source copy\n")
+
+    manifest["source_locators"] = {"calpers-fy2024": other_locator}
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    with pytest.raises(ValueError, match="source_locators"):
+    with pytest.raises(ValueError, match="input.source_locator conflicts with source_locators"):
+        build_workspace_bundle.build_workspace_bundle(run_dir)
+
+    manifest["source_locators"] = {"calpers-fy2024": locator}
+    manifest["artifact_files"]["source_pdf"] = str(other_pdf)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="source_pdf conflicts with declared source_locator"):
         build_workspace_bundle.build_workspace_bundle(run_dir)

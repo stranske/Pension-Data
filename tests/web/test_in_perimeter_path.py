@@ -631,3 +631,67 @@ def test_pilot_default_document_id_citation_serves_source_pdf(tmp_path: Path) ->
             provenance = row["provenance"]
             assert provenance["source_document"] == expected_doc_id
             assert provenance["source_locator"] == expected_locator
+
+
+def test_desktop_runtime_contract_validator_enforces_provenance_parity() -> None:
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:
+        pytest.fail("node is required for desktop runtime contract validator coverage")
+
+    validator_url = (
+        ROOT / "apps" / "mac-desktop" / "scripts" / "validate_runtime_contract.mjs"
+    ).as_uri()
+    contract_path = ROOT / "apps" / "contracts" / "runtime-contract.json"
+    script = f"""
+import fs from "node:fs";
+import {{ validateRuntimeContract }} from {json.dumps(validator_url)};
+
+const contract = JSON.parse(fs.readFileSync({json.dumps(str(contract_path))}, "utf8"));
+const makeBundle = (provenance) => ({{
+  contractVersion: contract.version,
+  data_origin: "generated",
+  datasets: [{{
+    id: "pilot",
+    name: "Pilot",
+    domain: "pension",
+    kind: "core_metrics",
+    freshness: "generated",
+    lastUpdated: "2026-01-01",
+    rows: [{{ entity: "CA-PERS", provenance }}],
+  }}],
+}});
+
+validateRuntimeContract(makeBundle({{
+  source_document: "pilot:CA-PERS:FY2024:deadbeef",
+  evidence_refs: ["p.2"],
+  source_locator: "sources/abc123.pdf",
+}}), contract);
+
+for (const bad of [
+  {{ source_document: null, evidence_refs: ["p.2"] }},
+  {{ source_document: "   ", evidence_refs: ["p.2"] }},
+  {{ source_document: "pilot:CA-PERS:FY2024:deadbeef", evidence_refs: 17 }},
+  {{ source_document: "pilot:CA-PERS:FY2024:deadbeef", evidence_refs: [""] }},
+  {{ source_document: "pilot:CA-PERS:FY2024:deadbeef", evidence_refs: ["p.2"], source_locator: "../escape.pdf" }},
+  {{ source_document: "pilot:CA-PERS:FY2024:deadbeef", evidence_refs: ["p.2"], source_locator: "pilot:CA-PERS:FY2024:deadbeef" }},
+]) {{
+  let failed = false;
+  try {{
+    validateRuntimeContract(makeBundle(bad), contract);
+  }} catch {{
+    failed = true;
+  }}
+  if (!failed) {{
+    throw new Error("expected validator failure for: " + JSON.stringify(bad));
+  }}
+}}
+"""
+    subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
