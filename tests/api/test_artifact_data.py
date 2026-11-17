@@ -752,35 +752,54 @@ def test_load_query_data_snapshot_agreeing_documents_remain_resolved(
     assert snapshot.funding_trend_unresolved_periods == ()
 
 
+@pytest.mark.parametrize("reverse_run_order", [False, True])
+@pytest.mark.parametrize("legacy_original", [False, True])
 def test_load_query_data_snapshot_same_document_revision_supersedes_for_trend(
-    tmp_path: Path,
+    tmp_path: Path, reverse_run_order: bool, legacy_original: bool
 ) -> None:
-    _write_run(
-        tmp_path,
-        "run-original",
-        [
-            _metric_row(
-                fact_id="fact:funded:original",
-                normalized_value=0.784,
-                ingestion_date="2026-01-01",
-            )
-        ],
-    )
-    _write_run(
-        tmp_path,
-        "run-revised",
-        [
-            _metric_row(
-                fact_id="fact:funded:revised",
-                normalized_value=0.8,
-                ingestion_date="2026-02-01",
-            )
-        ],
-    )
+    original_context = {
+        "actionable_flags": [] if legacy_original else ["manual_review_needed"],
+        "escalation_required": None if legacy_original else True,
+        "source_authority_status": "unknown",
+        "source_authority_tier": None,
+    }
+    revised_context = {
+        "actionable_flags": [],
+        "escalation_required": False,
+        "source_authority_status": "declared",
+        "source_authority_tier": "official-mirror",
+    }
+    revisions = [
+        ("original", "2026-01-01", 0.784, None if legacy_original else original_context),
+        ("revised", "2026-02-01", 0.8, revised_context),
+    ]
+    if reverse_run_order:
+        revisions.reverse()
+    for index, (revision, ingestion_date, value, context) in enumerate(revisions):
+        _write_run(
+            tmp_path,
+            f"run-{index}",
+            [
+                _metric_row(
+                    fact_id=f"fact:funded:{revision}",
+                    normalized_value=value,
+                    ingestion_date=ingestion_date,
+                )
+            ],
+            review_context=context,
+        )
 
     snapshot = load_query_data_snapshot(tmp_path)
 
     assert len(snapshot.metric_history_rows) == 2
+    assert {row.source_document_id for row in snapshot.metric_history_rows} == {"doc:syn-plan"}
+    assert {
+        row.ingestion_date: (row.normalized_value, row.review_context.to_dict())
+        for row in snapshot.metric_history_rows
+    } == {
+        "2026-01-01": (0.784, original_context),
+        "2026-02-01": (0.8, revised_context),
+    }
     assert snapshot.funding_trend_inputs[0].funded_ratio == pytest.approx(0.8)
     assert snapshot.funding_trend_unresolved_periods == ()
 

@@ -255,3 +255,66 @@ Handoff remains blocked by environment permissions:
   but approval policy is never`; the additive `needs-human` label was also rejected.
 
 No branch or PR was created, and no workflow or protected configuration changed.
+
+## Same-document revision attribution follow-up (2026-11-17)
+
+Reviewed all six PR commits through `470ff36` and reran their relevant checks
+before continuing. The existing same-document revision test now verifies distinct
+review contexts for two runs of the same document: the original is escalated with
+unknown authority (or is a legacy artifact), and the revision explicitly clears
+escalation and declares `official-mirror` authority. Both run-directory orders
+are tested. Assertions preserve each ingestion date's value and context while
+retaining the existing check that the latest revision supplies the trend value.
+
+Reconciled functional checklist, verified on this working tree:
+
+- [x] Pilot validates optional authority and persists manifest/direct bundle context.
+- [x] Producer and runtime contracts validate bundle review context.
+- [x] Rebuilding supplies manifest context for each bundle row.
+- [x] API preserves run/document context; renderer materialization is current.
+- [x] Named acceptance test passes, including legacy and simultaneous conditions.
+- [x] Omitting context propagation fails the direct/rebuilt assertion; restoring passes.
+- [x] Whole pilot test file passes (23 tests).
+- [x] Required metadata tuple and existing API multi-run/materialization tests are preserved.
+
+Replayed the deliberate omission in the shared `build_workspace_bundle` row
+mapping. The manifest assertion passed, then the combined direct/rebuilt
+assertion failed: both row lists contained empty flags and null escalation.
+Result: `1 failed in 0.47s`. Restored the original source bytes in a `finally`
+block; a separate named-test rerun passed (`1 passed in 0.70s`). No deliberate
+break remains in the working tree.
+
+The unmodified pilot file timed out after 25 seconds at its HTTP test. A separate
+socketpair send reproduced `PermissionError: [Errno 1] Operation not permitted`.
+HTTP checks below use the temporary selector-wait cap described above, now at
+`/tmp/pension-review-verification/sitecustomize.py`. It is outside the repository.
+
+```console
+python3 -m pytest tests/api/test_artifact_data.py::test_load_query_data_snapshot_same_document_revision_supersedes_for_trend -q -m "not slow"
+# 4 passed in 0.30s
+
+PYTHONPATH=/tmp/pension-review-verification python3 -m pytest tests/ops/test_one_pdf_pilot.py tests/export/test_workspace_bundle.py tests/web/test_build_workspace_bundle.py tests/web/test_workspace_contract.py tests/api/test_artifact_data.py tests/api/test_app_serving.py tests/ops/test_one_pdf_pilot_cli.py tests/query/test_metric_history.py tests/renderer/test_shell_import_smoke.py -q -m "not slow"
+# 261 passed in 5.41s
+
+BLACK_NUM_WORKERS=1 black --line-length 100 tests/api/test_artifact_data.py
+# 1 file left unchanged.
+PYTHONPATH=/tmp/pension-review-verification BLACK_NUM_WORKERS=1 black --check --line-length 100 --exclude '(\.workflows-lib|node_modules)' .
+# 467 files would be left unchanged.
+ruff check tests/api/test_artifact_data.py
+# All checks passed!
+python3 scripts/web/sync_renderer_shell.py --check
+# Renderer-shell materialization is current.
+git diff --check
+# Passed.
+```
+
+The verified PR-body checkbox reconciliation was rejected by the GitHub connector:
+`MCP tool call requires approval, but approval policy is never`. The local
+checklist above records the verified state; the remote body was not changed.
+
+After the formatting gate passed, staging the changed test and this transcript
+failed creating `.git/index.lock` with `Read-only file system`. No new commit
+was made. Publishing the blocker comment and adding `needs-human` were also
+rejected with the same approval-policy message. A runner with Git write access
+must commit these two files on the existing branch and reconcile the remote
+checkboxes using the verified checklist above.
