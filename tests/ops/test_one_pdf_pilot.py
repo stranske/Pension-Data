@@ -176,6 +176,12 @@ def test_one_pdf_pilot_artifacts_follow_deterministic_layout(tmp_path: Path) -> 
     )
     for artifact_path in artifact_paths.values():
         assert artifact_path.is_relative_to(expected_run_root)
+    assert Path(result["source_pdf"]).read_bytes() == pdf_path.read_bytes()
+    assert manifest["input"]["source_locator"].startswith("sources/")
+    assert manifest["input"]["source_locator"].endswith(".pdf")
+    assert manifest["source_locators"] == {
+        manifest["input"]["source_document_id"]: manifest["input"]["source_locator"]
+    }
 
 
 def test_one_pdf_pilot_fails_when_required_metrics_are_missing(tmp_path: Path) -> None:
@@ -343,6 +349,11 @@ def test_one_pdf_pilot_skipped_rerun_reuses_persisted_workspace_rows(tmp_path: P
     second_bundle = json.loads(Path(second["workspace_bundle_json"]).read_text(encoding="utf-8"))
     assert first_bundle["datasets"]
     assert second_bundle == first_bundle
+    for row in second_bundle["datasets"][0]["rows"]:
+        assert row["provenance"]["source_locator"].startswith("sources/")
+        assert (
+            Path(second["run_manifest_json"]).parent / row["provenance"]["source_locator"]
+        ).read_bytes() == pdf_path.read_bytes()
 
 
 def test_one_pdf_input_contract_includes_required_path_env_and_metadata_fields() -> None:

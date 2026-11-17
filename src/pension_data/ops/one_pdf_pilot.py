@@ -267,6 +267,26 @@ def _resolve_source_locators_for_run(
                     and prior_loc.strip()
                 ):
                     locators.setdefault(prior_doc_id.strip(), prior_loc.strip())
+                elif isinstance(prior_doc_id, str) and prior_doc_id.strip():
+                    prior_artifacts = prior_manifest.get("artifact_files")
+                    raw_source_pdf = (
+                        prior_artifacts.get("source_pdf")
+                        if isinstance(prior_artifacts, Mapping)
+                        else None
+                    )
+                    if isinstance(raw_source_pdf, str) and raw_source_pdf.strip():
+                        run_root = manifest_path.parent.resolve()
+                        candidate = Path(raw_source_pdf.strip())
+                        resolved_pdf = (
+                            candidate.resolve()
+                            if candidate.is_absolute()
+                            else (run_root / candidate).resolve()
+                        )
+                        if resolved_pdf.is_relative_to(run_root):
+                            locators.setdefault(
+                                prior_doc_id.strip(),
+                                resolved_pdf.relative_to(run_root).as_posix(),
+                            )
     locators[source_document_id] = source_locator
     return locators
 

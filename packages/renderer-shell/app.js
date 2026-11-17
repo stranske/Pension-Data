@@ -524,7 +524,8 @@ function renderDetail() {
   addDetailItem("Value / Confidence", `${String(row.value ?? "")} / ${String(row.confidence ?? "")}`);
   addDetailItem("Source Document", sourceDocument || "n/a");
 
-  const artifactPath = encodeArtifactPath(provenance.source_locator || sourceDocument);
+  const sourceLocator = normalizeText(provenance.source_locator);
+  const artifactPath = encodeArtifactPath(sourceLocator || sourceDocument);
   const artifactBaseUrl = normalizeText(state.config?.artifactBaseUrl).replace(/\/+$/, "");
   const evidenceTokens = evidenceRefs.map((ref) => normalizeText(ref)).filter(Boolean);
   if (!evidenceTokens.length || !artifactPath || !artifactBaseUrl) {

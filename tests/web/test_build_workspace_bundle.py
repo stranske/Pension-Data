@@ -395,3 +395,8 @@ def test_generator_reads_source_locator_from_run_manifest(tmp_path: Path) -> Non
     for row in payload["datasets"][0]["rows"]:
         assert row["provenance"]["source_document"] == "calpers-fy2024"
         assert row["provenance"]["source_locator"] == locator
+
+    manifest["source_locators"] = {"calpers-fy2024": f"sources/{'c' * 64}.pdf"}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="source_locators"):
+        build_workspace_bundle.build_workspace_bundle(run_dir)
