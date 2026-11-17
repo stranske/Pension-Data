@@ -306,7 +306,10 @@ def validate_generated_workspace_bundle(payload: Mapping[str, Any]) -> None:
                     f"workspace dataset {index} row {row_index} missing required fields: "
                     + ", ".join(sorted(missing_row))
                 )
-            normalize_review_context(row.get("review_context"), require_all_fields=True)
+            review_context = row.get("review_context")
+            normalized_context = normalize_review_context(review_context, require_all_fields=True)
+            if review_context != normalized_context:
+                raise WorkspaceBundleError("workspace review_context must use canonical values")
 
     try:
         json.dumps(payload, sort_keys=True, allow_nan=False)

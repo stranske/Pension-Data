@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from pension_data.export.workspace_bundle import build_workspace_bundle
+
 ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = ROOT / "apps" / "web"
 SMOKE_PATH = ROOT / "scripts" / "web" / "smoke_test.py"
@@ -72,6 +74,40 @@ def test_all_three_consumers_share_one_rule_owner() -> None:
     assert web_serve_local.validate_workspace_bundle is canonical
     assert web_build_workspace_bundle.validate_workspace_bundle is canonical
     assert canonical.__module__ == "workspace_contract"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("escalation_required", "true", "escalation_required"),
+        ("actionable_flags", "manual_review_needed", "actionable_flags"),
+        ("actionable_flags", [""], "actionable_flags"),
+        ("source_authority_tier", "unverified-blog", "source_authority_tier"),
+        ("source_authority_status", "unknown", "source_authority_status"),
+        ("source_authority_status", "inferred", "source_authority_status"),
+        ("source_authority_tier", None, "source_authority_status"),
+    ],
+)
+def test_runtime_consumers_reject_invalid_review_context(
+    field: str, value: object, message: str
+) -> None:
+    payload = build_workspace_bundle(
+        [{"metric_name": "funded_ratio", "normalized_value": 0.81}],
+        run_id="run-review",
+        last_updated="2024-06-30",
+        review_context={
+            "actionable_flags": ["manual_review_needed"],
+            "escalation_required": True,
+            "source_authority_status": "declared",
+            "source_authority_tier": "official",
+        },
+    )
+    payload["datasets"][0]["rows"][0]["review_context"][field] = value
+    for consumer in (web_smoke_test, web_serve_local, web_build_workspace_bundle):
+        with pytest.raises(ValueError, match=message):
+            consumer.validate_workspace_bundle(
+                payload, path_label="invalid context", accepted_origins={"generated"}
+            )
 
 
 def test_builder_rejects_a_contract_version_mismatched_bundle() -> None:
