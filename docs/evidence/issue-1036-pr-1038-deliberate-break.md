@@ -473,6 +473,38 @@ code and assertions were unchanged by that workaround.
 PR #1038 was confirmed open and ready (`draft=false`) at `2395b55`. No branch,
 PR, workflow, or protected configuration was created or changed by this run.
 
+## CLI authority propagation and checklist reconciliation (2026-11-17)
+
+Reviewed the recent commits through `4d217e1` before continuing. The four
+implementation tasks are present. Added eight CLI regression cases: every
+`SOURCE_AUTHORITY_TIERS` value reaches both the manifest and each direct bundle
+row through flags and environment fallback; flags override stale environment
+authority; invalid authority is rejected before starting the pilot or creating
+output, including when a valid environment value exists.
+
+- [x] Pilot authority validation and manifest/direct bundle persistence verified.
+- [x] Bundle producer/runtime contracts and manifest rebuild verified.
+- [x] API per-document attribution and renderer synchronization verified.
+- [x] Named acceptance test: 1 passed; whole pilot file: 70 passed.
+- [x] Existing optional metadata tuple, API multi-run tests, and renderer checks retained.
+- [x] Existing deliberate-break/restoration evidence reviewed above.
+
+Verification: the related pilot, CLI, bundle, runtime, API, query, and renderer
+suite passed **316 tests** with `-m "not slow"`. The named acceptance test and
+whole pilot file also passed separately. Renderer materialization and Ruff
+passed. Black formatted the changed Python file at line length 100; the required
+repository check reported **467 files would be left unchanged**. HTTP/socket and
+Black verification use the documented temporary selector-wait cap under
+`/tmp/pension-authority-test-runtime`; no workaround is committed.
+
+- [ ] Commit the changes: `git add` cannot create `.git/index.lock` because the
+  repository's `.git` directory is read-only.
+- [ ] Reconcile the remote task checkboxes: automatic approval review rejected
+  the PR-body update, blocker comment, and additive `needs-human` label with
+  `MCP tool call requires approval, but approval policy is never`.
+
+PR #1038 remains open and ready (`draft=false`). No branch or PR was created.
+
 ## Acceptance reconciliation and missing-row checks (2026-11-17)
 
 Reviewed the six recent commits through `af5e998` and the implementation. All four
