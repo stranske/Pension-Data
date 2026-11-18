@@ -41,6 +41,8 @@ from pension_data.sources.ppd.mapping import (
 from pension_data.sources.ppd.peer_universe import (
     PPD_SOURCE_NAME,
     PeerUniverseStore,
+    build_citation_payload,
+    build_row_evidence_references,
     ingest_records,
     to_allocation_peer_inputs,
     to_funding_trend_inputs,
@@ -218,6 +220,34 @@ def test_refresh_is_idempotent(
 
     reloaded = store.read()
     assert len(reloaded) == EXPECTED_ROW_COUNT
+
+
+def test_peer_universe_skips_invalid_allocations_and_falls_back_to_mva() -> None:
+    record = {
+        variable_name("ppd_id"): 99,
+        variable_name("fy"): 2024,
+        variable_name("funded_ratio_mva"): 80,
+        variable_name("alloc_equity"): -1,
+    }
+    dataset = ingest_records([record], as_of=AS_OF, url="https://example.test/ppd")
+
+    assert dataset.ordered_rows()[0].allocations == {}
+    trend = to_funding_trend_inputs(dataset)
+    assert trend[0].funded_ratio == pytest.approx(0.8)
+    assert to_allocation_peer_inputs(dataset) == []
+
+
+def test_peer_universe_exports_citation_payload_for_each_ingested_row(
+    raw_records: list[dict[str, object]], request_url: str
+) -> None:
+    dataset = ingest_records(raw_records[:2], as_of=AS_OF, url=request_url)
+
+    references = build_row_evidence_references(dataset)
+    payload = build_citation_payload(dataset)
+
+    assert len(references) == 2
+    assert len(payload) == 2
+    assert all(row["citation_count"] == 1 for row in payload.values())
 
 
 # --- Saved views run on ingested peers (no fixtures) ---------------------------
