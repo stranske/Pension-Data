@@ -303,6 +303,58 @@ def test_allocation_shift_thresholds_and_review_queue_routing() -> None:
     assert metric.startswith("allocation:")
 
 
+@pytest.mark.parametrize("missing_index", [0, 1], ids=["new-class", "removed-class"])
+def test_allocation_class_changes_preserve_shift_direction_and_evidence(missing_index: int) -> None:
+    points = [
+        TimeSeriesPoint(
+            plan_id="allocation-change",
+            period=str(2024 + index),
+            observed_at=datetime(2025 + index, 1, 1, tzinfo=UTC),
+            funded_ratio=0.75,
+            allocations={"fixed_income": 0.25}
+            | ({} if index == missing_index else {"private_equity": 0.25}),
+            confidence=0.75,
+            evidence_refs=(f"doc:{index}",),
+            provenance={"table": f"allocations-{index}"},
+        )
+        for index in range(2)
+    ]
+
+    anomalies = detect_anomalies(
+        list(reversed(points)),
+        thresholds=AnomalyThresholds(
+            allocation_shift_warning=0.125,
+            allocation_shift_critical=0.25,
+        ),
+    )
+
+    assert len(anomalies) == 1
+    anomaly = anomalies[0]
+    assert anomaly.anomaly_id == "allocation-change:2025:allocation_shift:private_equity"
+    assert anomaly.metric == "allocation:private_equity"
+    assert anomaly.shift == 0.25
+    assert anomaly.severity == "critical"
+    assert anomaly.priority == "high"
+    assert anomaly.score == 0.875
+    assert anomaly.evidence_context == {
+        "previous_period": "2024",
+        "current_period": "2025",
+        "previous_observed_at": "2025-01-01T00:00:00+00:00",
+        "current_observed_at": "2026-01-01T00:00:00+00:00",
+        "evidence_refs": ["doc:0", "doc:1"],
+        "previous_provenance": {"table": "allocations-0"},
+        "current_provenance": {"table": "allocations-1"},
+        "metric_evidence": {
+            "metric": "allocation:private_equity",
+            "previous_value": 0.0 if missing_index == 0 else 0.25,
+            "current_value": 0.25 if missing_index == 0 else 0.0,
+            "signed_delta": 0.25 if missing_index == 0 else -0.25,
+            "absolute_delta": 0.25,
+            "thresholds": {"warning": 0.125, "critical": 0.25},
+        },
+    }
+
+
 def test_higher_shift_gets_higher_score_and_sorts_first_within_period() -> None:
     points = [
         _point(

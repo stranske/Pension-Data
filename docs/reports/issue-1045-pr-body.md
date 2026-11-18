@@ -11,6 +11,8 @@ and preservation of the last usable trace when an SDK response contains missing
 or blank mapping references, plus exact anomaly warning/critical thresholds, equal-threshold scoring, and
 isolation of non-finite funded ratios and allocations in either observation,
 and conservative confidence selection when one source has lower confidence.
+Two further cases verify that appearing and disappearing allocation classes retain
+their signed shift, exact score, and source evidence.
 The production changes fix two reproduced timestamp bugs. Sorting same-period observations
 with mixed naive and timezone-aware timestamps raised `TypeError`. The sort key now
 interprets naive timestamps as UTC, matching the existing evidence conversion.
@@ -34,12 +36,13 @@ verification is recorded in `docs/reports/issue-1045-coverage-verification.md`.
 ## Whole-CI baseline and verified result
 
 The original issue baseline is **89.95% blended line/branch coverage**. The latest
-[Gate run 44280200490](https://github.com/stranske/Pension-Data/actions/runs/44280200490)
-at PR head `74faee5505547a980b0582fd56e2ad050d1df5aa` passed on Python 3.13 and
-3.14. The Python 3.14 coverage job reports **2,453 passed, 51 skipped; 92.49%**.
-This was re-read from job `134718859694`; it includes both timestamp fixes,
-their four regression cases, and the two finite plan-boundary cases. The four
-new confidence-selection cases below still require CI after delivery.
+[Gate run 44286258094](https://github.com/stranske/Pension-Data/actions/runs/44286258094)
+at PR head `02de65f737d6953db78edcd953fcf874b69f53f4` passed on Python 3.13 and
+3.14. The Python 3.14 coverage job reports **2,457 passed, 51 skipped; 92.49%**.
+This was re-read from job `134739905362`; it includes both timestamp fixes,
+their four regression cases, the two finite plan-boundary cases, and all four
+confidence-selection cases. The two new allocation-class cases below still
+require CI after delivery.
 
 The ranked targets started with 186 uncovered statements plus branches according
 to the issue. Their Gate output now leaves 10, a **176-unit reduction**, four
@@ -127,7 +130,7 @@ pytest tests/quality/test_anomaly_rules.py tests/quant/test_scenarios.py \
   --cov=pension_data.query.saved_views.service --cov-report=term-missing
 ```
 
-Result after mutation restoration: **353 passed, 2 skipped; 99.50%** across the eight
+Result after mutation restoration: **355 passed, 2 skipped; 99.50%** across the eight
 targets. Both skips are pre-existing real-workbook tests because optional openpyxl
 is absent. The new workbook boundary tests use a fake reader and run without it.
 
@@ -612,6 +615,66 @@ approval policy is never`. The final remote read confirmed PR #1046 is still
 The locally checked statuses below remain prepared reconciliation, not a claim
 that those remote tasks were updated. The two verified files are ready for the
 automation writer to commit and push; remote reconciliation remains blocked.
+
+
+## Allocation-class changes and CI reconciliation follow-up
+
+Re-read issue #1045 and the latest whole-suite Gate at the checked-out head
+`02de65f` before this change. Gate run `44286258094`, coverage job `134739905362`,
+passes on both supported runtimes and reports **2,457 passed, 51 skipped; 92.49%**
+on Python 3.14. The original whole-CI baseline remains **89.95%**. The eight
+ranked targets still leave **10 uncovered units**, a **176-unit reduction**,
+four short of 180; their remaining paths and the focused baseline differences
+are explained above. This continues an existing PR that started below 90%.
+
+The first ranked target remains the focus. Two new public-boundary cases cover
+an allocation class appearing or disappearing between observations. Both require
+a critical anomaly for that class, its exact confidence-weighted score and signed
+change, and the correct periods, timestamps, references, and provenance. An
+unchanged class and funded ratio must not emit anomalies. Existing allocation
+tests kept all classes present in both observations and would not catch using
+only their intersection. No production bug was found; production is unchanged.
+
+The changed-module command recorded above passes **58 tests before and 60 after;
+98.91% in both runs**, with one missing statement and one missing branch (the
+private below-warning scorer path at line 150). No focused gain is claimed, and
+none is added to the authoritative whole-CI reduction.
+
+For the actual break-and-revert run, the production allocation-class union was
+replaced with its intersection. The command was:
+
+```sh
+pytest tests/quality/test_anomaly_rules.py -q -m 'not slow' \
+  -k allocation_class_changes --no-cov --tb=short \
+  --junitxml=/tmp/pension-allocation-mutation.xml
+```
+
+Both cases failed at the required anomaly count (**2 failed, 58 deselected**,
+exit 1), confirmed independently from JUnit. The production file was restored
+byte-for-byte in a `finally` block. The restored combined eight-target command
+above passes **355 tests, 2 skipped; 99.50%**. Both new cases run without optional
+dependencies. The skips are pre-existing real-workbook tests needing openpyxl.
+
+A fresh full-suite attempt collected **2,494 items / 1 skipped** and again hung
+in `tests/api/test_app_serving.py::test_health_and_config_routes`. The trace
+shows AnyIO's `run_sync_from_thread` waiting on the portal thread. The existing
+50-second bounded command exited **124**; no tests were disabled or excluded to
+avoid this environment limitation. The hosted Gate result above covers the
+committed head; these two new cases still require CI after delivery.
+
+Black formatted the changed test file at line length 100. The first bounded
+aggregate check timed out in Black's worker runner. After sequential Black
+checks populated its cache, both exact aggregate commands recorded above passed
+(**469 files unchanged** each). Ruff's CI command and `git diff --check` passed.
+
+
+Delivery was attempted after verification with `git add` and `git commit` on
+`codex/issue-1045`. Staging failed with `.git/index.lock: Read-only file system`
+(exit 128), so no commit or push was possible. The two verified files remain
+prepared for the automation writer. The PR-body update, blocker comment, and
+`needs-human` label each returned `MCP tool call requires approval, but approval
+policy is never`; none was published. The local baseline checkbox records the
+verified CI reconciliation; delivery and new-head CI acceptance remain unchecked.
 
 Closes #1045
 
