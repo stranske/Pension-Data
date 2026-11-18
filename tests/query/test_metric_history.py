@@ -14,6 +14,7 @@ from pension_data.db.models.core_facts import (
 )
 from pension_data.query.metric_history_service import (
     MetricHistoryRequest,
+    MetricHistoryReviewContext,
     MetricHistoryRow,
     build_metric_history_rows,
     query_metric_history,
@@ -320,3 +321,32 @@ def test_metric_history_metric_filters_are_case_insensitive() -> None:
         ),
     )
     assert response.total_rows == 3
+
+
+def test_review_context_is_mapping_compatible_and_rejects_non_matching_values() -> None:
+    context = MetricHistoryReviewContext(
+        escalation_required=True,
+        actionable_flags=("missing-source",),
+        source_authority_status="declared",
+    )
+
+    assert context["actionable_flags"] == ["missing-source"]
+    assert context.get("missing", "fallback") == "fallback"
+    assert tuple(context) == tuple(context.keys())
+    assert len(context) == 4
+    assert context == {
+        "actionable_flags": ["missing-source"],
+        "escalation_required": True,
+        "source_authority_status": "declared",
+        "source_authority_tier": None,
+    }
+    assert context != {"actionable_flags": ["missing-source"]}
+    assert context != "not a context"
+
+
+def test_metric_history_rejects_blank_entity_and_nonpositive_limit() -> None:
+    rows = _seed_history_rows()
+    with pytest.raises(ValueError, match="entity_id"):
+        query_metric_history(rows, request=MetricHistoryRequest(entity_id="  "))
+    with pytest.raises(ValueError, match="limit"):
+        query_metric_history(rows, request=MetricHistoryRequest(entity_id="CA-PERS", limit=0))

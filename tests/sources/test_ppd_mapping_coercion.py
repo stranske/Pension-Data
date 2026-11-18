@@ -17,7 +17,13 @@ from pension_data.sources.ppd.mapping import (
     _PLAN_TYPE_LABELS,
     _allocation_percent,
     _coerce_float,
+    _funded_ratio_mva,
     derive_plan_type,
+    derive_size,
+    fiscal_year_of,
+    ppd_id_of,
+    to_allocation_peer_inputs,
+    to_funding_trend_input,
     variable_name,
 )
 
@@ -176,3 +182,28 @@ def test_a_non_integer_code_falls_through_to_the_text_rules():
     """A code of 2.5 is not a category. Rounding it would assign the plan to a real class on the
     strength of a malformed cell."""
     assert derive_plan_type(_record(plan_type=2.5)) == "unknown"
+
+
+def test_required_identifiers_and_fiscal_year_reject_missing_or_fractional_values():
+    with pytest.raises(KeyError, match="ppd_id"):
+        ppd_id_of({})
+    with pytest.raises(KeyError, match="fy"):
+        fiscal_year_of(_record(fy=2024.5))
+    assert ppd_id_of(_record(ppd_id=123.0)) == "123"
+    assert ppd_id_of(_record(ppd_id="ABC-1")) == "ABC-1"
+
+
+def test_mapping_falls_back_to_assets_and_skips_missing_allocations():
+    record = _record(
+        ppd_id=5,
+        fy=2024,
+        plan_type="General Employees",
+        act_assets=2_000_000,
+        act_liabilities=4_000_000,
+        mkt_assets=3_000_000,
+        alloc_equity=None,
+    )
+    assert derive_size(record) == "small"
+    assert _funded_ratio_mva(record) == pytest.approx(0.75)
+    assert to_funding_trend_input(record).funded_ratio == pytest.approx(0.75)
+    assert to_allocation_peer_inputs(record) == []
