@@ -31,6 +31,28 @@ def test_fiscal_two_digit_year_sorts_after_prior_four_digit_year() -> None:
     assert anomalies[0].evidence_context["metric_evidence"]["signed_delta"] == -0.2
 
 
+def test_numbered_periods_sort_chronologically_for_anomaly_evidence() -> None:
+    points = [
+        _point(
+            plan_id="numbered-periods",
+            period=period,
+            observed_at=datetime(2025, 1, 1, tzinfo=UTC),
+            funded_ratio=ratio,
+            equity=0.4,
+            fixed_income=0.3,
+            confidence=0.9,
+        )
+        for period, ratio in [("period 10", 0.6), ("period 9", 0.8)]
+    ]
+
+    anomalies = detect_anomalies(points)
+
+    assert len(anomalies) == 1
+    assert anomalies[0].period == "period 10"
+    assert anomalies[0].evidence_context["previous_period"] == "period 9"
+    assert anomalies[0].evidence_context["metric_evidence"]["signed_delta"] == -0.2
+
+
 @pytest.mark.parametrize("missing_index", [0, 1])
 def test_missing_funded_ratio_preserves_allocation_detection(missing_index: int) -> None:
     points = [

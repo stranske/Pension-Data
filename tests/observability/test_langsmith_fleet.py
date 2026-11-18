@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import sys
 from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -173,6 +175,76 @@ def test_build_langsmith_trace_sink_noops_without_secret(
 
     assert sink is None
     assert langsmith_fleet.ENV_LANGCHAIN_TRACING_V2 not in os.environ
+
+
+def test_trace_sink_constructs_default_client_and_preserves_last_trace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class RecordingClient:
+        def create_run(self, **kwargs: Any) -> Any:
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return SimpleNamespace(id=" trace-one ", url=" https://example.org/trace-one ")
+            return None
+
+    monkeypatch.setitem(sys.modules, "langsmith", SimpleNamespace(Client=RecordingClient))
+    sink = langsmith_fleet.LangSmithClientTraceSink(project_name="local-tests")
+    sink.emit(LangSmithTraceEvent(stage="nl.sql.executed", payload={"row_count": 2}))
+    # A malformed event must not erase the previous usable trace reference or leak its payload.
+    sink.emit(SimpleNamespace(stage="nl.sql.error", payload=["private prompt text"]))
+
+    assert len(calls) == 2
+    assert calls[0]["project_name"] == "local-tests"
+    assert calls[0]["outputs"] == {"row_count": 2}
+    assert calls[1]["outputs"] == {}
+    assert calls[1]["inputs"] == {"request_id": "", "stage": "nl.sql.error"}
+    assert sink.latest_trace_id == "trace-one"
+    assert sink.latest_trace_url == "https://example.org/trace-one"
+
+
+@pytest.mark.parametrize("project_marker", [False, True])
+def test_default_fleet_path_discovers_project_or_uses_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, project_marker: bool
+) -> None:
+    project = tmp_path / "project"
+    module = project / "src" / "observability" / "langsmith_fleet.py"
+    module.parent.mkdir(parents=True)
+    module.touch()
+    working = tmp_path / "working"
+    working.mkdir()
+    if project_marker:
+        (project / "pyproject.toml").write_text("[project]\nname = 'test-project'\n")
+    monkeypatch.chdir(working)
+    monkeypatch.setattr(langsmith_fleet, "__file__", str(module))
+    monkeypatch.delenv("PENSION_DATA_LANGSMITH_FLEET_PATH", raising=False)
+
+    root = project if project_marker else working
+    assert langsmith_fleet.default_fleet_artifact_path() == (
+        root / "artifacts" / "langsmith" / "langsmith-fleet.ndjson"
+    )
+
+
+@pytest.mark.parametrize("metadata", [SimpleNamespace(), SimpleNamespace(returned_rows=None)])
+def test_fleet_records_default_missing_response_counts_and_keep_pr_reference(
+    monkeypatch: pytest.MonkeyPatch, metadata: Any
+) -> None:
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGSMITH_KEY, raising=False)
+    records = langsmith_fleet.build_fleet_records_from_response(
+        context=langsmith_fleet.FleetRunContext(
+            run_id="nlq:partial",
+            query_category="metric_lookup",
+            github_pr="stranske/Pension-Data#1046",
+        ),
+        response=SimpleNamespace(status="ok", metadata=metadata),
+    )
+
+    assert len(records) == 4
+    for record in records:
+        assert record["github_pr"] == "stranske/Pension-Data#1046"
+        assert record["domain"]["row_count"] == 0
+        assert "trace_event_count" not in record["domain"]
 
 
 def test_langsmith_trace_sink_emits_sanitized_stage_runs(

@@ -68,6 +68,30 @@ US Treasury 10Y,91282CJL6,,50,1500000,fixed_income
     )
 
 
+def test_blank_csv_numbers_and_absent_provenance_are_not_invented() -> None:
+    inputs = load_own_holdings_csv(
+        "security_name,shares,market_value_usd\nUnknown, , \nDisclosed,1,95\n",
+        as_of="2025-06-30",
+        provenance_ref="",
+    )
+    assert inputs[0].shares is None
+    assert inputs[0].market_value_usd is None
+    positions = build_security_positions(plan_id="CA-PERS", plan_period="FY2025", rows=inputs)
+
+    report = reconcile_holdings_to_acfr(
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+        positions=positions,
+        total_plan_assets_usd=100,
+        acfr_allocations=[],
+    )
+
+    assert report.collected_market_value_usd == 95
+    assert report.coverage_ratio == 0.95
+    assert report.scope_label == "total-plan"
+    assert report.provenance_refs == ()
+
+
 def test_cafr_reconcile_rejects_non_positive_total_assets() -> None:
     with pytest.raises(ValueError, match="positive finite"):
         reconcile_holdings_to_acfr(

@@ -9,7 +9,11 @@ Covers the pieces that surround 13F parsing:
 
 from __future__ import annotations
 
+import sys
+from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -25,6 +29,63 @@ from pension_data.extract.investment.security_positions import (
 )
 from pension_data.query.saved_views.holdings_ingest import to_holdings_overlap_inputs
 from pension_data.query.saved_views.service import execute_holdings_overlap_view
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_xls_loader_handles_empty_and_sparse_named_sheets_and_closes_workbook(
+    monkeypatch: pytest.MonkeyPatch, empty: bool
+) -> None:
+    class Worksheet:
+        def iter_rows(self, *, values_only: bool) -> Any:
+            assert values_only is True
+            return iter(
+                []
+                if empty
+                else [
+                    (" NAME ", None, "ticker", "market_value_usd"),
+                    (None, None, None, None),
+                    (" Acme ", "ignored", " acm ", 1250),
+                ]
+            )
+
+    class Workbook:
+        closed = False
+
+        def __getitem__(self, name: str) -> Worksheet:
+            assert name == "Holdings"
+            return Worksheet()
+
+        def close(self) -> None:
+            self.closed = True
+
+    workbook = Workbook()
+
+    def load_workbook(**kwargs: Any) -> Workbook:
+        assert isinstance(kwargs["filename"], BytesIO)
+        assert kwargs["filename"].getvalue() == b"workbook fixture"
+        assert kwargs["read_only"] is True
+        assert kwargs["data_only"] is True
+        return workbook
+
+    monkeypatch.setitem(sys.modules, "openpyxl", SimpleNamespace(load_workbook=load_workbook))
+    inputs = load_own_holdings_xls(
+        b"workbook fixture",
+        as_of="2025-06-30",
+        provenance_ref="own:sparse",
+        default_asset_class="public_equity",
+        sheet_name="Holdings",
+    )
+
+    assert workbook.closed is True
+    if empty:
+        assert inputs == []
+    else:
+        assert len(inputs) == 1
+        assert inputs[0].security_name == "Acme"
+        assert inputs[0].ticker == "ACM"
+        assert inputs[0].market_value_usd == 1250
+        assert inputs[0].asset_class == "public_equity"
+        assert inputs[0].provenance_ref == "own:sparse"
 
 
 def _write_workbook(path: Path) -> None:

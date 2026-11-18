@@ -24,6 +24,23 @@ EXPECTED_POSITION_COUNT = 4
 EXPECTED_MARKET_VALUE_SUM_USD = 10_000_000.0
 
 
+@pytest.mark.parametrize("raw", [None, " ", "bad-number", "NaN", "Infinity"])
+def test_13f_unknown_numeric_fields_remain_missing(raw: str | None) -> None:
+    numeric_fields = "" if raw is None else f"<value>{raw}</value><sshPrnamt>{raw}</sshPrnamt>"
+    inputs = parse_13f_information_table_xml(
+        "<informationTable><infoTable><nameOfIssuer> </nameOfIssuer>"
+        f"<cusip>---</cusip>{numeric_fields}</infoTable></informationTable>",
+        as_of="2025-03-31",
+        provenance_ref="edgar:incomplete",
+    )
+
+    assert len(inputs) == 1
+    assert inputs[0].security_name is None
+    assert inputs[0].cusip is None
+    assert inputs[0].shares is None
+    assert inputs[0].market_value_usd is None
+
+
 def test_saved_13f_information_table_fixture_count_and_market_value_sum() -> None:
     inputs = parse_13f_information_table_xml(
         INFO_TABLE_FIXTURE.read_text(encoding="utf-8"),
