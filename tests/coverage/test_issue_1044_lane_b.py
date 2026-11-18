@@ -982,6 +982,7 @@ def test_token_to_float_value_error_and_skip_unparseable_tokens() -> None:
     with patch("pension_data.normalize.numeric_parsing.float", side_effect=ValueError("bad")):
         assert numeric_parsing._token_to_float("12") is None
     assert parse_numeric_token("FY 2024 no-match-x then 12.5") == pytest.approx(12.5)
+    assert parse_numeric_token("1,2.3.4 then 12.5") == pytest.approx(12.5)
 
 
 # --- attribution_optimization (target 11) ------------------------------------
@@ -1253,6 +1254,17 @@ def test_attribution_optimizer_grid_and_registry_branches() -> None:
             sensitivity_lambda=0.5,
         )
 
+    with pytest.raises(ValueError, match="missing risk penalty for bucket 'equity'"):
+        optimize_allocation(
+            expected_returns={"equity": 0.08},
+            risk_penalties={},
+            constraints=OptimizationConstraints(
+                min_weight={"equity": 0.0},
+                max_weight={"equity": 1.0},
+            ),
+            sensitivity_lambda=0.5,
+        )
+
     with pytest.raises(ValueError, match="optimization grid too large"):
         optimize_allocation(
             expected_returns={f"b{i}": 0.1 for i in range(1, 7)},
@@ -1294,6 +1306,8 @@ def test_attribution_optimizer_grid_and_registry_branches() -> None:
     comparison = registry.compare("left", "right")
     assert comparison.objective_delta is None
     assert comparison.total_return_delta is None
+    with pytest.raises(ValueError, match="unknown experiment_id 'missing-right'"):
+        registry.compare("left", "missing-right")
 
     runner = QuantExperimentRunner(registry=registry)
     _, _, reconciliation = runner.run_attribution_experiment(
@@ -1303,3 +1317,18 @@ def test_attribution_optimizer_grid_and_registry_branches() -> None:
         source_aggregate=None,
     )
     assert reconciliation is None
+
+
+def test_optimizer_includes_off_grid_maximum() -> None:
+    result = optimize_allocation(
+        expected_returns={"equity": 0.08, "bonds": 0.04},
+        risk_penalties={"equity": 0.1, "bonds": 0.1},
+        constraints=OptimizationConstraints(
+            min_weight={"equity": 0.0, "bonds": 0.75},
+            max_weight={"equity": 0.25, "bonds": 0.75},
+            precision_step=0.2,
+        ),
+        sensitivity_lambda=0.5,
+    )
+    assert result.weights == pytest.approx({"equity": 0.25, "bonds": 0.75})
+    assert result.diagnostics.within_tolerance
