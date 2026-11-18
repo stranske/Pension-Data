@@ -91,6 +91,9 @@ class TestTableEvidenceRef:
         result = table_evidence_ref("schedule of investments")
         assert result == "table:schedule of investments"
 
+    def test_already_prefixed_table_ref_passthrough(self) -> None:
+        assert table_evidence_ref("table:funded schedule") == "table:funded schedule"
+
 
 # ── build_evidence_reference ────────────────────────────────────────
 
@@ -317,6 +320,15 @@ class TestEvidenceExcerptAndMethod:
             report_id="r1", source_document_id="d1", evidence_ref="Financial Summary"
         )
         assert ref.method is None
+
+    def test_method_inferred_from_freeform_table_section_prefix(self) -> None:
+        ref = build_evidence_reference(
+            report_id="r1",
+            source_document_id="d1",
+            evidence_ref="table schedule of investments",
+        )
+        assert ref.section_hint == "table schedule of investments"
+        assert ref.method == "table"
 
     def test_explicit_method_overrides_inference(self) -> None:
         ref = build_evidence_reference(
