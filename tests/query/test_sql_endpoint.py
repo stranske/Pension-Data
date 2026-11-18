@@ -520,6 +520,27 @@ def test_sql_service_accepts_list_params() -> None:
     assert response.rows == ((2, "m-002"), (3, "m-003"))
 
 
+def test_sql_service_accepts_tuple_params() -> None:
+    """Positional tuple params pass through _normalize_params without coercion."""
+    connection = _seed_connection(rows=4)
+    try:
+        response = execute_sql_query(
+            connection=connection,
+            request=SQLQueryRequest(
+                sql="SELECT id, metric FROM sample_metrics WHERE id >= ? ORDER BY id",
+                params=(2,),
+                page=1,
+                page_size=2,
+            ),
+            caller_key_id="key:test",
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "ok"
+    assert response.rows == ((2, "m-002"), (3, "m-003"))
+
+
 def test_sql_service_sqlite_named_paging_placeholders() -> None:
     connection = _seed_connection(rows=4)
     try:
