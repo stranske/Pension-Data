@@ -6,6 +6,7 @@ import json
 import tempfile
 import tomllib
 from dataclasses import fields
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -321,6 +322,21 @@ def _write_real_sources(tmp_path: Path) -> tuple[Path, Path]:
 def test_build_without_source_paths_raises_before_fixture_fallback() -> None:
     with pytest.raises(ReviewableFindingsArtifactError, match="must be provided"):
         build_extraction_quality_dashboard_artifact()
+
+
+def test_build_from_sources_fills_utc_timestamps_when_omitted(tmp_path: Path) -> None:
+    contract_path, readiness_path = _write_real_sources(tmp_path)
+
+    with patch("pension_data.langchain.review_artifact.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 11, 18, 22, 30, 0, tzinfo=UTC)
+        artifact = build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness_path,
+        )
+
+    validate_reviewable_findings_artifact(artifact)
+    assert artifact["generated_at"] == "2026-11-18T22:30:00Z"
+    assert artifact["artifact_id"] == "extraction-quality-dashboard:2026-11-18"
 
 
 def test_build_from_sources_derives_findings_from_real_data(tmp_path: Path) -> None:
