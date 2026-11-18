@@ -338,3 +338,38 @@ def test_naive_datetimes_are_normalized_to_utc_in_evidence_and_queue() -> None:
     )
     assert queued
     assert queued[0].created_at == datetime(2026, 1, 2, 0, 0, tzinfo=UTC)
+
+
+def test_anomaly_detection_skips_nonfinite_values_and_unrelated_plan_transitions() -> None:
+    """Corrupt observations and plan boundaries must not create false anomalies."""
+    points = [
+        _point(
+            plan_id="first",
+            period="FY",
+            observed_at=datetime(2025, 1, 1),
+            funded_ratio=float("nan"),
+            equity=float("inf"),
+            fixed_income=0.3,
+            confidence=0.9,
+        ),
+        _point(
+            plan_id="second",
+            period="no-date",
+            observed_at=datetime(2025, 2, 1),
+            funded_ratio=0.1,
+            equity=0.1,
+            fixed_income=0.3,
+            confidence=0.9,
+        ),
+        _point(
+            plan_id="second",
+            period="later",
+            observed_at=datetime(2025, 3, 1),
+            funded_ratio=float("inf"),
+            equity=float("nan"),
+            fixed_income=0.3,
+            confidence=0.9,
+        ),
+    ]
+
+    assert detect_anomalies(points) == []

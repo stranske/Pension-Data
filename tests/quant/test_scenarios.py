@@ -9,6 +9,7 @@ import pytest
 from pension_data.quant.scenarios import (
     ScenarioInput,
     ScenarioRunConfig,
+    _percentile,
     run_deterministic_scenario,
     run_monte_carlo_scenario,
 )
@@ -144,3 +145,55 @@ def test_finite_baselines_still_produce_rows_in_both_modes() -> None:
     assert len(simulation.rows) == 3 * len(_baseline_metrics())
     assert all(math.isfinite(row.baseline_value) for row in deterministic.rows)
     assert all(math.isfinite(row.scenario_value) for row in simulation.rows)
+
+
+@pytest.mark.parametrize(
+    ("scenario", "config", "message"),
+    [
+        (ScenarioInput(name=" ", macro_shocks={}), ScenarioRunConfig(module_version="v1"), "name"),
+        (
+            ScenarioInput(name="ok", macro_shocks={}),
+            ScenarioRunConfig(module_version=" "),
+            "module_version",
+        ),
+        (
+            ScenarioInput(name="ok", macro_shocks={}),
+            ScenarioRunConfig(module_version="v1", simulation_draws=9),
+            "simulation_draws",
+        ),
+        (
+            ScenarioInput(name="ok", macro_shocks={" ": 0.1}),
+            ScenarioRunConfig(module_version="v1"),
+            "keys",
+        ),
+        (
+            ScenarioInput(name="ok", macro_shocks={"ratio": True}),
+            ScenarioRunConfig(module_version="v1"),
+            "numeric",
+        ),
+        (
+            ScenarioInput(name="ok", macro_shocks={"ratio": float("nan")}),
+            ScenarioRunConfig(module_version="v1"),
+            "finite",
+        ),
+    ],
+)
+def test_deterministic_scenario_rejects_invalid_input(
+    scenario: ScenarioInput, config: ScenarioRunConfig, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        run_deterministic_scenario(
+            plan_id="CA-PERS",
+            plan_period="FY2024",
+            baseline_metrics=_baseline_metrics(),
+            scenario=scenario,
+            config=config,
+            source_snapshot_id="snapshot",
+        )
+
+
+def test_percentile_rejects_empty_samples_and_out_of_range_quantiles() -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        _percentile([], q=0.5)
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        _percentile([1.0], q=1.1)

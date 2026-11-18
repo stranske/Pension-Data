@@ -109,6 +109,31 @@ def test_nl_prompt_validator_rejects_ambiguous_questions() -> None:
         validate_nl_prompt("ratio?")
 
 
+def test_nl_route_honors_explicit_fleet_artifact_path_without_category(tmp_path: Path) -> None:
+    """An explicit artifact destination is an opt-in even without categorization."""
+    key_store = APIKeyStore()
+    secret, _ = key_store.create_key(scopes=(SCOPE_NL,))
+    artifact_path = tmp_path / "fleet.ndjson"
+    connection = _seed_connection()
+    try:
+        result = run_nl_query_endpoint(
+            api_key_header=secret,
+            key_store=key_store,
+            connection=connection,
+            request=NLToSQLRequest(question="Show funded ratio values", max_rows=10),
+            chain=StaticChain("SELECT id, value FROM sample_metrics ORDER BY id"),
+            policy=_sample_policy(),
+            fleet_artifact_path=artifact_path,
+            log_path=tmp_path / "nl_operations.jsonl",
+            run_record_root=tmp_path / "nl_runs",
+        )
+    finally:
+        connection.close()
+
+    assert result.response.status == "ok"
+    assert artifact_path.read_text(encoding="utf-8").strip()
+
+
 def test_nl_sql_chain_executes_read_only_sql_and_emits_langsmith_traces() -> None:
     connection = _seed_connection()
     traces = InMemoryLangSmithTraceSink(events=[])
