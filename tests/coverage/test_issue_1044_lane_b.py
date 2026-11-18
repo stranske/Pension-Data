@@ -21,6 +21,7 @@ from pension_data.db.models.core_facts import (
     FundedStatusFact,
     HoldingFact,
 )
+from pension_data.db.models.investment_allocations_fees import AssetAllocationObservation
 from pension_data.db.models.investment_positions import PlanManagerFundPosition
 from pension_data.extract.actuarial import metrics as actuarial_metrics
 from pension_data.extract.actuarial.metrics import (
@@ -43,9 +44,12 @@ from pension_data.extract.investment.risk_disclosures import (
     extract_risk_exposure_observations,
 )
 from pension_data.extract.persistence import (
+    PositionPersistenceContext,
     _collect_refs_from_row_dicts,
     _manager_name_for_relationship,
     build_extraction_persistence_artifacts,
+    persist_asset_allocations,
+    persist_manager_positions,
     write_extraction_persistence_artifacts,
 )
 from pension_data.finite_guards import bounded_confidence_or_none
@@ -57,6 +61,7 @@ from pension_data.parser.pdf_pipeline import (
     PDFParserInput,
     _decode_pdf_string_token,
     _extract_page_lines,
+    _extract_table_rows,
     _looks_like_noise_line,
     _metric_like_row_from_line,
     _split_pages,
@@ -646,6 +651,31 @@ def test_pdf_complete_metrics_still_escalate_unreadable_doc_lineage_pages() -> N
     assert len(result.attempts) == 1
 
 
+def test_pdf_page_markers_without_a_header_preserve_first_page() -> None:
+    assert _split_pages("Funded ratio 81.2%\n%%Page: 2 2\nAAL $410 million") == (
+        "Funded ratio 81.2%\n",
+        "\nAAL $410 million",
+    )
+
+
+def test_pdf_incomplete_year_columns_do_not_invent_missing_values() -> None:
+    rows = _extract_table_rows(
+        page_number=3,
+        lines=["Funded ratio | 2023 | 2024 | 81.2%", "Discount rate | 2023 | 2024"],
+    )
+
+    assert rows == [
+        {
+            "label": "Funded ratio",
+            "value": "81.2%",
+            "evidence_ref": "p.3#table",
+            "complex_table": "true",
+            "header_depth": "2",
+            "2023": "81.2%",
+        }
+    ]
+
+
 # --- persistence (target 6) ----------------------------------------------------
 
 
@@ -673,6 +703,103 @@ def test_write_persistence_artifacts_validate_shape(tmp_path: Path) -> None:
         write_extraction_persistence_artifacts(
             {"staging_core_metrics_rows": []}, output_root=tmp_path
         )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "staging_core_metrics_rows",
+        "staging_manager_fund_vehicle_relationship_rows",
+        "extraction_warning_rows",
+        "schema_component_datasets",
+    ],
+)
+def test_persistence_rejects_invalid_artifact_containers_before_writing(
+    tmp_path: Path, field: str
+) -> None:
+    artifacts = build_extraction_persistence_artifacts(funded_actuarial_rows=[])
+    artifacts[field] = None
+
+    with pytest.raises(ValueError, match=rf"artifacts\['{field}'\] must be"):
+        write_extraction_persistence_artifacts(artifacts, output_root=tmp_path)
+
+    assert not (tmp_path / "extraction_persistence").exists()
+
+
+@pytest.mark.parametrize("payload", [None, {}, (), "not a row list"])
+def test_persistence_rejects_non_list_component_rows(tmp_path: Path, payload: object) -> None:
+    artifacts = build_extraction_persistence_artifacts(funded_actuarial_rows=[])
+    artifacts["schema_component_datasets"] = {"metric_observation": payload}
+
+    with pytest.raises(ValueError, match="component dataset values must be lists"):
+        write_extraction_persistence_artifacts(artifacts, output_root=tmp_path)
+
+    assert not (
+        tmp_path / "extraction_persistence" / "component_datasets" / "metric_observation.json"
+    ).exists()
+
+
+def test_persistence_amount_only_allocation_does_not_invent_a_weight() -> None:
+    observation = AssetAllocationObservation(
+        plan_id="P",
+        plan_period="FY2024",
+        category="equity",
+        as_reported_percent=None,
+        normalized_weight=None,
+        as_reported_amount=2_000_000.0,
+        normalized_amount_usd=2_000_000.0,
+        effective_date="2024-06-30",
+        ingestion_date="2026-01-01",
+        source_document_id="doc:allocation",
+        evidence_refs=("p.4",),
+    )
+
+    rows = persist_asset_allocations([observation])
+
+    assert len(rows) == 1
+    assert rows[0]["metric_name"] == "equity_amount_usd"
+    assert rows[0]["normalized_value"] == 2_000_000.0
+    assert rows[0]["normalized_unit"] == "usd"
+    assert rows[0]["evidence_refs"] == ["p.4"]
+
+
+def test_persistence_partial_position_preserves_unknown_manager() -> None:
+    position = PlanManagerFundPosition(
+        plan_id="P",
+        plan_period="FY2024",
+        manager_name=None,
+        fund_name="Fund I",
+        commitment=None,
+        unfunded=None,
+        market_value=100.0,
+        completeness="partial",
+        evidence_refs=("p.8",),
+    )
+    metrics, relationships = persist_manager_positions(
+        [position],
+        context=PositionPersistenceContext(
+            effective_date="2024-06-30",
+            ingestion_date="2026-01-01",
+            source_document_id="doc:holdings",
+            source_url="https://example.org/report.pdf",
+        ),
+    )
+
+    assert len(metrics) == len(relationships) == 1
+    assert metrics[0]["manager_name"] == relationships[0]["manager_name"] == "[unknown_manager]"
+    assert metrics[0]["normalized_value"] == 100.0
+    assert relationships[0]["relationship_completeness"] == "partial"
+    assert relationships[0]["known_not_invested"] == 0
+
+
+def test_persistence_evidence_collection_ignores_malformed_refs() -> None:
+    assert _collect_refs_from_row_dicts(
+        [
+            {"evidence_refs": [None, 3, {}, " p.2 ", "", "  "]},
+            {"evidence_refs": ["p.1", "p.2"]},
+            {"evidence_refs": "p.3"},
+        ]
+    ) == ("p.1", "p.2")
 
 
 # --- edgar client (target 7) --------------------------------------------------
