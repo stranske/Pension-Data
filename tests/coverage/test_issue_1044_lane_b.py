@@ -1332,3 +1332,20 @@ def test_optimizer_includes_off_grid_maximum() -> None:
     )
     assert result.weights == pytest.approx({"equity": 0.25, "bonds": 0.75})
     assert result.diagnostics.within_tolerance
+
+
+def test_optimizer_skips_candidates_outside_diagnostics_tolerance() -> None:
+    result = optimize_allocation(
+        expected_returns={"a": 0.1, "b": -0.1},
+        risk_penalties={"a": 0.0, "b": 0.0},
+        constraints=OptimizationConstraints(
+            min_weight={"a": 0.0, "b": -9999.0},
+            max_weight={"a": 10000.0 - 5e-9, "b": -9998.999999995},
+            target_total_weight=1.0,
+            precision_step=10000.0,
+        ),
+        sensitivity_lambda=0.0,
+    )
+    assert result.weights == {"a": 9999.999999995, "b": -9999.0}
+    assert result.diagnostics.within_tolerance is True
+    assert result.diagnostics.violated_bounds == ()
