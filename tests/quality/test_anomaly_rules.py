@@ -459,6 +459,58 @@ def test_naive_datetimes_are_normalized_to_utc_in_evidence_and_queue() -> None:
     assert queued[0].created_at == datetime(2026, 1, 2, 0, 0, tzinfo=UTC)
 
 
+@pytest.mark.parametrize("corrupt_metric", ["funded_ratio", "allocation:public_equity"])
+@pytest.mark.parametrize("corrupt_index", [0, 1], ids=["previous", "current"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_nonfinite_metric_preserves_other_material_shifts(
+    corrupt_metric: str, corrupt_index: int, value: float
+) -> None:
+    points = [
+        _point(
+            plan_id="partially-corrupt",
+            period=str(2024 + index),
+            observed_at=datetime(2025, 1, 1, tzinfo=UTC),
+            funded_ratio=(
+                value
+                if corrupt_metric == "funded_ratio" and index == corrupt_index
+                else 0.75 - index * 0.25
+            ),
+            equity=(
+                value
+                if corrupt_metric == "allocation:public_equity" and index == corrupt_index
+                else 0.25 + index * 0.25
+            ),
+            fixed_income=0.25,
+            confidence=0.9,
+        )
+        for index in range(2)
+    ]
+
+    anomalies = detect_anomalies(
+        points,
+        thresholds=AnomalyThresholds(
+            funded_shift_warning=0.125,
+            funded_shift_critical=0.25,
+            allocation_shift_warning=0.125,
+            allocation_shift_critical=0.25,
+        ),
+    )
+
+    expected_metric = (
+        "allocation:public_equity" if corrupt_metric == "funded_ratio" else "funded_ratio"
+    )
+    assert [anomaly.metric for anomaly in anomalies] == [expected_metric]
+    anomaly = anomalies[0]
+    assert anomaly.period == "2025"
+    assert anomaly.shift == 0.25
+    assert anomaly.score == 0.95
+    assert anomaly.severity == "critical"
+    assert anomaly.priority == "high"
+    assert anomaly.evidence_context["metric_evidence"]["signed_delta"] == (
+        0.25 if corrupt_metric == "funded_ratio" else -0.25
+    )
+
+
 def test_anomaly_detection_skips_nonfinite_values_and_unrelated_plan_transitions() -> None:
     """Corrupt observations and plan boundaries must not create false anomalies."""
     points = [

@@ -1,14 +1,15 @@
 ## Summary
 
 Adds discriminating tests for the eight coverage targets in issue #1045's order.
-These follow-ups add 54 parameterized cases covering numeric period ordering,
+These follow-ups add 66 parameterized cases covering numeric period ordering,
 categorized fleet artifact selection, usage-total precedence, decoded evidence,
 ambiguous prompts, fleet trace/path/metadata handling, exact evidence persistence,
 historical assertion retries, incomplete holdings, workbook cleanup, and saved-view
 missing-data behavior, fleet retention with optional or failing file locking,
 invalid evidence-key rollback, empty-batch transaction isolation, legacy retries,
 and preservation of the last usable trace when an SDK response contains missing
-or blank mapping references, plus exact anomaly warning/critical thresholds and equal-threshold scoring.
+or blank mapping references, plus exact anomaly warning/critical thresholds, equal-threshold scoring, and
+isolation of non-finite funded ratios and allocations in either observation.
 Production code is unchanged.
 
 The broader database suite establishes that historical retries without the stored
@@ -24,11 +25,12 @@ verification is recorded in `docs/reports/issue-1045-coverage-verification.md`.
 ## Whole-CI baseline and verified result
 
 The original issue baseline is **89.95% blended line/branch coverage**. The latest
-[Gate run 44268406689](https://github.com/stranske/Pension-Data/actions/runs/44268406689)
-at PR head `b34ac76e9c690ac9b6672ad0251f8a7f23cd6783` passed on Python 3.13 and
-3.14. The Python 3.14 coverage job reports **2,429 passed, 51 skipped; 92.49%**.
-That result includes all previously committed tests, including the trace-mapping cases; the six new anomaly boundary
-cases below still require CI on their eventual commit.
+[Gate run 44269911318](https://github.com/stranske/Pension-Data/actions/runs/44269911318)
+at PR head `6812d393bdf471820a5f7047902f0dc6cd245f17` passed on Python 3.13 and
+3.14. The Python 3.14 coverage job reports **2,435 passed, 51 skipped; 92.49%**.
+That result includes all previously committed tests, including the six anomaly
+threshold cases. The twelve corrupt-metric isolation cases in this follow-up
+still require CI on their eventual commit.
 
 The ranked targets started with 186 uncovered statements plus branches according
 to the issue. Their Gate output now leaves 10, a **176-unit reduction**, four
@@ -116,7 +118,7 @@ pytest tests/quality/test_anomaly_rules.py tests/quant/test_scenarios.py \
   --cov=pension_data.query.saved_views.service --cov-report=term-missing
 ```
 
-Result after mutation restoration: **331 passed, 2 skipped; 99.50%** across the eight
+Result after mutation restoration: **343 passed, 2 skipped; 99.50%** across the eight
 targets. Both skips are pre-existing real-workbook tests because optional openpyxl
 is absent. The new workbook boundary tests use a fake reader and run without it.
 
@@ -286,9 +288,57 @@ The whole suite was attempted without excluding any test files: 2,470 collected,
 one skip, then a hang in the first API TestClient test; the 50-second bound exited
 124. The hosted Gate evidence above applies to `b34ac76`, before these six cases.
 
+## Corrupt-metric isolation follow-up
+
+Reviewed commits `531a001` through `6812d39` and the live issue ranking before
+implementation. The remote PR still has its bootstrap-only description and stale
+checkboxes. Attempted to replace it with this reconciled report before adding
+tests; the connector again rejected the update because approval policy is `never`.
+The statuses below remain prepared local reconciliation, not remote changes.
+
+The first ranked target remains the focus. Its earlier combined non-finite test
+places the first corrupt observation in a different plan, so that observation
+never participates in a comparison. Twelve new cases put NaN and both infinities
+in either observation of a same-plan pair, separately for funded ratio and public
+equity. Each case requires the other metric's material shift to retain its exact
+score, severity, priority, direction, and period. This guards against both allowing
+a corrupt value to poison scoring and suppressing valid anomalies on the same row.
+No production bug was found and no production change remains.
+
+The changed-module command above passes **36 tests before, 48 after; 98.91% in
+both runs**, with the same one missing statement and one missing branch (line
+150). This follow-up claims **zero new coverage units**; the authoritative
+whole-CI ranked reduction remains **176, four short of 180**. The remaining
+private/unreachable paths for each target are explained above.
+
+Four deliberate source mutations were run and restored byte-for-byte in a
+`finally` block. JUnit verified every selected case failed with exit 1:
+
+| Deliberate mutation | Selected cases | Failed |
+| --- | ---: | ---: |
+| Abort instead of skipping a non-finite funded ratio | 6 | 6 |
+| Abort instead of skipping a non-finite allocation | 6 | 6 |
+| Remove the funded-ratio finite-value guard | 4 infinity cases | 4 |
+| Remove the allocation finite-value guard | 4 infinity cases | 4 |
+
+Every new case failed under a relevant break. After restoration the combined
+eight-target command passes **343 tests, 2 skipped; 99.50%**. New tests have no
+skips; the two pre-existing skips require optional openpyxl.
+
+The whole-suite command was repeated without excluding any test files: **2,482
+collected, one collection skip**, then the same first API TestClient test hung in
+AnyIO. The 50-second bound exited 124. No test was disabled to avoid it. The
+successful hosted Gate cited above covers the committed head; these twelve cases
+remain pending CI. Both exact aggregate Black commands above passed (469 files),
+as did the CI Ruff command and `git diff --check`. The first bounded Black run
+stalled on worker shutdown; individual file checks populated Black's normal
+cache before the successful aggregate commands.
+
 ## Delivery blocker
 
-Staging the changed test and this prepared PR body failed with:
+After verification, attempted `git add tests/quality/test_anomaly_rules.py
+docs/reports/issue-1045-pr-body.md` before the intended commit
+`test: verify corrupt metrics preserve valid anomaly detection`. Staging failed with:
 
 ```text
 fatal: Unable to create '/home/runner/work/Pension-Data/Pension-Data/.git/index.lock': Read-only file system
@@ -320,7 +370,7 @@ Pension-Data reads 89.95% blended line+branch in CI; reaching 90% needs about 10
 - [ ] The PR's Gate coverage shows the targets' uncovered statements+branches down by about 180 or more, or the PR body states how far short it is and why and explains each target that could not be meaningfully covered (a partial PR meets this criterion; no PR does not).
 - [x] Production code changes only where a test found a real bug, each one explained in the PR body.
 
-- [ ] Same contract as every round in this initiative:
+- [x] Same contract as every round in this initiative:
 1. [x] Pick the next target by the repo's own coverage-gap ranking (escaped-defect priority, then
    churn, then uncovered mass), not by file size.
 2. [x] Every new test must FAIL when the code it covers is deliberately broken and PASS when
