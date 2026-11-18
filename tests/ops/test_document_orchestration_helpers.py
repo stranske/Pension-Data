@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import builtins
+from collections.abc import Mapping
+
 import pytest
 
 from pension_data.db.models.artifacts import RawArtifactRecord
@@ -358,6 +361,21 @@ def test_jsonable_serializes_builtin_dict_and_list() -> None:
     ]
 
 
+def test_jsonable_builtin_dict_branch_when_not_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise the redundant ``dict`` branch guarded after ``Mapping``."""
+
+    payload = {"only_dict_branch": {"nested": 1}}
+    real_isinstance = isinstance
+
+    def patched_isinstance(obj: object, classinfo: object) -> bool:
+        if obj is payload and classinfo is Mapping:
+            return False
+        return real_isinstance(obj, classinfo)
+
+    monkeypatch.setattr(builtins, "isinstance", patched_isinstance)
+    assert orchestration._jsonable(payload) == {"only_dict_branch": {"nested": 1}}
+
+
 def test_build_financial_flow_input_collects_evidence_from_matched_rows() -> None:
     raw = _raw(
         (
@@ -367,6 +385,17 @@ def test_build_financial_flow_input_collects_evidence_from_matched_rows() -> Non
     )
     flow = orchestration._build_financial_flow_input(raw=raw)
     assert flow.evidence_refs == ("p.1", "p.2")
+
+
+def test_build_financial_flow_input_omits_empty_evidence_refs() -> None:
+    raw = _raw(
+        (
+            {"label": "Beginning AUM", "value": "$100 million", "evidence_ref": ""},
+            {"label": "Ending AUM", "value": "$110 million", "evidence_ref": "p.2"},
+        )
+    )
+    flow = orchestration._build_financial_flow_input(raw=raw)
+    assert flow.evidence_refs == ("p.2",)
 
 
 def test_build_allocation_inputs_skip_unparseable_category_values() -> None:
@@ -401,6 +430,31 @@ def test_build_manager_disclosure_inputs_skip_empty_evidence_refs() -> None:
     assert rows[0].evidence_refs == ()
 
 
+def test_build_manager_disclosure_inputs_sets_known_not_invested_only() -> None:
+    raw = _raw(
+        (
+            {
+                "label": "position:Gamma Partners:Fund III:known_not_invested",
+                "value": "true",
+                "evidence_ref": "p.kni-only",
+            },
+            {
+                "label": "position:Gamma Partners:Fund III:footnotes",
+                "value": "see note 3",
+                "evidence_ref": "",
+            },
+        )
+    )
+    rows = orchestration._build_manager_disclosure_inputs(
+        raw=raw,
+        plan_id="CA-PERS",
+        plan_period="FY2024",
+    )
+    assert len(rows) == 1
+    assert rows[0].known_not_invested is True
+    assert rows[0].explicit_not_disclosed is False
+
+
 def test_build_manager_disclosure_inputs_set_disclosure_flag_fields() -> None:
     raw = _raw(
         (
@@ -425,6 +479,22 @@ def test_build_manager_disclosure_inputs_set_disclosure_flag_fields() -> None:
     assert rows[0].explicit_not_disclosed is True
     assert rows[0].known_not_invested is True
     assert rows[0].evidence_refs == ("p.nd", "p.kni")
+
+
+def test_build_risk_inputs_skips_empty_evidence_refs() -> None:
+    raw = _raw(
+        (
+            {
+                "label": "risk:derivatives:swaps:policy_limit",
+                "value": "$5 million",
+                "evidence_ref": "",
+            },
+        )
+    )
+    derivatives, securities = orchestration._build_risk_inputs(raw)
+    assert len(derivatives) == 1
+    assert derivatives[0].evidence_refs == ()
+    assert securities == []
 
 
 def test_build_risk_inputs_appends_evidence_without_numeric_field_match() -> None:
