@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from pension_data.db.models.core_facts import (
     ActuarialFact,
@@ -48,6 +51,7 @@ from pension_data.extract.persistence import (
 from pension_data.finite_guards import bounded_confidence_or_none
 from pension_data.normalize import numeric_parsing
 from pension_data.normalize.numeric_parsing import parse_numeric_token
+from pension_data.parser.doc_lineage_backend import DocLineagePages
 from pension_data.parser.hybrid_backend import HybridBackendConfig
 from pension_data.parser.pdf_pipeline import (
     PDFParserInput,
@@ -549,6 +553,97 @@ def test_pdf_disabled_hybrid_keeps_native_extraction() -> None:
     assert parsed.raw.table_rows[0]["value"] == "$410 million"
     assert parsed.hybrid_result is None
     hybrid.assert_not_called()
+
+
+def test_pdf_native_text_preserves_page_numbers_after_blank_page() -> None:
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    page = writer.add_blank_page(width=612, height=792)
+    page[NameObject("/Resources")] = DictionaryObject(
+        {
+            NameObject("/Font"): DictionaryObject(
+                {
+                    NameObject("/F1"): DictionaryObject(
+                        {
+                            NameObject("/Type"): NameObject("/Font"),
+                            NameObject("/Subtype"): NameObject("/Type1"),
+                            NameObject("/BaseFont"): NameObject("/Helvetica"),
+                        }
+                    )
+                }
+            )
+        }
+    )
+    stream = DecodedStreamObject()
+    stream.set_data(b"BT /F1 12 Tf 72 700 Td (AAL was $410 million) Tj ET")
+    page[NameObject("/Contents")] = stream
+    buffer = BytesIO()
+    writer.write(buffer)
+
+    result = parse_pdf_to_funded_input(
+        PDFParserInput(
+            source_document_id="doc:native-text",
+            source_url="https://example.org/report.pdf",
+            effective_date="2024-06-30",
+            ingestion_date="2026-01-01",
+            default_money_unit_scale="million_usd",
+            pdf_bytes=buffer.getvalue(),
+            parser_backend="legacy",
+        )
+    )
+
+    assert result.stage_name == "text_fallback"
+    assert result.raw is not None
+    assert result.raw.text_blocks == ("AAL was $410 million",)
+    assert result.raw.text_block_evidence_refs == ("p.2#text",)
+    assert result.provenance_refs == ("p.2#text",)
+    assert "aal_usd" not in result.missing_metrics
+
+
+def test_pdf_complete_metrics_still_escalate_unreadable_doc_lineage_pages() -> None:
+    document = DocLineagePages(
+        page_lines=(
+            (
+                7,
+                (
+                    "Funded ratio | 81.2%",
+                    "AAL | $410 million",
+                    "AVA | $333.7 million",
+                    "Discount rate | 6.75%",
+                    "Employer contribution rate | 11.1%",
+                    "Employee contribution rate | 7.1%",
+                    "Participant count | 112000",
+                ),
+            ),
+        ),
+        pages_recognized=1,
+        pages_unreadable=2,
+    )
+    with (
+        patch("pension_data.parser.pdf_pipeline.find_spec", return_value=object()),
+        patch("pension_data.parser.doc_lineage_backend.extract", return_value=document) as extract,
+    ):
+        result = parse_pdf_to_funded_input(
+            PDFParserInput(
+                source_document_id="doc:partly-unreadable",
+                source_url="https://example.org/report.pdf",
+                effective_date="2024-06-30",
+                ingestion_date="2026-01-01",
+                default_money_unit_scale="million_usd",
+                pdf_bytes=b"source PDF",
+                parser_backend="doc-lineage",
+            )
+        )
+
+    extract.assert_called_once_with(b"source PDF", enable_ocr=True, ocr_backend=None)
+    assert result.stage_name == "doc_lineage"
+    assert result.raw is not None
+    assert result.missing_metrics == ()
+    assert result.escalation_required is True
+    assert result.escalation is not None
+    assert "doc_lineage_unreadable_pages:2" in result.actionable_flags
+    assert result.provenance_refs == ("p.7#text", "p.7#table")
+    assert len(result.attempts) == 1
 
 
 # --- persistence (target 6) ----------------------------------------------------
