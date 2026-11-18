@@ -148,6 +148,12 @@ def test_nl_route_honors_explicit_fleet_artifact_path_without_category(
             json.loads(line) for line in artifact_path.read_text(encoding="utf-8").splitlines()
         ]
         assert len(records) == 4
+        assert sorted(record["operation"] for record in records) == [
+            "execution",
+            "replay",
+            "sql-generation",
+            "validation",
+        ]
         assert {record["request_id"] for record in records} == {result.response.metadata.request_id}
         assert {record["domain"]["query_category"] for record in records} == {"unspecified"}
     else:
@@ -184,6 +190,12 @@ def test_nl_route_persists_categorized_fleet_records(
     assert result.response.status == "ok"
     records = [json.loads(line) for line in selected_path.read_text().splitlines()]
     assert len(records) == 4
+    assert sorted(record["operation"] for record in records) == [
+        "execution",
+        "replay",
+        "sql-generation",
+        "validation",
+    ]
     assert {record["domain"]["query_category"] for record in records} == {"funded_ratio_lookup"}
     assert {record["request_id"] for record in records} == {result.response.metadata.request_id}
     assert result.audit_event["langsmith_query_category"] == "funded_ratio_lookup"

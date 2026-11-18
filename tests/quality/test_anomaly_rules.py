@@ -658,8 +658,9 @@ def test_same_period_observations_with_edge_case_utc_offsets(
     [
         datetime(1, 1, 1, tzinfo=timezone(timedelta(hours=1))),
         pd.Timestamp(1735689600000000000, unit="ns", tz=UTC),
+        pd.Timestamp(253402300800, unit="s", tz=UTC),
     ],
-    ids=["utc-underflow", "pandas-nanosecond"],
+    ids=["utc-underflow", "pandas-nanosecond", "pandas-year-10000"],
 )
 def test_single_point_edge_case_timestamps_return_no_anomalies(observed_at: datetime) -> None:
     point = _point(

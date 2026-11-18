@@ -86,6 +86,25 @@ def _period_sort_key(period: str) -> tuple[int, int, str]:
     return (1, -1, normalized)
 
 
+_GREGORIAN_DAYS_BEFORE_MONTH = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
+
+
+def _is_gregorian_leap_year(year: int) -> bool:
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+
+def _gregorian_day_index(year: int, month: int, day: int) -> int:
+    """Return the proleptic Gregorian day index matching ``date.toordinal()``."""
+    prior_years = year - 1
+    days_before_year = (
+        365 * prior_years + prior_years // 4 - prior_years // 100 + prior_years // 400
+    )
+    days_before_month = _GREGORIAN_DAYS_BEFORE_MONTH[month - 1]
+    if month > 2 and _is_gregorian_leap_year(year):
+        days_before_month += 1
+    return days_before_year + days_before_month + day
+
+
 @dataclass(frozen=True, slots=True)
 class TimeSeriesPoint:
     """Single plan-period quality point with provenance context."""
@@ -341,7 +360,16 @@ def detect_anomalies(
             (
                 (
                     (
-                        (row.observed_at.toordinal() * 24 + row.observed_at.hour) * 60
+                        (
+                            _gregorian_day_index(
+                                row.observed_at.year,
+                                row.observed_at.month,
+                                row.observed_at.day,
+                            )
+                            * 24
+                            + row.observed_at.hour
+                        )
+                        * 60
                         + row.observed_at.minute
                     )
                     * 60
