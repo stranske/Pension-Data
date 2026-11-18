@@ -142,11 +142,14 @@ def test_build_backplane_reference_run_rejects_invalid_relationship_rows(tmp_pat
 def test_build_backplane_reference_run_rejects_multiple_pension_identities(tmp_path: Path) -> None:
     reference_root = tmp_path / "multi-pension"
     manifest_path = _pilot_manifest_path(tmp_path, run_root=reference_root)
-    with patch.object(
-        emitter_module,
-        "identity_refs_from_maps",
-        return_value=["pension:one", "pension:two"],
-    ), pytest.raises(ValueError, match="exactly one pension identity"):
+    with (
+        patch.object(
+            emitter_module,
+            "identity_refs_from_maps",
+            return_value=["pension:one", "pension:two"],
+        ),
+        pytest.raises(ValueError, match="exactly one pension identity"),
+    ):
         build_backplane_reference_run(
             pilot_manifest_path=manifest_path,
             output_dir=reference_root,
