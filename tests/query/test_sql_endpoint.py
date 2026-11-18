@@ -461,6 +461,7 @@ def test_sql_service_clears_installed_timeout_after_execution(
     assert response.status == ("error" if execution_error else "ok")
     if execution_error:
         assert response.error is not None
+        assert response.error.code == "EXECUTION_ERROR"
         assert response.error.message == "query failed"
     else:
         assert response.rows == ((1,),)
@@ -495,6 +496,7 @@ def test_sql_service_does_not_clear_timeout_when_installation_fails(
 
     assert response.status == "error"
     assert response.error is not None
+    assert response.error.code == "EXECUTION_ERROR"
     assert response.error.message == "timeout installation failed"
     assert len(connection.method_calls) == 1
     setter.assert_called_once()
