@@ -1,11 +1,12 @@
 ## Summary
 
 Adds discriminating tests for the eight coverage targets in issue #1045's order.
-This follow-up adds 42 parameterized cases covering numeric period ordering,
+These follow-ups add 46 parameterized cases covering numeric period ordering,
 categorized fleet artifact selection, usage-total precedence, decoded evidence,
 ambiguous prompts, fleet trace/path/metadata handling, exact evidence persistence,
 historical assertion retries, incomplete holdings, workbook cleanup, and saved-view
-missing-data behavior, and fleet retention with optional or failing file locking.
+missing-data behavior, fleet retention with optional or failing file locking,
+invalid evidence-key rollback, empty-batch transaction isolation, and legacy retries.
 Production code is unchanged.
 
 The broader database suite establishes that historical retries without the stored
@@ -33,11 +34,11 @@ Pytest-xdist is not installed, so these runs do not use `-n 4`.
 | `api/routes/nl.py` | 2 | 95.83% | 100.00% | 2 → 0 |
 | `langchain/nl_sql_chain.py` | 85 | 98.05% | 99.51% | 8 → 2 |
 | `observability/langsmith_fleet.py` | 27 | 94.18% | 99.57% | 27 → 2 |
-| `db/staging_persistence.py` | 18 | 77.21% | 95.59% | 62 → 12 |
+| `db/staging_persistence.py` | 18 | 77.21% | 98.53% | 62 → 4 |
 | `extract/investment/security_positions.py` | 18 | 78.50% | 100.00% | 46 → 0 |
 | `query/saved_views/service.py` | 7 | 96.28% | 100.00% | 9 → 0 |
 
-This follow-up reduces **140 local uncovered statements plus branches**, 40 short
+These follow-ups reduce **148 local uncovered statements plus branches**, 32 short
 of 180 before allowing for overlap with other CI tests. The preceding follow-up's
 94-unit focused reduction and the off-list tests' 160-unit reduction must not be
 added to this number to claim a whole-CI gain. Gate has not established the actual
@@ -52,10 +53,12 @@ The focused runs leave these gaps:
 - Fleet records: private unsupported-operation validation. Public record generation
   uses a fixed operation list. No unsupported-operation test was added solely for
   coverage. Optional no-fcntl branches are now covered through public appending.
-- Staging persistence: low-level malformed-key/temporal canonicalization fallbacks,
-  permissive canonicalization of legacy non-finite evidence, and the empty-batch
-  path. These remain unverified by the focused modules; they are not claimed
-  impossible to test. The broader existing database suite passes.
+- Staging persistence: permissive canonicalization of legacy non-finite evidence
+  and the temporal fallback for unsupported non-date/non-string values remain.
+  No new test was added to endorse invalid JSON, and unsupported date objects
+  cannot be bound by SQLite. Public-boundary tests now verify malformed-key
+  rollback, legacy text/date retries, and empty-batch transaction isolation.
+  The broader existing database suite passes.
 - Scenarios, NL route, holdings, and saved-view service have no focused local gaps;
   that does not establish whole-CI completion.
 
@@ -81,7 +84,7 @@ pytest tests/quality/test_anomaly_rules.py tests/quant/test_scenarios.py \
   --cov=pension_data.query.saved_views.service --cov-report=term-missing
 ```
 
-Result after mutation restoration: **319 passed, 2 skipped; 99.10%** across the eight
+Result after mutation restoration: **323 passed, 2 skipped; 99.50%** across the eight
 targets. Both skips are pre-existing real-workbook tests because optional openpyxl
 is absent. The new workbook boundary tests use a fake reader and run without it.
 
@@ -163,7 +166,7 @@ ruff check --output-format github --extend-exclude .workflows-lib .
 git diff --check
 ```
 
-### Current-round reconciliation and optional locking verification
+### Previous-round reconciliation and optional locking verification
 
 Reviewed commits `531a001`, `4d77d50`, `454b672`, and `53b5984` before editing.
 The live PR reports 13 changed files rather than the dispatch's 41-file warning.
@@ -212,6 +215,68 @@ branch or PR. Final delivery attempts were blocked:
 The final read-only PR check confirms #1046 is **open** and **draft=false**.
 No production changes or temporary mutations remain. A writer with Git and PR
 write access must commit/push these tests and apply this prepared body.
+
+### Current-round reconciliation and staging persistence verification
+
+Reviewed commits `531a001`, `4d77d50`, `454b672`, `53b5984`, and `d47a864`.
+All earlier additions are committed at `d47a864`; the dispatch's 34-file warning
+does not match the actual 13-file PR diff. The live PR body remains the bootstrap
+summary. Before implementation, an update to reconcile the baseline and verified
+checkboxes was rejected with `MCP tool call requires approval, but approval policy
+is never`. The baseline task is verified locally: this report uses CI's 89.95%
+and discloses the differing local uncovered counts without claiming a CI gain.
+
+The earlier ranked targets' remaining gaps are explained above. Four new cases
+advance the next meaningful target, staging persistence, through its public API:
+
+- Two invalid nested evidence-key cases reject the batch and roll back earlier rows.
+- An empty batch preserves the caller's pending transaction rather than committing it.
+- Retries normalize legacy text assertion dates, preserve original text evidence,
+  and retain both assertions after a correction without creating retry revisions.
+
+The focused before/after command is:
+
+```sh
+pytest tests/db/test_staging_persistence.py tests/db/test_bitemporal.py \
+  -q -m 'not slow' --cov=pension_data.db.staging_persistence \
+  --cov-report=term-missing --cov-report=json:/tmp/staging-after.json
+```
+
+Before: **23 passed, 95.59%, 12 uncovered units** (8 statements + 4 branches).
+After restoration: **27 passed, 98.53%, 4 uncovered units** (2 statements + 2
+branches). The eight-unit reduction is local; CI's supplied 18-unit gap remains
+the authoritative starting figure for this target. No whole-CI reduction is known.
+
+| Deliberate mutation | Selected cases | Failed |
+| --- | ---: | ---: |
+| Stringify invalid nested evidence keys instead of rejecting them | 2 | 2 |
+| Commit the caller's transaction on an empty staging batch | 1 | 1 |
+| Stop trimming legacy unparseable assertion dates during comparison | 1 | 1 |
+
+Each mutation changed the production source, was run with pytest and JUnit case
+verification, and was restored in a `finally` block. All four new cases failed;
+the restored focused command passed. No production changes remain.
+
+Broader regression: `pytest tests/db/ -q -m 'not slow'
+--cov=pension_data.db.staging_persistence --cov-report=term-missing` gives
+**138 passed, 48 skipped; 98.53%**. The ranked-target command above now gives
+**323 passed, 2 skipped; 99.50%**.
+
+The full suite was reattempted with a 45-second bound and
+`-m 'not slow' --no-cov -o faulthandler_timeout=20`. It collected 2,462 tests and
+one skip, then stalled in the first API TestClient test with the same AnyIO wait;
+timeout exited 124. No test was disabled or changed to avoid that hang.
+
+Black formatting of the changed file passed. Its default aggregate worker pool
+could not bind a forkserver socket in this sandbox. A serial Black check of all
+469 files (using Black's normal cache) passed, followed by both exact aggregate
+Black commands above. Ruff's CI command and `git diff --check` passed.
+
+Delivery is blocked by environment permissions: `git add` again failed creating
+`.git/index.lock` because `.git` is read-only, preventing a commit or push. This
+round's verified edits therefore remain in the working tree for the automation
+writer. The live PR is open and ready for review (`draft=false`). This report
+contains the prepared body and reconciliation; no remote checkbox update is claimed.
 
 Closes #1045
 

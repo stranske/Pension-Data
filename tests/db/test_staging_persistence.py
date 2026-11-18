@@ -76,6 +76,64 @@ def test_persist_rejects_nonfinite_nested_evidence_and_rolls_back_batch(value: o
         connection.close()
 
 
+@pytest.mark.parametrize("key", [("page", 40), frozenset({"page"})])
+def test_persist_rejects_invalid_nested_evidence_keys_and_rolls_back_batch(key: object) -> None:
+    connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+    try:
+        apply_migrations(connection, dialect="sqlite")
+        valid = _evidence_row(["p.40"])
+        invalid = {**_evidence_row({"nested": {key: "p.41"}}), "fact_id": "fact:invalid"}
+        with pytest.raises(TypeError, match="invalid JSON object key"):
+            persist_staging_core_metrics(connection, dialect="sqlite", rows=[valid, invalid])
+        assert connection.execute("SELECT COUNT(*) FROM staging_core_metrics").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+def test_empty_staging_batch_preserves_callers_pending_transaction() -> None:
+    connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+    try:
+        apply_migrations(connection, dialect="sqlite")
+        connection.execute("CREATE TABLE pending_work (value TEXT)")
+        connection.commit()
+        connection.execute("INSERT INTO pending_work VALUES (?)", ("uncommitted",))
+
+        assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[]) == 0
+
+        connection.rollback()
+        assert connection.execute("SELECT value FROM pending_work").fetchall() == []
+    finally:
+        connection.close()
+
+
+def test_persist_retries_legacy_text_evidence_and_assertion_dates_without_rewriting() -> None:
+    connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+    try:
+        apply_migrations(connection, dialect="sqlite")
+        original = {**_evidence_row("p.40"), "ingestion_date": " legacy-import "}
+        assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[original]) == 1
+        before = connection.execute("SELECT * FROM staging_core_metrics").fetchall()
+
+        retry = {**original, "ingestion_date": "legacy-import"}
+        assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[retry]) == 0
+        assert connection.execute("SELECT * FROM staging_core_metrics").fetchall() == before
+
+        correction = {
+            **original,
+            "evidence_refs": "p.41",
+            "ingestion_date": "legacy-correction",
+            "source_document_id": "doc:correction",
+        }
+        assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[correction]) == 1
+        assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[correction]) == 0
+        stored = connection.execute(
+            "SELECT evidence_refs, superseded_at FROM staging_core_metrics ORDER BY fact_id"
+        ).fetchall()
+        assert stored == [("p.40", "legacy-correction"), ("p.41", None)]
+    finally:
+        connection.close()
+
+
 def test_historical_retry_requires_exact_closed_assertion_and_preserves_current_row() -> None:
     connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
     try:
