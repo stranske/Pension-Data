@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Literal
 
 import pytest
 
 from pension_data.api.auth import SCOPE_NL, SCOPE_QUERY, APIKeyStore, ScopeDeniedError
+from pension_data.api.routes import nl as nl_route
 from pension_data.api.routes.nl import run_nl_query_endpoint
 from pension_data.langchain.nl_sql_chain import (
     NL_TO_SQL_TRACE_ENTRYPOINTS,
@@ -39,7 +42,9 @@ class StaticChain:
         return self.output
 
 
-def _seed_connection() -> sqlite3.Connection:
+def _seed_connection(
+    *, confidence_affinity: Literal["REAL", "TEXT"] = "REAL"
+) -> sqlite3.Connection:
     connection = sqlite3.connect(":memory:")
     connection.execute(
         "CREATE TABLE sample_metrics ("
@@ -48,7 +53,7 @@ def _seed_connection() -> sqlite3.Connection:
         "value REAL NOT NULL, "
         "source_document_id TEXT NOT NULL, "
         "evidence_refs TEXT, "
-        "confidence REAL)"
+        f"confidence {confidence_affinity})"
     )
     connection.executemany(
         "INSERT INTO sample_metrics (id, metric, value, source_document_id, evidence_refs, confidence) "
@@ -107,6 +112,95 @@ def test_nl_prompt_validator_rejects_ambiguous_questions() -> None:
         validate_nl_prompt("   ")
     with pytest.raises(AmbiguousPromptError, match="question is ambiguous"):
         validate_nl_prompt("ratio?")
+
+
+@pytest.mark.parametrize("explicit_path", [False, True])
+def test_nl_route_honors_explicit_fleet_artifact_path_without_category(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, explicit_path: bool
+) -> None:
+    """An explicit artifact destination is an opt-in even without categorization."""
+    key_store = APIKeyStore()
+    secret, _ = key_store.create_key(scopes=(SCOPE_NL,))
+    artifact_path = tmp_path / "fleet.ndjson"
+    default_path = tmp_path / "default-fleet.ndjson"
+    monkeypatch.setattr(nl_route, "default_fleet_artifact_path", lambda: default_path)
+    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
+    connection = _seed_connection()
+    try:
+        result = run_nl_query_endpoint(
+            api_key_header=secret,
+            key_store=key_store,
+            connection=connection,
+            request=NLToSQLRequest(question="Show funded ratio values", max_rows=10),
+            chain=StaticChain("SELECT id, value FROM sample_metrics ORDER BY id"),
+            policy=_sample_policy(),
+            fleet_artifact_path=artifact_path if explicit_path else None,
+            log_path=tmp_path / "nl_operations.jsonl",
+            run_record_root=tmp_path / "nl_runs",
+        )
+    finally:
+        connection.close()
+
+    assert result.response.status == "ok"
+    assert not default_path.exists()
+    if explicit_path:
+        records = [
+            json.loads(line) for line in artifact_path.read_text(encoding="utf-8").splitlines()
+        ]
+        assert len(records) == 4
+        assert sorted(record["operation"] for record in records) == [
+            "execution",
+            "replay",
+            "sql-generation",
+            "validation",
+        ]
+        assert {record["request_id"] for record in records} == {result.response.metadata.request_id}
+        assert {record["domain"]["query_category"] for record in records} == {"unspecified"}
+    else:
+        assert not artifact_path.exists()
+
+
+@pytest.mark.parametrize("explicit_path", [False, True])
+def test_nl_route_persists_categorized_fleet_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, explicit_path: bool
+) -> None:
+    key_store = APIKeyStore()
+    api_key, _ = key_store.create_key(scopes=(SCOPE_NL,))
+    default_path = tmp_path / "default-fleet.ndjson"
+    selected_path = tmp_path / "selected-fleet.ndjson" if explicit_path else default_path
+    monkeypatch.setattr(nl_route, "default_fleet_artifact_path", lambda: default_path)
+    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
+    connection = _seed_connection()
+    try:
+        result = run_nl_query_endpoint(
+            api_key_header=api_key,
+            key_store=key_store,
+            connection=connection,
+            request=NLToSQLRequest(question="Show funded ratio values", max_rows=10),
+            chain=StaticChain("SELECT id FROM sample_metrics ORDER BY id"),
+            policy=_sample_policy(),
+            query_category="  funded_ratio_lookup  ",
+            fleet_artifact_path=selected_path if explicit_path else None,
+            log_path=tmp_path / "operations.jsonl",
+            run_record_root=tmp_path / "runs",
+        )
+    finally:
+        connection.close()
+
+    assert result.response.status == "ok"
+    records = [json.loads(line) for line in selected_path.read_text().splitlines()]
+    assert len(records) == 4
+    assert sorted(record["operation"] for record in records) == [
+        "execution",
+        "replay",
+        "sql-generation",
+        "validation",
+    ]
+    assert {record["domain"]["query_category"] for record in records} == {"funded_ratio_lookup"}
+    assert {record["request_id"] for record in records} == {result.response.metadata.request_id}
+    assert result.audit_event["langsmith_query_category"] == "funded_ratio_lookup"
+    if explicit_path:
+        assert not default_path.exists()
 
 
 def test_nl_sql_chain_executes_read_only_sql_and_emits_langsmith_traces() -> None:
@@ -585,3 +679,311 @@ def test_nl_sql_chain_accepts_source_document_id_when_policy_enforces_provenance
     assert response.error is None
     assert response.columns == ("id", "source_document_id")
     assert all(row.source_document_id is not None for row in response.provenance)
+
+
+@pytest.mark.parametrize(
+    "params", [(2,), [2], {"identifier": 2}, MappingProxyType({"identifier": 2})]
+)
+def test_nl_sql_chain_binds_request_parameters(params: Any) -> None:
+    placeholder = ":identifier" if isinstance(params, Mapping) else "?"
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show metric with requested id", params=params),
+            chain=StaticChain(f"SELECT id, value FROM sample_metrics WHERE id = {placeholder}"),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+    assert response.status == "ok"
+    assert response.rows == ((2, 0.81),)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"max_rows": 0}, "max_rows must be >= 1"),
+        ({"timeout_ms": 0}, "timeout_ms must be >= 1"),
+        ({"timeout_ms": 2001}, "timeout_ms exceeds policy"),
+        ({"params": "2"}, "params must be a mapping"),
+        ({"params": b"2"}, "params must be a mapping"),
+        ({"params": bytearray(b"2")}, "params must be a mapping"),
+        ({"params": {2}}, "params must be a mapping"),
+    ],
+)
+def test_nl_sql_chain_rejects_invalid_inputs_before_generation(
+    overrides: dict[str, Any], message: str
+) -> None:
+    class UnusedChain:
+        def invoke(self, values: Mapping[str, Any]) -> str:
+            pytest.fail("invalid request reached SQL generation")
+
+    connection = _seed_connection()
+    traces = InMemoryLangSmithTraceSink(events=[])
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show metric values", **overrides),
+            chain=UnusedChain(),
+            trace_sink=traces,
+            policy=_sample_policy(),
+        )
+        assert connection.execute("SELECT COUNT(*) FROM sample_metrics").fetchone() == (3,)
+    finally:
+        connection.close()
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert message in response.error.message
+    assert response.sql is None
+    assert response.rows == response.provenance == ()
+    assert [event.stage for event in traces.events] == ["nl.prompt.received", "nl.sql.error"]
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        (
+            {"usage": {"input_tokens": " 11 ", "output_tokens": 4.0, "cost_usd": " .25 "}},
+            {"prompt_tokens": 11, "completion_tokens": 4, "total_tokens": 15, "cost_usd": 0.25},
+        ),
+        (
+            {
+                "token_usage": {
+                    "input_token_count": 3,
+                    "completion_token_count": 2,
+                    "total_token_count": 9,
+                }
+            },
+            {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 9, "cost_usd": None},
+        ),
+        (
+            {"response_metadata": {"usage_metadata": {"output_token_count": 7}}},
+            {"prompt_tokens": None, "completion_tokens": 7, "total_tokens": 7, "cost_usd": None},
+        ),
+        (
+            {"usage_metadata": {"prompt_token_count": 0, "cost_usd": 0}},
+            {"prompt_tokens": 0, "completion_tokens": None, "total_tokens": 0, "cost_usd": 0.0},
+        ),
+        (
+            {
+                "usage": {"input_tokens": 2, "cost_usd": 0.1},
+                "token_usage": {"input_tokens": 99, "output_tokens": 3, "cost_usd": 0.9},
+                "usage_metadata": {"output_tokens": 99},
+            },
+            {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5, "cost_usd": 0.1},
+        ),
+        (
+            {
+                "usage": {"total_tokens": 0},
+                "token_usage": {"total_tokens": 99, "output_tokens": 3},
+            },
+            {"prompt_tokens": None, "completion_tokens": 3, "total_tokens": 0, "cost_usd": None},
+        ),
+    ],
+)
+def test_nl_sql_chain_normalizes_provider_usage(
+    metadata: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show metric values"),
+            chain=StaticChain({"sql": "SELECT id FROM sample_metrics", **metadata}),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+    assert response.status == "ok"
+    assert response.metadata.cost == expected
+    assert response.metadata.cost is not None
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        if response.metadata.cost[key] is not None:
+            assert type(response.metadata.cost[key]) is int
+    if response.metadata.cost["cost_usd"] is not None:
+        assert type(response.metadata.cost["cost_usd"]) is float
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [True, False, 1.5, "NaN", float("nan"), float("inf"), "invalid", " ", None, []],
+)
+def test_nl_sql_chain_ignores_malformed_provider_usage(invalid: Any) -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show metric values"),
+            chain=StaticChain(
+                {
+                    "sql": "SELECT id FROM sample_metrics",
+                    "usage": {
+                        "prompt_tokens": invalid,
+                        "completion_tokens": invalid,
+                        "total_tokens": invalid,
+                        "cost_usd": invalid,
+                    },
+                }
+            ),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+    assert response.status == "ok"
+    # Fractional numeric costs are valid even though fractional counts are not.
+    expected = (
+        None
+        if invalid != 1.5
+        else {
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+            "cost_usd": 1.5,
+        }
+    )
+    assert response.metadata.cost == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, ()),
+        (" ", ()),
+        ('[" p.10 ", 3, "", "p.10", "p.11"]', ("p.10", "p.11")),
+        ("p.10, p.11, p.10, ", ("p.10", "p.11")),
+        ("[invalid]", ("[invalid]",)),
+        (b"invalid", ()),
+    ],
+)
+def test_nl_sql_chain_normalizes_persisted_evidence(raw: Any, expected: tuple[str, ...]) -> None:
+    connection = _seed_connection(confidence_affinity="TEXT")
+    connection.execute(
+        "UPDATE sample_metrics SET evidence_refs = ?, confidence = ' 0.75 ' WHERE id = 1", (raw,)
+    )
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show sources for metric with id one"),
+            chain=StaticChain(
+                "SELECT source_document_id, evidence_refs, confidence FROM sample_metrics WHERE id = 1"
+            ),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+    assert response.status == "ok"
+    assert response.rows[0][2] == " 0.75 "
+    assert len(response.provenance) == 1
+    assert response.provenance[0].source_document_id == "doc:1"
+    assert response.provenance[0].evidence_refs == expected
+    assert response.provenance[0].confidence == 0.75
+
+
+def test_nl_sql_chain_rejects_blank_source_on_provenance_tracked_rows() -> None:
+    connection = _seed_connection()
+    connection.execute("UPDATE sample_metrics SET source_document_id = ' ' WHERE id = 1")
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show metric sources"),
+            chain=StaticChain("SELECT source_document_id FROM sample_metrics"),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "UNSAFE_SQL"
+    assert "source_document_id must be populated" in response.error.message
+    assert response.rows == response.provenance == ()
+
+
+@pytest.mark.parametrize("container", [list, tuple])
+def test_nl_sql_chain_normalizes_evidence_from_sqlite_row_factory(container: Any) -> None:
+    connection = _seed_connection()
+
+    def decoded_row(cursor: sqlite3.Cursor, row: tuple[Any, ...]) -> tuple[Any, ...]:
+        return tuple(
+            container([" p.10 ", "", 3, "p.10", "p.11"]) if column[0] == "evidence_refs" else value
+            for column, value in zip(cursor.description, row, strict=True)
+        )
+
+    connection.row_factory = decoded_row
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show sources for metric one"),
+            chain=StaticChain(
+                "SELECT source_document_id, evidence_refs FROM sample_metrics WHERE id = 1"
+            ),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "ok"
+    assert len(response.provenance) == 1
+    assert response.provenance[0].evidence_refs == ("p.10", "p.11")
+
+
+@pytest.mark.parametrize("question", [" ", "ratio?"])
+def test_nl_sql_chain_reports_ambiguous_prompt_before_generation(question: str) -> None:
+    class UnexpectedChain:
+        def invoke(self, values: Mapping[str, Any]) -> str:
+            pytest.fail("ambiguous prompts must not reach SQL generation")
+
+    connection = _seed_connection()
+    traces = InMemoryLangSmithTraceSink(events=[])
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question=question),
+            chain=UnexpectedChain(),
+            trace_sink=traces,
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "AMBIGUOUS_PROMPT"
+    assert response.sql is None
+    assert response.rows == response.provenance == ()
+    assert [event.stage for event in traces.events] == ["nl.prompt.received", "nl.sql.error"]
+    assert traces.events[-1].payload["error_code"] == "AMBIGUOUS_PROMPT"
+
+
+@pytest.mark.parametrize(
+    ("output", "code", "message"),
+    [
+        ({}, "EXECUTION_ERROR", "chain output must include a string `sql` field"),
+        ({"sql": 3}, "EXECUTION_ERROR", "chain output must include a string `sql` field"),
+        ("SELECT id FROM absent_table", "EXECUTION_ERROR", "no such table"),
+        ("SELECT id FROM sample_metrics WHERE )", "SYNTAX_ERROR", "syntax error"),
+    ],
+)
+def test_nl_sql_chain_reports_generation_and_database_errors(
+    output: Any, code: str, message: str
+) -> None:
+    connection = _seed_connection()
+    traces = InMemoryLangSmithTraceSink(events=[])
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show metric values"),
+            chain=StaticChain(output),
+            trace_sink=traces,
+            policy=_sample_policy(allowed_relations=()),
+        )
+    finally:
+        connection.close()
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == code
+    assert message in response.error.message
+    assert response.rows == response.provenance == ()
+    assert traces.events[-1].stage == "nl.sql.error"
+    assert traces.events[-1].payload["error_code"] == code

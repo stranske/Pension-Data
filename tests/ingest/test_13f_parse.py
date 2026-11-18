@@ -24,6 +24,44 @@ EXPECTED_POSITION_COUNT = 4
 EXPECTED_MARKET_VALUE_SUM_USD = 10_000_000.0
 
 
+@pytest.mark.parametrize(
+    ("raw_value", "raw_shares", "expected_market_value_usd", "expected_shares"),
+    [
+        (None, None, None, None),
+        (" ", " ", None, None),
+        ("bad-number", "bad-number", None, None),
+        ("NaN", "NaN", None, None),
+        ("Infinity", "Infinity", None, None),
+        ("NaN", "2500", None, 2500.0),
+        ("1250", "NaN", 1_250_000.0, None),
+    ],
+)
+def test_13f_unknown_numeric_fields_remain_missing(
+    raw_value: str | None,
+    raw_shares: str | None,
+    expected_market_value_usd: float | None,
+    expected_shares: float | None,
+) -> None:
+    numeric_fields = "".join(
+        [
+            "" if raw_value is None else f"<value>{raw_value}</value>",
+            "" if raw_shares is None else f"<sshPrnamt>{raw_shares}</sshPrnamt>",
+        ]
+    )
+    inputs = parse_13f_information_table_xml(
+        "<informationTable><infoTable><nameOfIssuer> </nameOfIssuer>"
+        f"<cusip>---</cusip>{numeric_fields}</infoTable></informationTable>",
+        as_of="2025-03-31",
+        provenance_ref="edgar:incomplete",
+    )
+
+    assert len(inputs) == 1
+    assert inputs[0].security_name is None
+    assert inputs[0].cusip is None
+    assert inputs[0].shares == expected_shares
+    assert inputs[0].market_value_usd == expected_market_value_usd
+
+
 def test_saved_13f_information_table_fixture_count_and_market_value_sum() -> None:
     inputs = parse_13f_information_table_xml(
         INFO_TABLE_FIXTURE.read_text(encoding="utf-8"),

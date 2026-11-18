@@ -21,6 +21,63 @@ from pension_data.query.saved_views import (
 )
 
 
+def test_funding_trend_missing_cash_flow_is_unknown() -> None:
+    result = execute_funding_trend_view(
+        [FundingTrendInput("CA-PERS", "FY2025", 0.8, None, None, None)]
+    )
+    assert len(result) == 1
+    assert result[0].net_external_cash_flow_usd is None
+
+
+def test_allocation_comparison_without_matching_peers_keeps_subject_value() -> None:
+    result = execute_allocation_peer_compare_view(
+        [
+            AllocationPeerInput("CA-PERS", "FY2025", "public", "equity", 0.4),
+            AllocationPeerInput("OTHER", "FY2025", "private", "equity", 0.9),
+            AllocationPeerInput("OTHER", "FY2025", "public", "fixed_income", 0.8),
+            AllocationPeerInput("OLD", "FY2024", "public", "equity", 0.7),
+        ],
+        subject_plan_id="CA-PERS",
+        plan_period="FY2025",
+    )
+    assert len(result) == 1
+    assert result[0].plan_allocation_pct == 0.4
+    assert result[0].peer_mean_pct is None
+    assert result[0].peer_median_pct is None
+    assert result[0].delta_vs_peer_mean_pct is None
+
+
+@pytest.mark.parametrize("method", [" ", "custom schedule"])
+def test_benchmark_panel_unknown_amortization_method_is_unscored(method: str) -> None:
+    result = execute_benchmark_panel_view(
+        [
+            BenchmarkPanelInput("CA-PERS", "FY2025", "public", amortization_method=method),
+            BenchmarkPanelInput("OTHER", "FY2025", "public", amortization_method="closed layered"),
+        ],
+        subject_plan_id="CA-PERS",
+        plan_period="FY2025",
+    )
+    methods = [row for row in result if row.metric_name == "amortization_method_closed"]
+    assert len(methods) == 1
+    assert methods[0].metric_value is None
+    assert methods[0].peer_median == 1.0
+    assert methods[0].peer_percentile is None
+
+
+def test_benchmark_panel_missing_subject_returns_no_metrics() -> None:
+    assert (
+        execute_benchmark_panel_view(
+            [
+                BenchmarkPanelInput("CA-PERS", "FY2024", "public"),
+                BenchmarkPanelInput("OTHER", "FY2025", "public"),
+            ],
+            subject_plan_id="CA-PERS",
+            plan_period="FY2025",
+        )
+        == []
+    )
+
+
 def _seed_saved_view_sqlite() -> sqlite3.Connection:
     connection = sqlite3.connect(":memory:")
     connection.executescript("""

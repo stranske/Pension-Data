@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, date, datetime, timedelta, timezone
+from decimal import Decimal
 
 import pytest
 
@@ -17,6 +18,173 @@ from pension_data.db.staging_persistence import (
     persist_staging_core_metrics,
 )
 from pension_data.db.strategy import connect_database, resolve_database_config
+
+
+def _evidence_row(evidence: object) -> dict[str, object]:
+    return {
+        "fact_id": "fact:evidence",
+        "plan_id": "CA-PERS",
+        "plan_period": "FY2024",
+        "metric_family": "funded",
+        "metric_name": "funded_ratio",
+        "effective_date": "2024-06-30",
+        "ingestion_date": "2026-03-03",
+        "benchmark_version": "v1",
+        "source_document_id": "doc:evidence",
+        "evidence_refs": evidence,
+    }
+
+
+@pytest.mark.parametrize(
+    ("evidence", "expected"),
+    [
+        (None, None),
+        ('[ "p.40" ]', '[ "p.40" ]'),
+        ({"amount": Decimal("123456789.12345678900")}, '{"amount": 123456789.123456789}'),
+        ({"amount": Decimal("-0.00")}, '{"amount": 0}'),
+        ({"values": [3, 0.25, True, None]}, '{"values": [3, 0.25, true, null]}'),
+        ({2: "p.40"}, '{"2": "p.40"}'),
+        ({None: "p.40"}, '{"null": "p.40"}'),
+    ],
+)
+def test_persist_evidence_preserves_exact_json_and_is_idempotent(
+    evidence: object, expected: str | None
+) -> None:
+    connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+    try:
+        apply_migrations(connection, dialect="sqlite")
+        row = _evidence_row(evidence)
+        assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[row]) == 1
+        assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[row]) == 0
+        stored = connection.execute("SELECT evidence_refs FROM staging_core_metrics").fetchall()
+        assert [item[0] for item in stored] == [expected]
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("value", [Decimal("NaN"), Decimal("Infinity"), float("nan"), float("inf")])
+def test_persist_rejects_nonfinite_nested_evidence_and_rolls_back_batch(value: object) -> None:
+    connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+    try:
+        apply_migrations(connection, dialect="sqlite")
+        valid = _evidence_row(["p.40"])
+        invalid = {**_evidence_row({"values": [value]}), "fact_id": "fact:invalid"}
+        with pytest.raises(ValueError, match="non-finite Decimal in evidence_refs"):
+            persist_staging_core_metrics(connection, dialect="sqlite", rows=[valid, invalid])
+        assert connection.execute("SELECT COUNT(*) FROM staging_core_metrics").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("key", [("page", 40), frozenset({"page"})])
+def test_persist_rejects_invalid_nested_evidence_keys_and_rolls_back_batch(key: object) -> None:
+    connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+    try:
+        apply_migrations(connection, dialect="sqlite")
+        valid = _evidence_row(["p.40"])
+        invalid = {**_evidence_row({"nested": {key: "p.41"}}), "fact_id": "fact:invalid"}
+        with pytest.raises(TypeError, match="invalid JSON object key"):
+            persist_staging_core_metrics(connection, dialect="sqlite", rows=[valid, invalid])
+        assert connection.execute("SELECT COUNT(*) FROM staging_core_metrics").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+def test_empty_staging_batch_preserves_callers_pending_transaction() -> None:
+    connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+    try:
+        apply_migrations(connection, dialect="sqlite")
+        connection.execute("CREATE TABLE pending_work (value TEXT)")
+        connection.commit()
+        connection.execute("INSERT INTO pending_work VALUES (?)", ("uncommitted",))
+
+        assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[]) == 0
+
+        assert connection.execute("SELECT value FROM pending_work").fetchall() == [("uncommitted",)]
+        connection.rollback()
+        assert connection.execute("SELECT value FROM pending_work").fetchall() == []
+    finally:
+        connection.close()
+
+
+def test_persist_retries_legacy_text_evidence_and_assertion_dates_without_rewriting() -> None:
+    connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+    try:
+        apply_migrations(connection, dialect="sqlite")
+        original = {**_evidence_row("p.40"), "ingestion_date": " legacy-import "}
+        assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[original]) == 1
+        before = connection.execute("SELECT * FROM staging_core_metrics").fetchall()
+
+        retry = {**original, "ingestion_date": "legacy-import"}
+        changes_before = connection.total_changes
+        assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[retry]) == 0
+        assert connection.total_changes == changes_before
+        assert connection.execute("SELECT * FROM staging_core_metrics").fetchall() == before
+
+        correction = {
+            **original,
+            "evidence_refs": "p.41",
+            "ingestion_date": "legacy-correction",
+            "source_document_id": "doc:correction",
+        }
+        assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[correction]) == 1
+        assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[correction]) == 0
+        stored = connection.execute(
+            "SELECT evidence_refs, superseded_at FROM staging_core_metrics ORDER BY fact_id"
+        ).fetchall()
+        assert stored == [("p.40", "legacy-correction"), ("p.41", None)]
+    finally:
+        connection.close()
+
+
+def test_historical_retry_requires_exact_closed_assertion_and_preserves_current_row() -> None:
+    connection = connect_database(resolve_database_config(database_url="sqlite:///:memory:"))
+    try:
+        apply_migrations(connection, dialect="sqlite")
+        original = _evidence_row(["p.40"])
+        correction = {
+            **original,
+            "evidence_refs": ["p.41"],
+            "ingestion_date": "2026-04-01",
+            "source_document_id": "doc:correction",
+        }
+        latest = {
+            **original,
+            "evidence_refs": ["p.42"],
+            "ingestion_date": "2026-05-01",
+            "source_document_id": "doc:latest",
+        }
+        for row in [original, correction, latest]:
+            assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[row]) == 1
+        before = connection.execute(
+            "SELECT * FROM staging_core_metrics ORDER BY fact_id"
+        ).fetchall()
+        closed_correction = {**correction, "superseded_at": latest["ingestion_date"]}
+        assert (
+            persist_staging_core_metrics(connection, dialect="sqlite", rows=[closed_correction])
+            == 0
+        )
+        after = connection.execute("SELECT * FROM staging_core_metrics ORDER BY fact_id").fetchall()
+        assert after == before
+        with pytest.raises(ValueError, match="conflicting assertion already exists"):
+            persist_staging_core_metrics(connection, dialect="sqlite", rows=[correction])
+        with pytest.raises(ValueError, match="conflicting assertion already exists"):
+            persist_staging_core_metrics(
+                connection,
+                dialect="sqlite",
+                rows=[{**closed_correction, "superseded_at": "2026-05-02"}],
+            )
+        with pytest.raises(ValueError, match="conflicting assertion already exists"):
+            persist_staging_core_metrics(
+                connection,
+                dialect="sqlite",
+                rows=[{**closed_correction, "evidence_refs": ["p.changed"]}],
+            )
+        after = connection.execute("SELECT * FROM staging_core_metrics ORDER BY fact_id").fetchall()
+        assert [tuple(row) for row in after] == [tuple(row) for row in before]
+        assert len(after) == 3
+    finally:
+        connection.close()
 
 
 def test_persist_staging_core_metrics_rejects_same_source_conflict_in_sqlite() -> None:

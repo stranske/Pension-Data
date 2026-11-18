@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from pension_data.finite_guards import is_finite_number
@@ -86,6 +86,25 @@ def _period_sort_key(period: str) -> tuple[int, int, str]:
     return (1, -1, normalized)
 
 
+_GREGORIAN_DAYS_BEFORE_MONTH = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
+
+
+def _is_gregorian_leap_year(year: int) -> bool:
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+
+def _gregorian_day_index(year: int, month: int, day: int) -> int:
+    """Return the proleptic Gregorian day index matching ``date.toordinal()``."""
+    prior_years = year - 1
+    days_before_year = (
+        365 * prior_years + prior_years // 4 - prior_years // 100 + prior_years // 400
+    )
+    days_before_month = _GREGORIAN_DAYS_BEFORE_MONTH[month - 1]
+    if month > 2 and _is_gregorian_leap_year(year):
+        days_before_month += 1
+    return days_before_year + days_before_month + day
+
+
 @dataclass(frozen=True, slots=True)
 class TimeSeriesPoint:
     """Single plan-period quality point with provenance context."""
@@ -158,9 +177,14 @@ def _score_anomaly(
 
 
 def _to_utc_iso(dt: datetime) -> str:
-    """Return a UTC-normalized ISO 8601 representation of a datetime."""
-    dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-    return dt.isoformat()
+    """Return an ISO 8601 representation in UTC where representable."""
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        return dt.replace(tzinfo=UTC).isoformat()
+    try:
+        return dt.astimezone(UTC).isoformat()
+    except OverflowError:
+        # Preserve the exact instant using its original offset at datetime's limits.
+        return dt.isoformat()
 
 
 def _build_evidence_context(
@@ -330,7 +354,34 @@ def detect_anomalies(
     """Detect funded and allocation shift anomalies in time-series points."""
     ordered = sorted(
         points,
-        key=lambda row: (row.plan_id, _period_sort_key(row.period), row.observed_at),
+        key=lambda row: (
+            row.plan_id,
+            _period_sort_key(row.period),
+            (
+                (
+                    (
+                        (
+                            _gregorian_day_index(
+                                row.observed_at.year,
+                                row.observed_at.month,
+                                row.observed_at.day,
+                            )
+                            * 24
+                            + row.observed_at.hour
+                        )
+                        * 60
+                        + row.observed_at.minute
+                    )
+                    * 60
+                    + row.observed_at.second
+                )
+                * 1_000_000
+                + row.observed_at.microsecond
+                - (row.observed_at.utcoffset() or timedelta(0)) // timedelta(microseconds=1)
+            )
+            * 1_000
+            + getattr(row.observed_at, "nanosecond", 0),
+        ),
     )
     anomalies: list[AnomalyRecord] = []
 

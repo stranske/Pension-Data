@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -163,7 +164,7 @@ def _normalize_params(params: SqlParams | None) -> SqlParams | tuple[()]:
     if params is None:
         return ()
     if isinstance(params, Mapping):
-        return params
+        return dict(params)
     if isinstance(params, (str, bytes, bytearray)):
         raise NLRequestValidationError("params must be a mapping or positional list/tuple")
     if isinstance(params, tuple):
@@ -299,16 +300,18 @@ def _safe_float(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
+        parsed = float(value)
+    elif isinstance(value, str):
         token = value.strip()
         if not token:
             return None
         try:
-            return float(token)
+            parsed = float(token)
         except ValueError:
             return None
-    return None
+    else:
+        return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _parse_evidence_refs(raw: Any) -> tuple[str, ...]:

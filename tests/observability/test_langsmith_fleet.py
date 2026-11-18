@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import sys
 from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -173,6 +175,111 @@ def test_build_langsmith_trace_sink_noops_without_secret(
 
     assert sink is None
     assert langsmith_fleet.ENV_LANGCHAIN_TRACING_V2 not in os.environ
+
+
+def test_trace_sink_constructs_default_client_and_preserves_last_trace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class RecordingClient:
+        def create_run(self, **kwargs: Any) -> Any:
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return SimpleNamespace(id=" trace-one ", url=" https://example.org/trace-one ")
+            return None
+
+    monkeypatch.setitem(sys.modules, "langsmith", SimpleNamespace(Client=RecordingClient))
+    sink = langsmith_fleet.LangSmithClientTraceSink(project_name="local-tests")
+    sink.emit(LangSmithTraceEvent(stage="nl.sql.executed", payload={"row_count": 2}))
+    # A malformed event must not erase the previous usable trace reference or leak its payload.
+    sink.emit(SimpleNamespace(stage="nl.sql.error", payload=["private prompt text"]))
+
+    assert len(calls) == 2
+    assert calls[0]["project_name"] == "local-tests"
+    assert calls[0]["outputs"] == {"row_count": 2}
+    assert calls[1]["outputs"] == {}
+    assert calls[1]["inputs"] == {"request_id": "", "stage": "nl.sql.error"}
+    assert sink.latest_trace_id == "trace-one"
+    assert sink.latest_trace_url == "https://example.org/trace-one"
+
+
+@pytest.mark.parametrize(
+    "empty_run",
+    [{}, {"id": " ", "run_id": None, "trace_id": "\t", "url": "", "trace_url": " "}],
+    ids=["missing-references", "blank-references"],
+)
+def test_trace_sink_preserves_last_trace_when_mapping_has_no_usable_reference(
+    empty_run: dict[str, str | None],
+) -> None:
+    responses = iter(
+        [{"run_id": " trace-one ", "trace_url": " https://example.org/trace-one "}, empty_run]
+    )
+
+    class RecordingClient:
+        def create_run(self, **kwargs: Any) -> dict[str, str | None]:
+            return next(responses)
+
+    sink = langsmith_fleet.LangSmithClientTraceSink(client=RecordingClient())
+    event = LangSmithTraceEvent(stage="nl.sql.executed", payload={"row_count": 2})
+    sink.emit(event)
+    assert sink.latest_trace_id == "trace-one"
+    assert sink.latest_trace_url == "https://example.org/trace-one"
+
+    sink.emit(event)
+
+    assert sink.latest_trace_id == "trace-one"
+    assert sink.latest_trace_url == "https://example.org/trace-one"
+
+
+@pytest.mark.parametrize("project_marker", [False, True])
+def test_default_fleet_path_discovers_project_or_uses_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, project_marker: bool
+) -> None:
+    project = tmp_path / "project"
+    module = project / "src" / "observability" / "langsmith_fleet.py"
+    module.parent.mkdir(parents=True)
+    module.touch()
+    working = tmp_path / "working"
+    working.mkdir()
+    if project_marker:
+        (project / "pyproject.toml").write_text("[project]\nname = 'test-project'\n")
+    path_exists = Path.exists
+    outer_markers = {parent / "pyproject.toml" for parent in tmp_path.resolve().parents}
+
+    def exists_without_outer_project(path: Path) -> bool:
+        return path not in outer_markers and path_exists(path)
+
+    monkeypatch.setattr(Path, "exists", exists_without_outer_project)
+    monkeypatch.chdir(working)
+    monkeypatch.setattr(langsmith_fleet, "__file__", str(module))
+    monkeypatch.delenv("PENSION_DATA_LANGSMITH_FLEET_PATH", raising=False)
+
+    root = project if project_marker else working
+    assert langsmith_fleet.default_fleet_artifact_path() == (
+        root / "artifacts" / "langsmith" / "langsmith-fleet.ndjson"
+    )
+
+
+@pytest.mark.parametrize("metadata", [SimpleNamespace(), SimpleNamespace(returned_rows=None)])
+def test_fleet_records_default_missing_response_counts_and_keep_pr_reference(
+    monkeypatch: pytest.MonkeyPatch, metadata: Any
+) -> None:
+    monkeypatch.delenv(langsmith_fleet.ENV_LANGSMITH_KEY, raising=False)
+    records = langsmith_fleet.build_fleet_records_from_response(
+        context=langsmith_fleet.FleetRunContext(
+            run_id="nlq:partial",
+            query_category="metric_lookup",
+            github_pr="stranske/Pension-Data#1046",
+        ),
+        response=SimpleNamespace(status="ok", metadata=metadata),
+    )
+
+    assert len(records) == 4
+    for record in records:
+        assert record["github_pr"] == "stranske/Pension-Data#1046"
+        assert record["domain"]["row_count"] == 0
+        assert "trace_event_count" not in record["domain"]
 
 
 def test_langsmith_trace_sink_emits_sanitized_stage_runs(
@@ -894,6 +1001,50 @@ def test_append_fleet_records_empty_is_noop(tmp_path: Path) -> None:
     result = langsmith_fleet.append_fleet_records(path, [])
     assert result == path
     assert not path.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="retention replaces an open file on POSIX")
+@pytest.mark.parametrize("locking", ["unavailable", "working", "acquire_error", "release_error"])
+def test_append_fleet_records_preserves_retention_with_optional_locking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, locking: str
+) -> None:
+    path = tmp_path / "fleet" / langsmith_fleet.ARTIFACT_NAME
+    path.parent.mkdir()
+    path.write_text('{"run_id":"old"}\n{"run_id":"keep"}\n', encoding="utf-8")
+    lock_calls: list[int] = []
+    snapshots: dict[int, list[str]] = {}
+
+    def flock(descriptor: int, operation: int) -> None:
+        assert descriptor >= 0
+        lock_calls.append(operation)
+        snapshots[operation] = [
+            json.loads(line)["run_id"] for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+        if (locking == "acquire_error" and operation == 1) or (
+            locking == "release_error" and operation == 2
+        ):
+            raise OSError("file locking unavailable")
+
+    # Exercise both fcntl availability and failures on the same host.
+    monkeypatch.setitem(
+        sys.modules,
+        "fcntl",
+        None if locking == "unavailable" else SimpleNamespace(flock=flock, LOCK_EX=1, LOCK_UN=2),
+    )
+    result = langsmith_fleet.append_fleet_records(
+        path,
+        ({"run_id": "new", "domain": {"row_count": 2}} for _ in range(1)),
+        retention_limit=2,
+    )
+
+    assert result == path
+    assert path.read_text(encoding="utf-8") == (
+        '{"run_id":"keep"}\n{"domain":{"row_count":2},"run_id":"new"}\n'
+    )
+    assert not path.with_suffix(".ndjson.tmp").exists()
+    assert lock_calls == ([] if locking == "unavailable" else [1, 2])
+    if locking == "working":
+        assert snapshots == {1: ["old", "keep"], 2: ["keep", "new"]}
 
 
 def test_build_fleet_records_unknown_error_code_skips_all_stages(
