@@ -338,9 +338,21 @@ def detect_anomalies(
         key=lambda row: (
             row.plan_id,
             _period_sort_key(row.period),
-            row.observed_at.replace(tzinfo=None)
-            - datetime.min
-            - (row.observed_at.utcoffset() or timedelta(0)),
+            (
+                (
+                    (
+                        (row.observed_at.toordinal() * 24 + row.observed_at.hour) * 60
+                        + row.observed_at.minute
+                    )
+                    * 60
+                    + row.observed_at.second
+                )
+                * 1_000_000
+                + row.observed_at.microsecond
+                - (row.observed_at.utcoffset() or timedelta(0)) // timedelta(microseconds=1)
+            )
+            * 1_000
+            + getattr(row.observed_at, "nanosecond", 0),
         ),
     )
     anomalies: list[AnomalyRecord] = []

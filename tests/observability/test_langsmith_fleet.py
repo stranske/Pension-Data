@@ -1012,10 +1012,14 @@ def test_append_fleet_records_preserves_retention_with_optional_locking(
     path.parent.mkdir()
     path.write_text('{"run_id":"old"}\n{"run_id":"keep"}\n', encoding="utf-8")
     lock_calls: list[int] = []
+    snapshots: dict[int, list[str]] = {}
 
     def flock(descriptor: int, operation: int) -> None:
         assert descriptor >= 0
         lock_calls.append(operation)
+        snapshots[operation] = [
+            json.loads(line)["run_id"] for line in path.read_text(encoding="utf-8").splitlines()
+        ]
         if (locking == "acquire_error" and operation == 1) or (
             locking == "release_error" and operation == 2
         ):
@@ -1039,6 +1043,8 @@ def test_append_fleet_records_preserves_retention_with_optional_locking(
     )
     assert not path.with_suffix(".ndjson.tmp").exists()
     assert lock_calls == ([] if locking == "unavailable" else [1, 2])
+    if locking == "working":
+        assert snapshots == {1: ["old", "keep"], 2: ["keep", "new"]}
 
 
 def test_build_fleet_records_unknown_error_code_skips_all_stages(

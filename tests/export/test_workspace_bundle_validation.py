@@ -64,11 +64,12 @@ def test_writer_rejects_missing_contract_fields(tmp_path: Path, location: str, f
     row = payload["datasets"][0]["rows"][0]
     targets = {"bundle": payload, "row": row, "provenance": row["provenance"]}
     del targets[location][field]
+    output_dir = tmp_path / "new-output"
 
     with pytest.raises(WorkspaceBundleError, match=f"missing required fields: {field}"):
-        write_workspace_bundle(tmp_path / "workspace.json", payload)
+        write_workspace_bundle(output_dir / "workspace.json", payload)
 
-    assert not (tmp_path / "workspace.json").exists()
+    assert not output_dir.exists()
 
 
 @pytest.mark.parametrize(
@@ -146,18 +147,25 @@ def test_staging_mapper_handles_legacy_evidence_and_missing_confidence(
     assert mapped["value"] == 81.0
 
 
-@pytest.mark.parametrize("use_document_map", [False, True])
-def test_staging_mapper_preserves_source_locator_fallbacks(use_document_map: bool) -> None:
+@pytest.mark.parametrize(
+    ("source_locators", "expected"),
+    [
+        (None, "sources/fallback.pdf"),
+        ({"other-document": "sources/other.pdf"}, "sources/fallback.pdf"),
+        ({"calpers-fy2024": "sources/document.pdf"}, "sources/document.pdf"),
+    ],
+)
+def test_staging_mapper_preserves_source_locator_fallbacks(
+    source_locators: dict[str, str] | None, expected: str
+) -> None:
     row = _row()
     mapped = map_staging_row_to_ui_row(
         row,
-        source_locators={"calpers-fy2024": "sources/document.pdf"} if use_document_map else None,
+        source_locators=source_locators,
         source_locator="sources/fallback.pdf",
     )
 
-    assert mapped["provenance"]["source_locator"] == (
-        "sources/document.pdf" if use_document_map else "sources/fallback.pdf"
-    )
+    assert mapped["provenance"]["source_locator"] == expected
 
 
 def test_builder_rejects_conflicting_row_and_run_review_context() -> None:

@@ -7,6 +7,7 @@ import sqlite3
 from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal
 
 import pytest
@@ -143,7 +144,14 @@ def test_nl_route_honors_explicit_fleet_artifact_path_without_category(
     assert result.response.status == "ok"
     assert not default_path.exists()
     if explicit_path:
-        assert artifact_path.read_text(encoding="utf-8").strip()
+        records = [
+            json.loads(line) for line in artifact_path.read_text(encoding="utf-8").splitlines()
+        ]
+        assert len(records) == 4
+        assert {record["request_id"] for record in records} == {result.response.metadata.request_id}
+        assert {record["domain"]["query_category"] for record in records} == {"unspecified"}
+    else:
+        assert not artifact_path.exists()
 
 
 @pytest.mark.parametrize("explicit_path", [False, True])
@@ -661,9 +669,11 @@ def test_nl_sql_chain_accepts_source_document_id_when_policy_enforces_provenance
     assert all(row.source_document_id is not None for row in response.provenance)
 
 
-@pytest.mark.parametrize("params", [(2,), [2], {"identifier": 2}])
+@pytest.mark.parametrize(
+    "params", [(2,), [2], {"identifier": 2}, MappingProxyType({"identifier": 2})]
+)
 def test_nl_sql_chain_binds_request_parameters(params: Any) -> None:
-    placeholder = ":identifier" if isinstance(params, dict) else "?"
+    placeholder = ":identifier" if isinstance(params, Mapping) else "?"
     connection = _seed_connection()
     try:
         response = run_nl_sql_chain(
@@ -776,9 +786,18 @@ def test_nl_sql_chain_normalizes_provider_usage(
         connection.close()
     assert response.status == "ok"
     assert response.metadata.cost == expected
+    assert response.metadata.cost is not None
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        if response.metadata.cost[key] is not None:
+            assert type(response.metadata.cost[key]) is int
+    if response.metadata.cost["cost_usd"] is not None:
+        assert type(response.metadata.cost["cost_usd"]) is float
 
 
-@pytest.mark.parametrize("invalid", [True, False, 1.5, "invalid", " ", None, []])
+@pytest.mark.parametrize(
+    "invalid",
+    [True, False, 1.5, "NaN", float("nan"), float("inf"), "invalid", " ", None, []],
+)
 def test_nl_sql_chain_ignores_malformed_provider_usage(invalid: Any) -> None:
     connection = _seed_connection()
     try:
@@ -954,4 +973,5 @@ def test_nl_sql_chain_reports_generation_and_database_errors(
     assert response.error.code == code
     assert message in response.error.message
     assert response.rows == response.provenance == ()
+    assert traces.events[-1].stage == "nl.sql.error"
     assert traces.events[-1].payload["error_code"] == code

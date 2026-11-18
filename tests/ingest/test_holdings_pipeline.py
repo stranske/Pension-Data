@@ -31,16 +31,23 @@ from pension_data.query.saved_views.holdings_ingest import to_holdings_overlap_i
 from pension_data.query.saved_views.service import execute_holdings_overlap_view
 
 
-@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("mode", ["populated", "empty", "row_error"])
 def test_xls_loader_handles_empty_and_sparse_named_sheets_and_closes_workbook(
-    monkeypatch: pytest.MonkeyPatch, empty: bool
+    monkeypatch: pytest.MonkeyPatch, mode: str
 ) -> None:
+    def failing_rows() -> Any:
+        yield (" NAME ", None, "ticker", "market_value_usd")
+        yield (" Acme ", "ignored", " acm ", 1250)
+        raise RuntimeError("corrupt row")
+
     class Worksheet:
         def iter_rows(self, *, values_only: bool) -> Any:
             assert values_only is True
+            if mode == "row_error":
+                return failing_rows()
             return iter(
                 []
-                if empty
+                if mode == "empty"
                 else [
                     (" NAME ", None, "ticker", "market_value_usd"),
                     (None, None, None, None),
@@ -68,6 +75,18 @@ def test_xls_loader_handles_empty_and_sparse_named_sheets_and_closes_workbook(
         return workbook
 
     monkeypatch.setitem(sys.modules, "openpyxl", SimpleNamespace(load_workbook=load_workbook))
+    if mode == "row_error":
+        with pytest.raises(RuntimeError, match="corrupt row"):
+            load_own_holdings_xls(
+                b"workbook fixture",
+                as_of="2025-06-30",
+                provenance_ref="own:sparse",
+                default_asset_class="public_equity",
+                sheet_name="Holdings",
+            )
+        assert workbook.closed is True
+        return
+
     inputs = load_own_holdings_xls(
         b"workbook fixture",
         as_of="2025-06-30",
@@ -77,7 +96,7 @@ def test_xls_loader_handles_empty_and_sparse_named_sheets_and_closes_workbook(
     )
 
     assert workbook.closed is True
-    if empty:
+    if mode == "empty":
         assert inputs == []
     else:
         assert len(inputs) == 1

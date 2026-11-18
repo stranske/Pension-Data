@@ -34,6 +34,7 @@ def test_allocation_comparison_without_matching_peers_keeps_subject_value() -> N
         [
             AllocationPeerInput("CA-PERS", "FY2025", "public", "equity", 0.4),
             AllocationPeerInput("OTHER", "FY2025", "private", "equity", 0.9),
+            AllocationPeerInput("OTHER", "FY2025", "public", "fixed_income", 0.8),
             AllocationPeerInput("OLD", "FY2024", "public", "equity", 0.7),
         ],
         subject_plan_id="CA-PERS",

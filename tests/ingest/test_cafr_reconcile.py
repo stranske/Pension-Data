@@ -77,6 +77,11 @@ def test_blank_csv_numbers_and_absent_provenance_are_not_invented() -> None:
     assert inputs[0].shares is None
     assert inputs[0].market_value_usd is None
     positions = build_security_positions(plan_id="CA-PERS", plan_period="FY2025", rows=inputs)
+    unknown_position = next(
+        position for position in positions if position.security_id == "name:unknown"
+    )
+    assert unknown_position.shares is None
+    assert unknown_position.market_value_usd is None
 
     report = reconcile_holdings_to_acfr(
         plan_id="CA-PERS",
