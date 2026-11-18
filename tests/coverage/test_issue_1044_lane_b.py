@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -47,6 +48,7 @@ from pension_data.extract.persistence import (
 from pension_data.finite_guards import bounded_confidence_or_none
 from pension_data.normalize import numeric_parsing
 from pension_data.normalize.numeric_parsing import parse_numeric_token
+from pension_data.parser.hybrid_backend import HybridBackendConfig
 from pension_data.parser.pdf_pipeline import (
     PDFParserInput,
     _decode_pdf_string_token,
@@ -182,10 +184,133 @@ def test_aggregate_metric_series_uses_unweighted_mean_when_weights_are_zero() ->
             },
         ],
     )
-    duped = list(observations) * 2
-    agg = aggregate_metric_series(duped, metric_name="funded_gap_usd")
+    gap = next(row for row in observations if row.metric_name == "funded_gap_usd")
+    observations = (gap, replace(gap, value=60.0, plan_period="FY2025"))
+    agg = aggregate_metric_series(observations, metric_name="funded_gap_usd")
     assert agg.confidence_weight_sum == 0.0
     assert agg.sample_count == 2
+    assert agg.weighted_mean == 40.0
+
+
+@pytest.mark.parametrize("field", ["plan_id", "plan_period", "fact_id"])
+@pytest.mark.parametrize("invalid", [None, 42, "", "   "])
+def test_metric_engine_rejects_invalid_core_identity(field: str, invalid: object) -> None:
+    aal = {
+        "fact_id": "fact:aal",
+        "plan_id": "P",
+        "plan_period": "FY2024",
+        "metric_name": "aal_usd",
+        "normalized_value": 100.0,
+    }
+    ava = {**aal, "fact_id": "fact:ava", "metric_name": "ava_usd", "normalized_value": 80.0}
+    # Corrupt both rows so an invalid group cannot simply lose its matching input.
+    assert (
+        compute_derived_metrics(core_metric_rows=[{**aal, field: invalid}, {**ava, field: invalid}])
+        == ()
+    )
+    valid = compute_derived_metrics(core_metric_rows=[aal, ava])
+    assert {row.metric_name: row.value for row in valid} == {
+        "funded_gap_usd": 20.0,
+        "unfunded_ratio": 0.2,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("metric_name", None),
+        ("metric_name", "   "),
+        ("normalized_value", None),
+        ("normalized_value", []),
+        ("normalized_value", "not disclosed"),
+        ("normalized_value", "   "),
+        ("normalized_value", True),
+        ("normalized_value", float("nan")),
+        ("normalized_value", "inf"),
+    ],
+)
+def test_metric_engine_does_not_compute_from_unusable_values(field: str, invalid: object) -> None:
+    aal = {
+        "fact_id": "fact:aal",
+        "plan_id": "P",
+        "plan_period": "FY2024",
+        "metric_name": "aal_usd",
+        "normalized_value": 100.0,
+    }
+    ava = {**aal, "fact_id": "fact:ava", "metric_name": "ava_usd", "normalized_value": 80.0}
+    assert compute_derived_metrics(core_metric_rows=[{**aal, field: invalid}, ava]) == ()
+
+
+@pytest.mark.parametrize("field", ["plan_id", "plan_period", "cash_flow_id"])
+@pytest.mark.parametrize("invalid", [None, 42, "", "   "])
+def test_metric_engine_rejects_invalid_cash_flow_identity(field: str, invalid: object) -> None:
+    row = {
+        "cash_flow_id": "flow:1",
+        "plan_id": "P",
+        "plan_period": "FY2024",
+        "employer_contributions_normalized": 18.0,
+        "employee_contributions_normalized": 9.0,
+        "benefit_payments_normalized": -5.0,
+        "refunds_normalized": -1.0,
+    }
+    assert (
+        compute_derived_metrics(core_metric_rows=[], cash_flow_rows=[{**row, field: invalid}]) == ()
+    )
+    valid = compute_derived_metrics(core_metric_rows=[], cash_flow_rows=[row])
+    assert {item.metric_name: item.value for item in valid} == {
+        "net_cash_flow_usd": 21.0,
+        "contribution_to_benefit_ratio": 5.4,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid", "expected"),
+    [
+        ("employer_contributions_normalized", None, {}),
+        ("employee_contributions_normalized", None, {}),
+        ("benefit_payments_normalized", None, {}),
+        ("refunds_normalized", None, {"contribution_to_benefit_ratio": 5.4}),
+        ("benefit_payments_normalized", 0.0, {"net_cash_flow_usd": 26.0}),
+        ("refunds_normalized", False, {"contribution_to_benefit_ratio": 5.4}),
+        ("refunds_normalized", "not disclosed", {"contribution_to_benefit_ratio": 5.4}),
+    ],
+)
+def test_metric_engine_emits_only_metrics_with_usable_cash_inputs(
+    field: str, invalid: object, expected: dict[str, float]
+) -> None:
+    row = {
+        "cash_flow_id": "flow:1",
+        "plan_id": "P",
+        "plan_period": "FY2024",
+        "employer_contributions_normalized": 18.0,
+        "employee_contributions_normalized": 9.0,
+        "benefit_payments_normalized": -5.0,
+        "refunds_normalized": -1.0,
+    }
+    observations = compute_derived_metrics(
+        core_metric_rows=[], cash_flow_rows=[{**row, field: invalid}]
+    )
+    assert {item.metric_name: item.value for item in observations} == expected
+    assert all(item.source_fact_ids == ("flow:1",) for item in observations)
+
+
+def test_metric_engine_unknown_confidence_uses_equal_weights() -> None:
+    rows = [
+        {
+            "fact_id": f"fact:{metric}",
+            "plan_id": "P",
+            "plan_period": "FY2024",
+            "metric_name": metric,
+            "normalized_value": value,
+        }
+        for metric, value in (("aal_usd", 100.0), ("ava_usd", 80.0))
+    ]
+    observations = compute_derived_metrics(core_metric_rows=rows)
+    assert all(item.confidence is None for item in observations)
+    aggregate = aggregate_metric_series(observations, metric_name="funded_gap_usd")
+    assert aggregate.weighted_mean == 20.0
+    assert aggregate.confidence_weight_sum == 1.0
+    assert aggregate.sample_count == 1
 
 
 # --- risk_disclosures (target 3) ----------------------------------------------
@@ -227,6 +352,41 @@ def test_risk_disclosures_emit_policy_only_and_usd_conversions() -> None:
     assert policy.value_usd == 1_500_000.0
     assert policy.value_ratio is None
     assert any(d.code == "policy_only" for d in diagnostics)
+
+
+@pytest.mark.parametrize(("realized", "code"), [(0.0, "realized_only"), (None, "not_disclosed")])
+def test_derivatives_missing_policy_diagnostic_preserves_exposure_and_evidence(
+    realized: float | None, code: str
+) -> None:
+    observations, diagnostics = extract_risk_exposure_observations(
+        plan_id="P",
+        plan_period="FY2024",
+        derivatives_disclosures=[
+            DerivativesDisclosureInput(
+                usage_type="Interest rate swaps",
+                policy_limit_value=None,
+                realized_exposure_value=realized,
+                value_unit="usd",
+                as_reported_text="No outstanding exposure; policy cap not disclosed",
+                source_kind="narrative",
+                confidence=0.8,
+                evidence_refs=("p.10",),
+                source_url="https://example.org/report.pdf",
+            ),
+        ],
+        securities_lending_disclosures=[],
+    )
+    derivatives = [row for row in observations if row.disclosure_type == "derivatives"]
+    if realized is None:
+        assert derivatives == []
+    else:
+        assert len(derivatives) == 1
+        assert derivatives[0].observation_kind == "realized_exposure"
+        assert derivatives[0].value_usd == realized
+    assert [(row.code, row.metric_name, row.evidence_refs) for row in diagnostics] == [
+        (code, "derivatives:interest_rate_swaps", ("p.10",)),
+        ("not_disclosed", "securities_lending:not_disclosed", ()),
+    ]
 
 
 # --- consultants (target 4) ---------------------------------------------------
@@ -334,6 +494,61 @@ def test_pdf_complex_table_year_columns_and_percent_suffix() -> None:
     )
     assert result.raw is not None
     assert any(row.get("complex_table") == "true" for row in result.raw.table_rows)
+
+
+def test_pdf_empty_text_arrays_do_not_hide_metric_text() -> None:
+    assert _extract_page_lines("[120 -3] TJ\n(AAL $410 million) Tj") == ["AAL $410 million"]
+    assert _decode_pdf_string_token("\\1z") == "\x01z"
+    assert _looks_like_noise_line("   ") is True
+    assert _metric_like_row_from_line("Funded ratio not disclosed") is None
+    assert _metric_like_row_from_line("Funded ratio 81.2 %") == ("Funded ratio", "81.2%")
+
+
+def test_pdf_failed_builders_leave_no_partial_or_hybrid_result() -> None:
+    with patch(
+        "pension_data.parser.pdf_pipeline._build_text_stage",
+        side_effect=ValueError("unreadable native PDF"),
+    ):
+        parsed = parse_pdf_to_funded_input(
+            PDFParserInput(
+                source_document_id="doc:unreadable",
+                source_url="https://example.org/report.pdf",
+                effective_date="2024-06-30",
+                ingestion_date="2026-01-01",
+                default_money_unit_scale="million_usd",
+                pdf_bytes=b"%PDF-1.4\n",
+                parser_backend="legacy",
+                hybrid_config=HybridBackendConfig(enable_docling=True),
+            )
+        )
+    assert parsed.raw is None
+    assert parsed.stage_name is None
+    assert parsed.stage_confidence == 0.0
+    assert parsed.hybrid_result is None
+    assert parsed.provenance_refs == ()
+    assert parsed.escalation_required is True
+    assert len(parsed.attempts) == 3
+    assert "configure_ocr_fallback" in parsed.actionable_flags
+
+
+def test_pdf_disabled_hybrid_keeps_native_extraction() -> None:
+    with patch("pension_data.parser.pdf_pipeline.run_hybrid_table_extraction") as hybrid:
+        parsed = parse_pdf_to_funded_input(
+            PDFParserInput(
+                source_document_id="doc:native",
+                source_url="https://example.org/report.pdf",
+                effective_date="2024-06-30",
+                ingestion_date="2026-01-01",
+                default_money_unit_scale="million_usd",
+                pdf_bytes=b"%PDF-1.4\nAAL $410 million\n",
+                parser_backend="legacy",
+                hybrid_config=HybridBackendConfig(enable_docling=False),
+            )
+        )
+    assert parsed.raw is not None
+    assert parsed.raw.table_rows[0]["value"] == "$410 million"
+    assert parsed.hybrid_result is None
+    hybrid.assert_not_called()
 
 
 # --- persistence (target 6) ----------------------------------------------------
