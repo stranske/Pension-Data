@@ -71,6 +71,62 @@ def test_warning_summary_is_empty_for_empty_list(tmp_path: Path) -> None:
     assert _warning_summary(warning_path) == []
 
 
+def test_warning_summary_reports_count_when_warnings_present(tmp_path: Path) -> None:
+    warning_path = tmp_path / "warnings.json"
+    warning_path.write_text(
+        json.dumps([{"code": "sample", "message": "demo"}]),
+        encoding="utf-8",
+    )
+    warnings = _warning_summary(warning_path)
+    assert len(warnings) == 1
+    assert warnings[0]["code"] == "extraction-warnings-present"
+    assert warnings[0]["context"] == {"count": 1}
+
+
+def test_git_sha_returns_commit_at_repo_root() -> None:
+    sha = _git_sha(repo_root=_REPO_ROOT)
+    assert sha is not None
+    assert len(sha) == 40
+
+
+def test_build_backplane_reference_run_marks_error_when_ledger_not_success(tmp_path: Path) -> None:
+    reference_root = tmp_path / "ledger-error"
+    manifest_path = _pilot_manifest_path(tmp_path, run_root=reference_root)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["ledger_status"] = "error"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    paths = build_backplane_reference_run(
+        pilot_manifest_path=manifest_path,
+        output_dir=reference_root,
+        wall_ms=2.0,
+        recorded_at="2026-02-01T00:00:00+00:00",
+    )
+    run_payload = json.loads(paths["run_json"].read_text(encoding="utf-8"))
+    assert run_payload["status"] == "error"
+
+
+def test_build_backplane_reference_run_data_quality_fails_without_required_metrics(
+    tmp_path: Path,
+) -> None:
+    reference_root = tmp_path / "coverage-fail"
+    manifest_path = _pilot_manifest_path(tmp_path, run_root=reference_root)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    coverage_path = Path(manifest["artifact_files"]["coverage_summary_json"])
+    coverage_payload = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage_payload["has_required_funded_metrics"] = False
+    coverage_payload["missing_required_metrics"] = ["funded_ratio"]
+    coverage_path.write_text(json.dumps(coverage_payload), encoding="utf-8")
+    paths = build_backplane_reference_run(
+        pilot_manifest_path=manifest_path,
+        output_dir=reference_root,
+        wall_ms=2.0,
+        recorded_at="2026-02-01T00:00:00+00:00",
+    )
+    run_payload = json.loads(paths["run_json"].read_text(encoding="utf-8"))
+    assert run_payload["data_quality"]["overall_status"] == "fail"
+    assert run_payload["data_quality"]["findings"][0]["count"] == 1
+
+
 @pytest.mark.parametrize(
     ("mutator", "message"),
     [
