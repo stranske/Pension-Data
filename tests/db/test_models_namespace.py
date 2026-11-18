@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import pension_data.quality.confidence  # noqa: F401 - breaks review_queue import cycle
-
 import pytest
 
 import pension_data.db.models as models
+import pension_data.quality.confidence  # noqa: F401 - breaks review_queue import cycle
 
 
 def test_models_namespace_lazy_loads_review_queue_types() -> None:
