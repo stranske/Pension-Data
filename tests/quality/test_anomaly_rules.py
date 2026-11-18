@@ -589,6 +589,34 @@ def test_same_period_observations_with_mixed_timezones_sort_by_utc(aware_index: 
     assert anomaly.evidence_context["metric_evidence"]["signed_delta"] == -0.25
 
 
+def test_same_period_observations_across_leap_day_sort_by_utc() -> None:
+    previous = _point(
+        plan_id="leap-day",
+        period="2024",
+        observed_at=datetime(2024, 2, 29, 23, tzinfo=UTC),
+        funded_ratio=0.75,
+        equity=0.5,
+        fixed_income=0.25,
+        confidence=0.9,
+    )
+    current = _point(
+        plan_id="leap-day",
+        period="2024",
+        observed_at=datetime(2024, 3, 1, 0, 30, tzinfo=timezone(timedelta(hours=1))),
+        funded_ratio=0.50,
+        equity=0.5,
+        fixed_income=0.25,
+        confidence=0.9,
+    )
+
+    (anomaly,) = detect_anomalies([current, previous])
+
+    assert anomaly.metric == "funded_ratio"
+    assert anomaly.evidence_context["previous_observed_at"] == "2024-02-29T23:00:00+00:00"
+    assert anomaly.evidence_context["current_observed_at"] == "2024-02-29T23:30:00+00:00"
+    assert anomaly.evidence_context["metric_evidence"]["signed_delta"] == -0.25
+
+
 class _NoOffsetTZ(tzinfo):
     def utcoffset(self, dt: datetime | None) -> None:
         return None
