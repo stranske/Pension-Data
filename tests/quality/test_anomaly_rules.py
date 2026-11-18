@@ -588,6 +588,38 @@ def test_nonfinite_metric_preserves_other_material_shifts(
     )
 
 
+@pytest.mark.parametrize("include_history", [False, True], ids=["single-points", "with-history"])
+def test_finite_observations_compare_only_within_the_same_plan(include_history: bool) -> None:
+    points = [
+        _point(
+            plan_id=plan_id,
+            period=str(2024 + index),
+            observed_at=datetime(2025 + index, 1, 1, tzinfo=UTC),
+            funded_ratio=baseline - index * 0.25,
+            equity=0.5,
+            fixed_income=0.25,
+            confidence=0.9,
+        )
+        for index in range(2 if include_history else 1)
+        for plan_id, baseline in [("first", 0.875), ("second", 0.375)]
+    ]
+
+    anomalies = detect_anomalies(list(reversed(points)))
+
+    assert [(item.plan_id, item.period, item.metric) for item in anomalies] == (
+        [("first", "2025", "funded_ratio"), ("second", "2025", "funded_ratio")]
+        if include_history
+        else []
+    )
+    for anomaly in anomalies:
+        assert anomaly.shift == 0.25
+        assert anomaly.evidence_context["metric_evidence"]["signed_delta"] == -0.25
+        assert anomaly.evidence_context["evidence_refs"] == [
+            f"doc:{anomaly.plan_id}:2024",
+            f"doc:{anomaly.plan_id}:2025",
+        ]
+
+
 def test_anomaly_detection_skips_nonfinite_values_and_unrelated_plan_transitions() -> None:
     """Corrupt observations and plan boundaries must not create false anomalies."""
     points = [

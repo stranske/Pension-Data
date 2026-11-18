@@ -33,12 +33,12 @@ verification is recorded in `docs/reports/issue-1045-coverage-verification.md`.
 ## Whole-CI baseline and verified result
 
 The original issue baseline is **89.95% blended line/branch coverage**. The latest
-[Gate run 44277089377](https://github.com/stranske/Pension-Data/actions/runs/44277089377)
-at PR head `b56128952c6a27119b7a20f8168a5ce0cb29c013` passed on Python 3.13 and
-3.14. The Python 3.14 coverage job reports **2,449 passed, 51 skipped; 92.49%**.
-This was re-read from job `134708231452`; it includes the mixed naive/aware timestamp
-fix and its two regression cases. The daylight-saving fix and its two new cases
-still require CI on their eventual commit.
+[Gate run 44278666266](https://github.com/stranske/Pension-Data/actions/runs/44278666266)
+at PR head `fe8eba144138cc217fbddb044b44dbe45b0d8b1d` passed on Python 3.13 and
+3.14. The Python 3.14 coverage job reports **2,451 passed, 51 skipped; 92.49%**.
+This was re-read from job `134713638118`; it includes both timestamp fixes and
+their four regression cases. The new plan-boundary cases below still require CI
+on their eventual commit.
 
 The ranked targets started with 186 uncovered statements plus branches according
 to the issue. Their Gate output now leaves 10, a **176-unit reduction**, four
@@ -126,7 +126,7 @@ pytest tests/quality/test_anomaly_rules.py tests/quant/test_scenarios.py \
   --cov=pension_data.query.saved_views.service --cov-report=term-missing
 ```
 
-Result after mutation restoration: **347 passed, 2 skipped; 99.50%** across the eight
+Result after mutation restoration: **349 passed, 2 skipped; 99.50%** across the eight
 targets. Both skips are pre-existing real-workbook tests because optional openpyxl
 is absent. The new workbook boundary tests use a fake reader and run without it.
 
@@ -490,6 +490,59 @@ but approval policy is never`. The blocker comment and `needs-human` label were
 rejected for the same reason. PR #1046 was verified open with `draft=false` at
 `b561289`; its live body and task checkboxes remain unchanged. Delivery remains
 incomplete.
+
+## Finite plan-boundary follow-up
+
+Reviewed recent commits through `fe8eba1` and re-read the live issue ranking,
+PR body, and latest committed-head Gate logs before implementation. The first
+unchecked whole-CI reconciliation task remains blocked on the remote body update:
+the connector rejected that write with `MCP tool call requires approval, but
+approval policy is never`. The checked statuses in this file are a prepared
+reconciliation, not a completed remote update. The original baseline remains
+89.95%; the latest Gate still establishes a 176-unit ranked-target reduction,
+four short of 180. No focused coverage gains are added to that figure.
+
+The first ranked target has no remaining meaningful public coverage gaps. Its
+existing cross-plan test combines plan boundaries with non-finite observations,
+so two new finite-value cases independently protect the boundary guard. One
+checks that single observations from different plans emit no anomaly; the other
+checks that interleaved plan histories preserve each plan's real funded-ratio
+change and evidence without creating a false cross-plan transition. Production
+code is unchanged.
+
+Changed-module coverage before: **52 passed; 98.91%**. After:
+**54 passed; 98.91%**, using the anomaly coverage command recorded above.
+Both leave line 150 and its branch uncovered. This follow-up claims **zero
+additional coverage units** and improves the tests' ability to detect a defect.
+
+For the actual break-and-revert proof, the production plan-boundary condition
+was replaced with `if False`. The two new selected cases both failed with extra
+cross-plan anomalies (**2 failed, 52 deselected**, exit 1); JUnit confirmed both
+failures. The original production file was restored byte-for-byte in a `finally`
+block. The restored eight-target command passes **349 tests, 2 skipped; 99.50%**.
+The two new cases still need CI after delivery; no CI acceptance checkbox has
+been checked on the strength of a local run.
+
+Formatting and lint are verified: both exact aggregate Black commands recorded
+above passed for all **469 files** after sequential single-file checks populated
+Black's normal cache. The initial aggregate attempt failed because the sandbox
+prohibits Black's forkserver socket. Ruff's CI command and `git diff --check`
+passed. No formatter, test, coverage exclusion, or production source was changed.
+
+The requested commit was attempted after those checks:
+
+```sh
+git add tests/quality/test_anomaly_rules.py docs/reports/issue-1045-pr-body.md
+git commit -m 'test: prove anomaly comparisons stay within each plan'
+```
+
+Staging failed with `.git/index.lock: Read-only file system`, so no commit was
+created and no push was possible. The two verified files remain available to the
+automation writer. The PR body update, blocker comment, and `needs-human` label
+were each rejected because connector writes require approval and approval policy
+is `never`. Final PR inspection confirmed #1046 remains open with `draft=false`
+at `fe8eba1`; its live body and task checkboxes remain unchanged. Delivery and
+remote reconciliation remain incomplete.
 
 Closes #1045
 
