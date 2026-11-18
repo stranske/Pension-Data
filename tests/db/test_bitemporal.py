@@ -114,6 +114,31 @@ def test_active_overlap_guard_rejects_adjacent_bounded_windows_when_prior_is_ope
         assert_no_active_valid_overlaps(rows, key=lambda row: (row.entity_id, row.fact_name))
 
 
+def test_active_overlap_guard_accepts_non_overlapping_bounded_sequence() -> None:
+    rows = [
+        BitemporalAssertion(
+            entity_id="CA-PERS",
+            fact_name="funded_ratio",
+            value=0.74,
+            valid_from="2023-01-01",
+            valid_to="2023-12-31",
+            asserted_at="2024-02-01",
+            source_document_id="doc:a",
+        ),
+        BitemporalAssertion(
+            entity_id="CA-PERS",
+            fact_name="funded_ratio",
+            value=0.75,
+            valid_from="2024-01-01",
+            valid_to="2024-12-31",
+            asserted_at="2024-02-02",
+            source_document_id="doc:b",
+        ),
+    ]
+
+    assert_no_active_valid_overlaps(rows, key=lambda row: (row.entity_id, row.fact_name))
+
+
 def test_active_overlap_guard_rejects_unbounded_prior_window() -> None:
     rows = [
         BitemporalAssertion(

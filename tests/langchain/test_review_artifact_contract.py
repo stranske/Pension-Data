@@ -445,6 +445,16 @@ def test_build_from_sources_marks_and_warns_when_findings_are_truncated(
     assert len(artifact["findings"]) == 25
 
 
+def test_build_from_sources_raises_when_readiness_csv_missing(tmp_path: Path) -> None:
+    contract_path, _ = _write_real_sources(tmp_path)
+    missing_path = tmp_path / "missing_readiness.csv"
+    with pytest.raises(ReviewableFindingsArtifactError, match="source artifact not found"):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=missing_path,
+        )
+
+
 def test_build_from_sources_raises_when_readiness_csv_has_no_usable_rows(tmp_path: Path) -> None:
     contract_path, _ = _write_real_sources(tmp_path)
     readiness_path = tmp_path / "empty_readiness.csv"
