@@ -1,11 +1,12 @@
 ## Summary
 
 Adds discriminating tests for the eight coverage targets in issue #1045's order.
-This follow-up adds 38 parameterized cases covering numeric period ordering,
+This follow-up adds 42 parameterized cases covering numeric period ordering,
 categorized fleet artifact selection, usage-total precedence, decoded evidence,
 ambiguous prompts, fleet trace/path/metadata handling, exact evidence persistence,
 historical assertion retries, incomplete holdings, workbook cleanup, and saved-view
-missing-data behavior. Production code is unchanged.
+missing-data behavior, and fleet retention with optional or failing file locking.
+Production code is unchanged.
 
 The broader database suite establishes that historical retries without the stored
 supersession timestamp are intentionally rejected. The new persistence test verifies
@@ -31,12 +32,12 @@ Pytest-xdist is not installed, so these runs do not use `-n 4`.
 | `quant/scenarios.py` | 14 | 100.00% | 100.00% | 0 → 0 |
 | `api/routes/nl.py` | 2 | 95.83% | 100.00% | 2 → 0 |
 | `langchain/nl_sql_chain.py` | 85 | 98.05% | 99.51% | 8 → 2 |
-| `observability/langsmith_fleet.py` | 27 | 94.18% | 99.14% | 27 → 4 |
+| `observability/langsmith_fleet.py` | 27 | 94.18% | 99.57% | 27 → 2 |
 | `db/staging_persistence.py` | 18 | 77.21% | 95.59% | 62 → 12 |
 | `extract/investment/security_positions.py` | 18 | 78.50% | 100.00% | 46 → 0 |
 | `query/saved_views/service.py` | 7 | 96.28% | 100.00% | 9 → 0 |
 
-This follow-up reduces **138 local uncovered statements plus branches**, 42 short
+This follow-up reduces **140 local uncovered statements plus branches**, 40 short
 of 180 before allowing for overlap with other CI tests. The preceding follow-up's
 94-unit focused reduction and the off-list tests' 160-unit reduction must not be
 added to this number to claim a whole-CI gain. Gate has not established the actual
@@ -48,9 +49,9 @@ The focused runs leave these gaps:
   detector filters out before scoring.
 - NL chain: the private interrupted-error classification, which the public runner
   converts to TimeoutError before classification.
-- Fleet records: private unsupported-operation validation, and optional no-fcntl
-  branches not exercised on this Linux runner. Public record generation uses a
-  fixed operation list. No unsupported-operation test was added solely for coverage.
+- Fleet records: private unsupported-operation validation. Public record generation
+  uses a fixed operation list. No unsupported-operation test was added solely for
+  coverage. Optional no-fcntl branches are now covered through public appending.
 - Staging persistence: low-level malformed-key/temporal canonicalization fallbacks,
   permissive canonicalization of legacy non-finite evidence, and the empty-batch
   path. These remain unverified by the focused modules; they are not claimed
@@ -80,7 +81,7 @@ pytest tests/quality/test_anomaly_rules.py tests/quant/test_scenarios.py \
   --cov=pension_data.query.saved_views.service --cov-report=term-missing
 ```
 
-Result after mutation restoration: **315 passed, 2 skipped; 99.00%** across the eight
+Result after mutation restoration: **319 passed, 2 skipped; 99.10%** across the eight
 targets. Both skips are pre-existing real-workbook tests because optional openpyxl
 is absent. The new workbook boundary tests use a fake reader and run without it.
 
@@ -103,14 +104,16 @@ pytest tests/ -q -m 'not slow' --no-cov -o faulthandler_timeout=20
 
 It stalls in `tests/api/test_app_serving.py::test_health_and_config_routes`, with
 Starlette TestClient waiting in AnyIO's `run_sync_from_thread`. The bounded run
-was stopped after 45 seconds (exit 124). Full-suite and CI acceptance stay unchecked;
+was stopped after 50 seconds (exit 124), after collecting 2,458 tests and one skip.
+Full-suite and CI acceptance stay unchecked;
 no existing tests were disabled or edited to avoid this environment problem.
 
 ## Deliberate breaks and restoration
 
 Each mutation changed the real production source and was restored in a finally
 block. JUnit results confirmed every selected parameterized case failed. All 38
-new cases passed again after restoration in the focused command above.
+new cases from that iteration passed again after restoration in the focused command
+above. The four additional optional-locking cases were also each broken and restored.
 
 | Deliberate mutation | Selected cases | Failed |
 | --- | ---: | ---: |
@@ -132,6 +135,10 @@ new cases passed again after restoration in the focused command above.
 | Score unknown amortization as open | 2 | 2 |
 | Remove the missing-subject guard | 1 | 1 |
 | Convert whitespace CSV numbers to zero | 1 | 1 |
+| Stop tolerating an unavailable fcntl import | 1 | 1 |
+| Request unlock instead of the exclusive append lock | 1 | 1 |
+| Stop tolerating lock acquisition OSError | 1 | 1 |
+| Stop tolerating lock release OSError | 1 | 1 |
 
 This round also closes the bootstrap proof gap: all **24 earlier cases** failed
 under deliberate breaks (15 threshold validations, 6 scenario validations, empty
@@ -142,9 +149,10 @@ report records proof for its 95 cases. No production mutation remains.
 ## Formatting and delivery
 
 Changed Python files were formatted with Black at line length 100. All 469 Python
-files passed individual checks before the exact aggregate Black gate was run.
-The individual checks avoid this sandbox's forkserver socket restriction and
-populate Black's normal verified cache; the aggregate check then passes unchanged.
+files passed both aggregate checks below. An initial bounded Black invocation
+stalled in its worker runner; the subsequent aggregate checks used Black's normal
+cache and both exited successfully. The current Workflows reusable CI source was
+read to confirm its Black and Ruff flags; no workflow files were changed.
 
 ```sh
 BLACK_CACHE_DIR=/tmp/pension-black-cache BLACK_NUM_WORKERS=1 \
@@ -154,6 +162,40 @@ BLACK_CACHE_DIR=/tmp/pension-black-cache BLACK_NUM_WORKERS=1 \
 ruff check --output-format github --extend-exclude .workflows-lib .
 git diff --check
 ```
+
+### Current-round reconciliation and optional locking verification
+
+Reviewed commits `531a001`, `4d77d50`, `454b672`, and `53b5984` before editing.
+The live PR reports 13 changed files rather than the dispatch's 41-file warning.
+All prior verified edits are committed at the live PR head `53b5984`; earlier
+reports' statements that those edits were uncommitted are superseded by the
+automation commits. The remote PR body still contains the bootstrap summary.
+An attempt to reconcile its baseline checkbox, low-blast-radius checkbox, single-PR
+checkbox, and evidence was rejected by the tool's approval policy before this
+round's implementation. This file preserves the replacement body for a writer.
+
+The first four targets' remaining focused gaps are either absent or private paths
+unreachable from public callers, as explained above. The next meaningful gap in
+the issue's order is fleet appending without Unix file locking, relevant to the
+confirmed Windows target environment. Four new public-boundary cases check exact
+NDJSON output, retention of existing records, temporary-file cleanup, and lock
+calls when fcntl is unavailable, working, fails to acquire, or fails to release.
+Each case failed under its own production-source mutation, then passed after
+restoration; all production source remains unchanged.
+
+```sh
+pytest tests/observability/test_langsmith_fleet.py \
+  tests/observability/test_langsmith_fleet_status_derivation.py \
+  -q -m 'not slow' --cov=pension_data.observability.langsmith_fleet \
+  --cov-report=term-missing
+```
+
+Before this round: **113 passed, 99.14%, 4 uncovered units**. After restoration:
+**117 passed, 99.57%, 2 uncovered units**. Coverage JSON shows 321/322 statements
+and 141/142 branches covered after this round. The only remaining statement and
+branch are unsupported private operation validation. The combined 319-test result
+above includes these four cases. No whole-CI reduction is inferred from this
+two-unit focused gain, and no numeric acceptance checkbox is marked complete.
 
 This run uses the existing `codex/issue-1045` branch and PR #1046. It creates no
 branch or PR. Final delivery attempts were blocked:

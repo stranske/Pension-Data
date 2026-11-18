@@ -968,6 +968,43 @@ def test_append_fleet_records_empty_is_noop(tmp_path: Path) -> None:
     assert not path.exists()
 
 
+@pytest.mark.parametrize("locking", ["unavailable", "working", "acquire_error", "release_error"])
+def test_append_fleet_records_preserves_retention_with_optional_locking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, locking: str
+) -> None:
+    path = tmp_path / "fleet" / langsmith_fleet.ARTIFACT_NAME
+    path.parent.mkdir()
+    path.write_text('{"run_id":"old"}\n{"run_id":"keep"}\n', encoding="utf-8")
+    lock_calls: list[int] = []
+
+    def flock(descriptor: int, operation: int) -> None:
+        assert descriptor >= 0
+        lock_calls.append(operation)
+        if (locking == "acquire_error" and operation == 1) or (
+            locking == "release_error" and operation == 2
+        ):
+            raise OSError("file locking unavailable")
+
+    # Windows has no fcntl; fake both availability and failures on any host OS.
+    monkeypatch.setitem(
+        sys.modules,
+        "fcntl",
+        None if locking == "unavailable" else SimpleNamespace(flock=flock, LOCK_EX=1, LOCK_UN=2),
+    )
+    result = langsmith_fleet.append_fleet_records(
+        path,
+        ({"run_id": "new", "domain": {"row_count": 2}} for _ in range(1)),
+        retention_limit=2,
+    )
+
+    assert result == path
+    assert path.read_text(encoding="utf-8") == (
+        '{"run_id":"keep"}\n{"domain":{"row_count":2},"run_id":"new"}\n'
+    )
+    assert not path.with_suffix(".ndjson.tmp").exists()
+    assert lock_calls == ([] if locking == "unavailable" else [1, 2])
+
+
 def test_build_fleet_records_unknown_error_code_skips_all_stages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
