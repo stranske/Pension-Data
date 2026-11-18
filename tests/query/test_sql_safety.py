@@ -154,6 +154,10 @@ class TestMainSelectClause:
         assert "plan_id" in clause
         assert "inner_col" not in clause
 
+    def test_rejects_select_without_from_at_end_of_input(self) -> None:
+        with pytest.raises(SQLSafetyValidationError, match="SELECT .* FROM"):
+            _main_select_clause("select plan_id")
+
 
 class TestSplitSelectExpressions:
     def test_simple_columns(self) -> None:
@@ -221,6 +225,12 @@ class TestExtractSelectedColumns:
     def test_table_qualified_column(self) -> None:
         cols = extract_selected_columns("SELECT c.plan_id FROM curated_metric_facts c")
         assert cols == ("plan_id",)
+
+    def test_rejects_expression_and_empty_projection(self) -> None:
+        with pytest.raises(SQLSafetyValidationError, match="direct column"):
+            extract_selected_columns("SELECT count(plan_id) FROM curated_metric_facts")
+        with pytest.raises(SQLSafetyValidationError, match="project at least"):
+            extract_selected_columns("SELECT FROM curated_metric_facts")
 
 
 # ── Policy validation ───────────────────────────────────────────────
@@ -297,6 +307,18 @@ class TestValidateSqlPolicy:
             validate_sql_policy(
                 "SELECT 1",
                 policy=strict_policy,
+            )
+
+    def test_rejects_non_literal_limit_and_forbidden_statement_token(
+        self, strict_policy: SQLSafetyPolicy
+    ) -> None:
+        with pytest.raises(SQLSafetyValidationError, match="LIMIT"):
+            validate_sql_policy(
+                "SELECT plan_id FROM curated_metric_facts LIMIT ?", policy=strict_policy
+            )
+        with pytest.raises(SQLSafetyValidationError, match="forbidden"):
+            validate_read_only_sql(
+                "SELECT plan_id FROM curated_metric_facts WHERE note = 'ok' UPDATE"
             )
 
 
