@@ -10,6 +10,48 @@ from pension_data.quality.anomaly_rules import AnomalyThresholds, TimeSeriesPoin
 from pension_data.review_queue.anomalies import route_anomalies_to_review_queue
 
 
+def test_fiscal_two_digit_year_sorts_after_prior_four_digit_year() -> None:
+    points = [
+        TimeSeriesPoint(
+            plan_id="fiscal-order",
+            period=period,
+            observed_at=datetime(2025, 1, 1, tzinfo=UTC),
+            funded_ratio=ratio,
+            allocations={},
+            confidence=0.9,
+            evidence_refs=(f"doc:{period}",),
+            provenance={},
+        )
+        for period, ratio in [("FY20", 0.6), ("FY2019", 0.8)]
+    ]
+    anomalies = detect_anomalies(points)
+    assert len(anomalies) == 1
+    assert anomalies[0].period == "FY20"
+    assert anomalies[0].evidence_context["previous_period"] == "FY2019"
+    assert anomalies[0].evidence_context["metric_evidence"]["signed_delta"] == -0.2
+
+
+@pytest.mark.parametrize("missing_index", [0, 1])
+def test_missing_funded_ratio_preserves_allocation_detection(missing_index: int) -> None:
+    points = [
+        TimeSeriesPoint(
+            plan_id="partial",
+            period=str(2024 + index),
+            observed_at=datetime(2025, 1, 1, tzinfo=UTC),
+            funded_ratio=None if index == missing_index else 0.8,
+            allocations={"public_equity": allocation},
+            confidence=0.9,
+            evidence_refs=(f"doc:{index}",),
+            provenance={},
+        )
+        for index, allocation in enumerate([0.4, 0.6])
+    ]
+    anomalies = detect_anomalies(points)
+    assert len(anomalies) == 1
+    assert anomalies[0].metric == "allocation:public_equity"
+    assert anomalies[0].period == "2025"
+
+
 @pytest.mark.parametrize(
     "name",
     [

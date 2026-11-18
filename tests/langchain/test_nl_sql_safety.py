@@ -610,3 +610,235 @@ def test_nl_sql_chain_accepts_source_document_id_when_policy_enforces_provenance
     assert response.error is None
     assert response.columns == ("id", "source_document_id")
     assert all(row.source_document_id is not None for row in response.provenance)
+
+
+@pytest.mark.parametrize("params", [(2,), [2], {"identifier": 2}])
+def test_nl_sql_chain_binds_request_parameters(params: Any) -> None:
+    placeholder = ":identifier" if isinstance(params, dict) else "?"
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show metric with requested id", params=params),
+            chain=StaticChain(f"SELECT id, value FROM sample_metrics WHERE id = {placeholder}"),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+    assert response.status == "ok"
+    assert response.rows == ((2, 0.81),)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"max_rows": 0}, "max_rows must be >= 1"),
+        ({"timeout_ms": 0}, "timeout_ms must be >= 1"),
+        ({"timeout_ms": 2001}, "timeout_ms exceeds policy"),
+        ({"params": "2"}, "params must be a mapping"),
+        ({"params": b"2"}, "params must be a mapping"),
+        ({"params": bytearray(b"2")}, "params must be a mapping"),
+        ({"params": {2}}, "params must be a mapping"),
+    ],
+)
+def test_nl_sql_chain_rejects_invalid_inputs_before_generation(
+    overrides: dict[str, Any], message: str
+) -> None:
+    class UnusedChain:
+        def invoke(self, values: Mapping[str, Any]) -> str:
+            pytest.fail("invalid request reached SQL generation")
+
+    connection = _seed_connection()
+    traces = InMemoryLangSmithTraceSink(events=[])
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show metric values", **overrides),
+            chain=UnusedChain(),
+            trace_sink=traces,
+            policy=_sample_policy(),
+        )
+        assert connection.execute("SELECT COUNT(*) FROM sample_metrics").fetchone() == (3,)
+    finally:
+        connection.close()
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert message in response.error.message
+    assert response.sql is None
+    assert response.rows == response.provenance == ()
+    assert [event.stage for event in traces.events] == ["nl.prompt.received", "nl.sql.error"]
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        (
+            {"usage": {"input_tokens": " 11 ", "output_tokens": 4.0, "cost_usd": " .25 "}},
+            {"prompt_tokens": 11, "completion_tokens": 4, "total_tokens": 15, "cost_usd": 0.25},
+        ),
+        (
+            {
+                "token_usage": {
+                    "input_token_count": 3,
+                    "completion_token_count": 2,
+                    "total_token_count": 9,
+                }
+            },
+            {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 9, "cost_usd": None},
+        ),
+        (
+            {"response_metadata": {"usage_metadata": {"output_token_count": 7}}},
+            {"prompt_tokens": None, "completion_tokens": 7, "total_tokens": 7, "cost_usd": None},
+        ),
+        (
+            {"usage_metadata": {"prompt_token_count": 0, "cost_usd": 0}},
+            {"prompt_tokens": 0, "completion_tokens": None, "total_tokens": 0, "cost_usd": 0.0},
+        ),
+        (
+            {
+                "usage": {"input_tokens": 2, "cost_usd": 0.1},
+                "token_usage": {"input_tokens": 99, "output_tokens": 3, "cost_usd": 0.9},
+                "usage_metadata": {"output_tokens": 99},
+            },
+            {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5, "cost_usd": 0.1},
+        ),
+    ],
+)
+def test_nl_sql_chain_normalizes_provider_usage(
+    metadata: dict[str, Any], expected: dict[str, Any]
+) -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show metric values"),
+            chain=StaticChain({"sql": "SELECT id FROM sample_metrics", **metadata}),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+    assert response.status == "ok"
+    assert response.metadata.cost == expected
+
+
+@pytest.mark.parametrize("invalid", [True, False, 1.5, "invalid", " ", None, []])
+def test_nl_sql_chain_ignores_malformed_provider_usage(invalid: Any) -> None:
+    connection = _seed_connection()
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show metric values"),
+            chain=StaticChain(
+                {
+                    "sql": "SELECT id FROM sample_metrics",
+                    "usage": {
+                        "prompt_tokens": invalid,
+                        "completion_tokens": invalid,
+                        "total_tokens": invalid,
+                        "cost_usd": invalid,
+                    },
+                }
+            ),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+    assert response.status == "ok"
+    # Fractional numeric costs are valid even though fractional counts are not.
+    expected = (
+        None
+        if invalid != 1.5
+        else {
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+            "cost_usd": 1.5,
+        }
+    )
+    assert response.metadata.cost == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, ()),
+        (" ", ()),
+        ('[" p.10 ", 3, "", "p.10", "p.11"]', ("p.10", "p.11")),
+        ("p.10, p.11, p.10, ", ("p.10", "p.11")),
+        ("[invalid]", ("[invalid]",)),
+        (b"invalid", ()),
+    ],
+)
+def test_nl_sql_chain_normalizes_persisted_evidence(raw: Any, expected: tuple[str, ...]) -> None:
+    connection = _seed_connection()
+    connection.execute(
+        "UPDATE sample_metrics SET evidence_refs = ?, confidence = ' 0.75 ' WHERE id = 1", (raw,)
+    )
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show sources for metric with id one"),
+            chain=StaticChain(
+                "SELECT source_document_id, evidence_refs, confidence FROM sample_metrics WHERE id = 1"
+            ),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+    assert response.status == "ok"
+    assert len(response.provenance) == 1
+    assert response.provenance[0].source_document_id == "doc:1"
+    assert response.provenance[0].evidence_refs == expected
+    assert response.provenance[0].confidence == 0.75
+
+
+def test_nl_sql_chain_rejects_blank_source_on_provenance_tracked_rows() -> None:
+    connection = _seed_connection()
+    connection.execute("UPDATE sample_metrics SET source_document_id = ' ' WHERE id = 1")
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show metric sources"),
+            chain=StaticChain("SELECT source_document_id FROM sample_metrics"),
+            policy=_sample_policy(),
+        )
+    finally:
+        connection.close()
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "UNSAFE_SQL"
+    assert "source_document_id must be populated" in response.error.message
+    assert response.rows == response.provenance == ()
+
+
+@pytest.mark.parametrize(
+    ("output", "code", "message"),
+    [
+        ({}, "EXECUTION_ERROR", "chain output must include a string `sql` field"),
+        ({"sql": 3}, "EXECUTION_ERROR", "chain output must include a string `sql` field"),
+        ("SELECT id FROM absent_table", "EXECUTION_ERROR", "no such table"),
+        ("SELECT id FROM sample_metrics WHERE )", "SYNTAX_ERROR", "syntax error"),
+    ],
+)
+def test_nl_sql_chain_reports_generation_and_database_errors(
+    output: Any, code: str, message: str
+) -> None:
+    connection = _seed_connection()
+    traces = InMemoryLangSmithTraceSink(events=[])
+    try:
+        response = run_nl_sql_chain(
+            connection=connection,
+            request=NLToSQLRequest(question="Show metric values"),
+            chain=StaticChain(output),
+            trace_sink=traces,
+            policy=_sample_policy(allowed_relations=()),
+        )
+    finally:
+        connection.close()
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == code
+    assert message in response.error.message
+    assert response.rows == response.provenance == ()
+    assert traces.events[-1].payload["error_code"] == code
