@@ -7,6 +7,8 @@ from pension_data.db.models.investment_positions import PlanManagerFundPosition
 from pension_data.db.models.manager_lifecycle import ManagerLifecycleEvent
 from pension_data.db.views.entity_exposure_views import build_entity_exposure_views
 from pension_data.entities.lookup_service import (
+    _normalize_canonical_query,
+    _normalize_existing_entity_id,
     build_entity_exposure_index,
     lookup_entity_exposures,
 )
@@ -273,3 +275,41 @@ def test_lookup_index_limits_candidate_scan_for_performance_sensitive_queries() 
     assert len(results) == 2
     assert trace.candidate_count == 2
     assert trace.total_rows == len(materialized_rows)
+
+
+def test_lookup_normalizes_canonical_ids_and_uses_compound_index() -> None:
+    rows = build_entity_exposure_views(positions=_positions())
+    index = build_entity_exposure_index(
+        rows,
+        lineage_aliases={"": "manager:alpha capital", "Old Alpha": "unknown:missing"},
+    )
+
+    assert _normalize_canonical_query("manager:") is None
+    assert _normalize_canonical_query("fund:alpha capital:") is None
+    assert _normalize_canonical_query("fund:Fund I") == "fund:fund i"
+    assert _normalize_existing_entity_id({"manager:alpha capital"}, "MANAGER:ALPHA CAPITAL") == (
+        "manager:alpha capital"
+    )
+    results, trace = lookup_entity_exposures(
+        index,
+        entity_query="manager:alpha capital",
+        plan_id="CA-PERS",
+        plan_period="FY2025",
+    )
+    assert len(results) == 1
+    assert trace.candidate_count == 1
+
+
+def test_lookup_filters_by_only_one_plan_dimension_and_reports_miss() -> None:
+    index = build_entity_exposure_index(build_entity_exposure_views(positions=_positions()))
+    by_plan, _ = lookup_entity_exposures(
+        index, entity_query="manager:alpha capital", plan_id="CA-PERS"
+    )
+    by_period, _ = lookup_entity_exposures(
+        index, entity_query="manager:alpha capital", plan_period="FY2025"
+    )
+    missing, trace = lookup_entity_exposures(index, entity_query="no such entity")
+    assert len(by_plan) == 1
+    assert len(by_period) == 2
+    assert missing == []
+    assert trace.candidate_count == 0

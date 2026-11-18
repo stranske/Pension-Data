@@ -221,3 +221,41 @@ def test_thresholds_are_configurable() -> None:
         "funded_ratio_mva",
     )
     assert d.rating == "yellow"  # 0.95 < 0.99 under stricter band
+
+
+def test_health_scorecard_covers_boundary_bands_and_invalid_comparators() -> None:
+    base = {"plan_id": "P", "plan_period": "FY2024"}
+    card = score_plan_health(
+        PlanHealthInputs(
+            **base,
+            funded_ratio_trend=0.0,
+            assumed_return=0.07,
+            realistic_return=1.1,
+            amortization_payment_usd=100.0,
+            uaal_usd=1000.0,
+            amortization_is_closed=False,
+            amortization_period_years=31,
+            net_cash_flow_pct=-5.0,
+            mortality_table_year=2005,
+        )
+    )
+    assert _dim(card, "funded_ratio_trend").rating == "yellow"
+    assert _dim(card, "assumed_return").rating == "unknown"
+    assert _dim(card, "amortization").rating == "yellow"
+    assert _dim(card, "cash_flow_maturity").rating == "yellow"
+    assert _dim(card, "mortality_currency").rating == "yellow"
+
+
+def test_health_scorecard_covers_red_trend_cashflow_and_mortality_bands() -> None:
+    card = score_plan_health(
+        PlanHealthInputs(
+            plan_id="P",
+            plan_period="FY2024",
+            funded_ratio_trend=-0.02,
+            net_cash_flow_pct=-6.0,
+            mortality_table_year=1999,
+        )
+    )
+    assert _dim(card, "funded_ratio_trend").rating == "red"
+    assert _dim(card, "cash_flow_maturity").rating == "red"
+    assert _dim(card, "mortality_currency").rating == "red"
