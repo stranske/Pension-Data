@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from pension_data.finite_guards import is_finite_number
@@ -158,9 +158,14 @@ def _score_anomaly(
 
 
 def _to_utc_iso(dt: datetime) -> str:
-    """Return a UTC-normalized ISO 8601 representation of a datetime."""
-    dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-    return dt.isoformat()
+    """Return an ISO 8601 representation in UTC where representable."""
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        return dt.replace(tzinfo=UTC).isoformat()
+    try:
+        return dt.astimezone(UTC).isoformat()
+    except OverflowError:
+        # Preserve the exact instant using its original offset at datetime's limits.
+        return dt.isoformat()
 
 
 def _build_evidence_context(
@@ -333,11 +338,9 @@ def detect_anomalies(
         key=lambda row: (
             row.plan_id,
             _period_sort_key(row.period),
-            (
-                row.observed_at.replace(tzinfo=UTC)
-                if row.observed_at.tzinfo is None
-                else row.observed_at.astimezone(UTC)
-            ),
+            row.observed_at.replace(tzinfo=None)
+            - datetime.min
+            - (row.observed_at.utcoffset() or timedelta(0)),
         ),
     )
     anomalies: list[AnomalyRecord] = []

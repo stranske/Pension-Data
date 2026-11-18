@@ -244,6 +244,13 @@ def test_default_fleet_path_discovers_project_or_uses_working_directory(
     working.mkdir()
     if project_marker:
         (project / "pyproject.toml").write_text("[project]\nname = 'test-project'\n")
+    path_exists = Path.exists
+    outer_markers = {parent / "pyproject.toml" for parent in tmp_path.resolve().parents}
+
+    def exists_without_outer_project(path: Path) -> bool:
+        return path not in outer_markers and path_exists(path)
+
+    monkeypatch.setattr(Path, "exists", exists_without_outer_project)
     monkeypatch.chdir(working)
     monkeypatch.setattr(langsmith_fleet, "__file__", str(module))
     monkeypatch.delenv("PENSION_DATA_LANGSMITH_FLEET_PATH", raising=False)
@@ -996,6 +1003,7 @@ def test_append_fleet_records_empty_is_noop(tmp_path: Path) -> None:
     assert not path.exists()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="retention replaces an open file on POSIX")
 @pytest.mark.parametrize("locking", ["unavailable", "working", "acquire_error", "release_error"])
 def test_append_fleet_records_preserves_retention_with_optional_locking(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, locking: str
@@ -1013,7 +1021,7 @@ def test_append_fleet_records_preserves_retention_with_optional_locking(
         ):
             raise OSError("file locking unavailable")
 
-    # Windows has no fcntl; fake both availability and failures on any host OS.
+    # Exercise both fcntl availability and failures on the same host.
     monkeypatch.setitem(
         sys.modules,
         "fcntl",

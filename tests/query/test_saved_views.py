@@ -49,20 +49,27 @@ def test_allocation_comparison_without_matching_peers_keeps_subject_value() -> N
 @pytest.mark.parametrize("method", [" ", "custom schedule"])
 def test_benchmark_panel_unknown_amortization_method_is_unscored(method: str) -> None:
     result = execute_benchmark_panel_view(
-        [BenchmarkPanelInput("CA-PERS", "FY2025", "public", amortization_method=method)],
+        [
+            BenchmarkPanelInput("CA-PERS", "FY2025", "public", amortization_method=method),
+            BenchmarkPanelInput("OTHER", "FY2025", "public", amortization_method="closed layered"),
+        ],
         subject_plan_id="CA-PERS",
         plan_period="FY2025",
     )
     methods = [row for row in result if row.metric_name == "amortization_method_closed"]
     assert len(methods) == 1
     assert methods[0].metric_value is None
+    assert methods[0].peer_median == 1.0
     assert methods[0].peer_percentile is None
 
 
 def test_benchmark_panel_missing_subject_returns_no_metrics() -> None:
     assert (
         execute_benchmark_panel_view(
-            [BenchmarkPanelInput("CA-PERS", "FY2024", "public")],
+            [
+                BenchmarkPanelInput("CA-PERS", "FY2024", "public"),
+                BenchmarkPanelInput("OTHER", "FY2025", "public"),
+            ],
             subject_plan_id="CA-PERS",
             plan_period="FY2025",
         )

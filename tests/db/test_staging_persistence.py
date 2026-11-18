@@ -39,7 +39,7 @@ def _evidence_row(evidence: object) -> dict[str, object]:
     ("evidence", "expected"),
     [
         (None, None),
-        ('["p.40"]', '["p.40"]'),
+        ('[ "p.40" ]', '[ "p.40" ]'),
         ({"amount": Decimal("123456789.12345678900")}, '{"amount": 123456789.123456789}'),
         ({"amount": Decimal("-0.00")}, '{"amount": 0}'),
         ({"values": [3, 0.25, True, None]}, '{"values": [3, 0.25, true, null]}'),
@@ -100,6 +100,7 @@ def test_empty_staging_batch_preserves_callers_pending_transaction() -> None:
 
         assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[]) == 0
 
+        assert connection.execute("SELECT value FROM pending_work").fetchall() == [("uncommitted",)]
         connection.rollback()
         assert connection.execute("SELECT value FROM pending_work").fetchall() == []
     finally:
@@ -115,7 +116,9 @@ def test_persist_retries_legacy_text_evidence_and_assertion_dates_without_rewrit
         before = connection.execute("SELECT * FROM staging_core_metrics").fetchall()
 
         retry = {**original, "ingestion_date": "legacy-import"}
+        changes_before = connection.total_changes
         assert persist_staging_core_metrics(connection, dialect="sqlite", rows=[retry]) == 0
+        assert connection.total_changes == changes_before
         assert connection.execute("SELECT * FROM staging_core_metrics").fetchall() == before
 
         correction = {
@@ -156,13 +159,21 @@ def test_historical_retry_requires_exact_closed_assertion_and_preserves_current_
         before = connection.execute(
             "SELECT * FROM staging_core_metrics ORDER BY fact_id"
         ).fetchall()
-        with pytest.raises(ValueError, match="conflicting assertion already exists"):
-            persist_staging_core_metrics(connection, dialect="sqlite", rows=[correction])
         closed_correction = {**correction, "superseded_at": latest["ingestion_date"]}
         assert (
             persist_staging_core_metrics(connection, dialect="sqlite", rows=[closed_correction])
             == 0
         )
+        after = connection.execute("SELECT * FROM staging_core_metrics ORDER BY fact_id").fetchall()
+        assert after == before
+        with pytest.raises(ValueError, match="conflicting assertion already exists"):
+            persist_staging_core_metrics(connection, dialect="sqlite", rows=[correction])
+        with pytest.raises(ValueError, match="conflicting assertion already exists"):
+            persist_staging_core_metrics(
+                connection,
+                dialect="sqlite",
+                rows=[{**closed_correction, "superseded_at": "2026-05-02"}],
+            )
         with pytest.raises(ValueError, match="conflicting assertion already exists"):
             persist_staging_core_metrics(
                 connection,

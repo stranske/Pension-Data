@@ -7,7 +7,7 @@ import sqlite3
 from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
@@ -41,7 +41,9 @@ class StaticChain:
         return self.output
 
 
-def _seed_connection() -> sqlite3.Connection:
+def _seed_connection(
+    *, confidence_affinity: Literal["REAL", "TEXT"] = "REAL"
+) -> sqlite3.Connection:
     connection = sqlite3.connect(":memory:")
     connection.execute(
         "CREATE TABLE sample_metrics ("
@@ -50,7 +52,7 @@ def _seed_connection() -> sqlite3.Connection:
         "value REAL NOT NULL, "
         "source_document_id TEXT NOT NULL, "
         "evidence_refs TEXT, "
-        "confidence REAL)"
+        f"confidence {confidence_affinity})"
     )
     connection.executemany(
         "INSERT INTO sample_metrics (id, metric, value, source_document_id, evidence_refs, confidence) "
@@ -111,11 +113,17 @@ def test_nl_prompt_validator_rejects_ambiguous_questions() -> None:
         validate_nl_prompt("ratio?")
 
 
-def test_nl_route_honors_explicit_fleet_artifact_path_without_category(tmp_path: Path) -> None:
+@pytest.mark.parametrize("explicit_path", [False, True])
+def test_nl_route_honors_explicit_fleet_artifact_path_without_category(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, explicit_path: bool
+) -> None:
     """An explicit artifact destination is an opt-in even without categorization."""
     key_store = APIKeyStore()
     secret, _ = key_store.create_key(scopes=(SCOPE_NL,))
     artifact_path = tmp_path / "fleet.ndjson"
+    default_path = tmp_path / "default-fleet.ndjson"
+    monkeypatch.setattr(nl_route, "default_fleet_artifact_path", lambda: default_path)
+    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
     connection = _seed_connection()
     try:
         result = run_nl_query_endpoint(
@@ -125,7 +133,7 @@ def test_nl_route_honors_explicit_fleet_artifact_path_without_category(tmp_path:
             request=NLToSQLRequest(question="Show funded ratio values", max_rows=10),
             chain=StaticChain("SELECT id, value FROM sample_metrics ORDER BY id"),
             policy=_sample_policy(),
-            fleet_artifact_path=artifact_path,
+            fleet_artifact_path=artifact_path if explicit_path else None,
             log_path=tmp_path / "nl_operations.jsonl",
             run_record_root=tmp_path / "nl_runs",
         )
@@ -133,7 +141,9 @@ def test_nl_route_honors_explicit_fleet_artifact_path_without_category(tmp_path:
         connection.close()
 
     assert result.response.status == "ok"
-    assert artifact_path.read_text(encoding="utf-8").strip()
+    assert not default_path.exists()
+    if explicit_path:
+        assert artifact_path.read_text(encoding="utf-8").strip()
 
 
 @pytest.mark.parametrize("explicit_path", [False, True])
@@ -145,6 +155,7 @@ def test_nl_route_persists_categorized_fleet_records(
     default_path = tmp_path / "default-fleet.ndjson"
     selected_path = tmp_path / "selected-fleet.ndjson" if explicit_path else default_path
     monkeypatch.setattr(nl_route, "default_fleet_artifact_path", lambda: default_path)
+    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
     connection = _seed_connection()
     try:
         result = run_nl_query_endpoint(
@@ -816,7 +827,7 @@ def test_nl_sql_chain_ignores_malformed_provider_usage(invalid: Any) -> None:
     ],
 )
 def test_nl_sql_chain_normalizes_persisted_evidence(raw: Any, expected: tuple[str, ...]) -> None:
-    connection = _seed_connection()
+    connection = _seed_connection(confidence_affinity="TEXT")
     connection.execute(
         "UPDATE sample_metrics SET evidence_refs = ?, confidence = ' 0.75 ' WHERE id = 1", (raw,)
     )
@@ -832,6 +843,7 @@ def test_nl_sql_chain_normalizes_persisted_evidence(raw: Any, expected: tuple[st
     finally:
         connection.close()
     assert response.status == "ok"
+    assert response.rows[0][2] == " 0.75 "
     assert len(response.provenance) == 1
     assert response.provenance[0].source_document_id == "doc:1"
     assert response.provenance[0].evidence_refs == expected

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -584,6 +584,52 @@ def test_same_period_observations_with_mixed_timezones_sort_by_utc(aware_index: 
     assert anomaly.metric == "funded_ratio"
     assert anomaly.evidence_context["previous_observed_at"] == "2025-01-01T00:00:00+00:00"
     assert anomaly.evidence_context["current_observed_at"] == "2025-01-01T01:00:00+00:00"
+    assert anomaly.evidence_context["metric_evidence"]["signed_delta"] == -0.25
+
+
+class _NoOffsetTZ(tzinfo):
+    def utcoffset(self, dt: datetime | None) -> None:
+        return None
+
+
+@pytest.mark.parametrize(
+    ("earlier", "later", "earlier_iso", "later_iso"),
+    [
+        (
+            datetime(2025, 1, 1, tzinfo=_NoOffsetTZ()),
+            datetime(2025, 1, 1, 1, tzinfo=UTC),
+            "2025-01-01T00:00:00+00:00",
+            "2025-01-01T01:00:00+00:00",
+        ),
+        (
+            datetime(1, 1, 1, tzinfo=timezone(timedelta(hours=1))),
+            datetime(1, 1, 1, tzinfo=UTC),
+            "0001-01-01T00:00:00+01:00",
+            "0001-01-01T00:00:00+00:00",
+        ),
+    ],
+    ids=["no-offset", "utc-underflow"],
+)
+def test_same_period_observations_with_edge_case_utc_offsets(
+    earlier: datetime, later: datetime, earlier_iso: str, later_iso: str
+) -> None:
+    points = [
+        _point(
+            plan_id="offset-edge-case",
+            period="FY2025",
+            observed_at=observed_at,
+            funded_ratio=funded_ratio,
+            equity=0.5,
+            fixed_income=0.25,
+            confidence=0.9,
+        )
+        for observed_at, funded_ratio in [(later, 0.5), (earlier, 0.75)]
+    ]
+
+    (anomaly,) = detect_anomalies(points)
+
+    assert anomaly.evidence_context["previous_observed_at"] == earlier_iso
+    assert anomaly.evidence_context["current_observed_at"] == later_iso
     assert anomaly.evidence_context["metric_evidence"]["signed_delta"] == -0.25
 
 
