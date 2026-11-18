@@ -20,6 +20,7 @@ from pension_data.langchain.review_artifact import (
     REVIEWABLE_FINDINGS_ARTIFACT_PATH,
     REVIEWABLE_FINDINGS_SCHEMA_PATH,
     ReviewableFindingsArtifactError,
+    _finding_from_readiness_row,
     build_extraction_quality_dashboard_artifact,
     minimal_findings_json_schema,
     reviewable_findings_schema,
@@ -582,3 +583,269 @@ def test_validator_rejects_compare_without_two_distinct_findings() -> None:
 
     with pytest.raises(ReviewableFindingsArtifactError, match="two distinct findings"):
         validate_reviewable_findings_artifact(artifact)
+
+
+def test_validator_rejects_wrong_artifact_type_and_schema_version() -> None:
+    artifact = _valid_artifact()
+    artifact["artifact_type"] = "other.artifact"
+    with pytest.raises(ReviewableFindingsArtifactError, match="artifact_type"):
+        validate_reviewable_findings_artifact(artifact)
+
+    artifact = _valid_artifact()
+    artifact["schema_version"] = 99
+    with pytest.raises(ReviewableFindingsArtifactError, match="schema_version"):
+        validate_reviewable_findings_artifact(artifact)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("slice", "not-an-object", "must be an object"),
+        ("findings", (), "must not be empty"),
+        ("findings", "not-a-list", "must be a list"),
+        ("langchain_actions", "not-a-list", "must be a list"),
+    ],
+)
+def test_validator_rejects_malformed_artifact_sections(
+    field: str, value: object, message: str
+) -> None:
+    artifact = _valid_artifact()
+    artifact[field] = value
+    with pytest.raises(ReviewableFindingsArtifactError, match=message):
+        validate_reviewable_findings_artifact(artifact)
+
+
+def test_validator_rejects_invalid_severity_and_unknown_langchain_action() -> None:
+    artifact = _valid_artifact()
+    artifact["findings"][0]["severity"] = "critical"
+    with pytest.raises(ReviewableFindingsArtifactError, match="severity"):
+        validate_reviewable_findings_artifact(artifact)
+
+    artifact = _valid_artifact()
+    artifact["langchain_actions"][0]["action"] = "summarize"
+    with pytest.raises(ReviewableFindingsArtifactError, match="action must be one of"):
+        validate_reviewable_findings_artifact(artifact)
+
+
+def test_validator_requires_compare_when_multiple_findings_exist() -> None:
+    artifact = _valid_artifact()
+    artifact["langchain_actions"] = [artifact["langchain_actions"][0]]
+    with pytest.raises(ReviewableFindingsArtifactError, match="compare and explain"):
+        validate_reviewable_findings_artifact(artifact)
+
+
+def test_build_from_sources_rejects_missing_contract_file(tmp_path: Path) -> None:
+    missing = tmp_path / "missing_contract.json"
+    readiness = tmp_path / "readiness.csv"
+    readiness.write_text(
+        "plan_id,plan_period,is_extraction_ready\nA,FY2024,true\n", encoding="utf-8"
+    )
+    with pytest.raises(ReviewableFindingsArtifactError, match="not found"):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=missing,
+            readiness_csv_path=readiness,
+        )
+
+
+def test_build_from_sources_rejects_invalid_contract_json(tmp_path: Path) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text("{not json", encoding="utf-8")
+    readiness = tmp_path / "readiness.csv"
+    readiness.write_text(
+        "plan_id,plan_period,is_extraction_ready\nA,FY2024,true\n", encoding="utf-8"
+    )
+    with pytest.raises(ReviewableFindingsArtifactError, match="failed to parse as JSON"):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness,
+        )
+
+
+def test_build_from_sources_rejects_non_object_contract_payload(tmp_path: Path) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+    readiness = tmp_path / "readiness.csv"
+    readiness.write_text(
+        "plan_id,plan_period,is_extraction_ready\nA,FY2024,true\n", encoding="utf-8"
+    )
+    with pytest.raises(ReviewableFindingsArtifactError, match="must be a JSON object"):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness,
+        )
+
+
+def test_build_from_sources_rejects_contract_without_readiness_columns(tmp_path: Path) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text(json.dumps({"metadata": "only"}), encoding="utf-8")
+    readiness = tmp_path / "readiness.csv"
+    readiness.write_text(
+        "plan_id,plan_period,is_extraction_ready\nA,FY2024,true\n", encoding="utf-8"
+    )
+    with pytest.raises(
+        ReviewableFindingsArtifactError, match="must define source_authority_readiness"
+    ):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness,
+        )
+
+
+def test_build_from_sources_rejects_contract_missing_plan_columns(tmp_path: Path) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text(
+        json.dumps({"staging_core_metrics": ["metric_name", "is_extraction_ready"]}),
+        encoding="utf-8",
+    )
+    readiness = tmp_path / "readiness.csv"
+    readiness.write_text(
+        "plan_id,plan_period,is_extraction_ready\nA,FY2024,true\n", encoding="utf-8"
+    )
+    with pytest.raises(ReviewableFindingsArtifactError, match="missing required columns"):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness,
+        )
+
+
+@pytest.mark.parametrize(
+    ("csv_body", "message"),
+    [
+        ("", "no header row"),
+        ("metric,value\na,b\n", "missing required columns"),
+        ("plan_id,plan_period,is_extraction_ready\n", "no rows"),
+    ],
+)
+def test_build_from_sources_rejects_unusable_readiness_csv(
+    tmp_path: Path, csv_body: str, message: str
+) -> None:
+    contract_path, _ = _write_real_sources(tmp_path)
+    readiness = tmp_path / "readiness.csv"
+    readiness.write_text(csv_body, encoding="utf-8")
+    with pytest.raises(ReviewableFindingsArtifactError, match=message):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness,
+        )
+
+
+def test_build_from_sources_uses_readiness_key_alias_in_contract(tmp_path: Path) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text(
+        json.dumps({"readiness": ["plan_id", "plan_period", "is_extraction_ready"]}),
+        encoding="utf-8",
+    )
+    readiness = tmp_path / "readiness.csv"
+    readiness.write_text(
+        "plan_id,plan_period,is_extraction_ready\nOR-PERS,FY2024,true\n",
+        encoding="utf-8",
+    )
+    artifact = build_extraction_quality_dashboard_artifact(
+        persistence_contract_path=contract_path,
+        readiness_csv_path=readiness,
+    )
+    validate_reviewable_findings_artifact(artifact)
+    assert artifact["findings"][0]["entity"] == "OR-PERS"
+
+
+def test_finding_from_readiness_row_handles_missing_and_present_identity(tmp_path: Path) -> None:
+    contract_path, readiness_path = _write_real_sources(tmp_path)
+    assert (
+        _finding_from_readiness_row(
+            {"plan_id": " ", "plan_period": ""},
+            contract_path=contract_path,
+            readiness_path=readiness_path,
+        )
+        is None
+    )
+    finding = _finding_from_readiness_row(
+        {"plan_id": "OR-PERS", "plan_period": "FY2024", "is_extraction_ready": "true"},
+        contract_path=contract_path,
+        readiness_path=readiness_path,
+    )
+    assert finding is not None
+    assert finding["finding_id"] == "finding:OR-PERS:FY2024:extraction-readiness"
+
+
+def test_build_from_sources_accepts_source_authority_readiness_contract_key(tmp_path: Path) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text(
+        json.dumps(
+            {"source_authority_readiness": ["plan_id", "plan_period", "is_extraction_ready"]}
+        ),
+        encoding="utf-8",
+    )
+    readiness = tmp_path / "readiness.csv"
+    readiness.write_text(
+        "plan_id,plan_period,is_extraction_ready\nOR-PERS,FY2024,true\n",
+        encoding="utf-8",
+    )
+    artifact = build_extraction_quality_dashboard_artifact(
+        persistence_contract_path=contract_path,
+        readiness_csv_path=readiness,
+    )
+    validate_reviewable_findings_artifact(artifact)
+
+
+def test_build_from_sources_rejects_non_list_contract_columns(tmp_path: Path) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text(json.dumps({"staging_core_metrics": "plan_id"}), encoding="utf-8")
+    readiness = tmp_path / "readiness.csv"
+    readiness.write_text(
+        "plan_id,plan_period,is_extraction_ready\nA,FY2024,true\n", encoding="utf-8"
+    )
+    with pytest.raises(ReviewableFindingsArtifactError, match="must be a list of column names"):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness,
+        )
+
+
+def test_build_from_sources_rejects_malformed_readiness_csv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import csv
+
+    contract_path, readiness_path = _write_real_sources(tmp_path)
+
+    def _broken_dict_reader(*_args: object, **_kwargs: object) -> object:
+        raise csv.Error("broken csv row")
+
+    monkeypatch.setattr(csv, "DictReader", _broken_dict_reader)
+    with pytest.raises(ReviewableFindingsArtifactError, match="failed to parse as CSV"):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness_path,
+        )
+
+
+def test_build_marks_not_found_resolution_as_not_official_ready(tmp_path: Path) -> None:
+    contract_path, readiness_path = _write_real_sources(tmp_path)
+    readiness_path.write_text(
+        "plan_id,plan_period,cohort,system_type,official_resolution_state,"
+        "source_authority_tier,mismatch_reason,extraction_blocker_reason,"
+        "is_extraction_ready,readiness_state\n"
+        "CA-PERS,FY2024,state,public,not_found,official,,,true,ready\n",
+        encoding="utf-8",
+    )
+    artifact = build_extraction_quality_dashboard_artifact(
+        persistence_contract_path=contract_path,
+        readiness_csv_path=readiness_path,
+    )
+    finding = artifact["findings"][0]
+    assert finding["value"] == 1.0
+    assert finding["severity"] == "info"
+
+
+def test_build_from_sources_skips_rows_without_plan_identity(tmp_path: Path) -> None:
+    contract_path, readiness_path = _write_real_sources(tmp_path)
+    readiness_path.write_text(
+        "plan_id,plan_period,is_extraction_ready\n" ",,true\n" "OR-PERS,FY2024,true\n",
+        encoding="utf-8",
+    )
+    artifact = build_extraction_quality_dashboard_artifact(
+        persistence_contract_path=contract_path,
+        readiness_csv_path=readiness_path,
+    )
+    assert len(artifact["findings"]) == 1
+    assert artifact["findings"][0]["entity"] == "OR-PERS"
