@@ -437,10 +437,13 @@ def test_actuarial_table_row_guards_skip_empty_or_unparseable_values() -> None:
 
 
 def test_actuarial_normalize_metric_value_raises_when_money_normalization_fails() -> None:
-    with patch(
-        "pension_data.extract.actuarial.metrics.normalize_money_to_usd",
-        return_value=None,
-    ), pytest.raises(ValueError, match="money normalization"):
+    with (
+        patch(
+            "pension_data.extract.actuarial.metrics.normalize_money_to_usd",
+            return_value=None,
+        ),
+        pytest.raises(ValueError, match="money normalization"),
+    ):
         actuarial_metrics._normalize_metric_value(
             metric_kind="money",
             raw_text="$1 million",
