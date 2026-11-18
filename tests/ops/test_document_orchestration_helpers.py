@@ -344,3 +344,121 @@ def test_jsonable_serializes_nested_dataclasses() -> None:
     state = DocumentOrchestrationState(published_fact_ids=("fact:1",))
     payload = orchestration._jsonable(state)
     assert payload["published_fact_ids"] == ["fact:1"]
+
+
+def test_jsonable_serializes_builtin_dict_and_list() -> None:
+    assert orchestration._jsonable({"alpha": 1, "nested": {"beta": 2}}) == {
+        "alpha": 1,
+        "nested": {"beta": 2},
+    }
+    assert orchestration._jsonable([1, ("pair",), {"key": "value"}]) == [
+        1,
+        ["pair"],
+        {"key": "value"},
+    ]
+
+
+def test_build_financial_flow_input_collects_evidence_from_matched_rows() -> None:
+    raw = _raw(
+        (
+            {"label": "Beginning AUM", "value": "$100 million", "evidence_ref": "p.1"},
+            {"label": "Ending AUM", "value": "$110 million", "evidence_ref": "p.2"},
+        )
+    )
+    flow = orchestration._build_financial_flow_input(raw=raw)
+    assert flow.evidence_refs == ("p.1", "p.2")
+
+
+def test_build_allocation_inputs_skip_unparseable_category_values() -> None:
+    raw = _raw(
+        (
+            {
+                "label": "allocation:Private Markets",
+                "value": "not disclosed",
+                "evidence_ref": "p.skip",
+            },
+        )
+    )
+    assert orchestration._build_allocation_inputs(raw) == []
+
+
+def test_build_manager_disclosure_inputs_skip_empty_evidence_refs() -> None:
+    raw = _raw(
+        (
+            {
+                "label": "position:Alpha:Fund I:commitment",
+                "value": "$10 million",
+                "evidence_ref": "",
+            },
+        )
+    )
+    rows = orchestration._build_manager_disclosure_inputs(
+        raw=raw,
+        plan_id="CA-PERS",
+        plan_period="FY2024",
+    )
+    assert rows[0].commitment == 10.0
+    assert rows[0].evidence_refs == ()
+
+
+def test_build_manager_disclosure_inputs_set_disclosure_flag_fields() -> None:
+    raw = _raw(
+        (
+            {
+                "label": "position:Beta Partners:Fund II:not_disclosed",
+                "value": "true",
+                "evidence_ref": "p.nd",
+            },
+            {
+                "label": "position:Beta Partners:Fund II:known_not_invested",
+                "value": "true",
+                "evidence_ref": "p.kni",
+            },
+        )
+    )
+    rows = orchestration._build_manager_disclosure_inputs(
+        raw=raw,
+        plan_id="CA-PERS",
+        plan_period="FY2024",
+    )
+    assert len(rows) == 1
+    assert rows[0].explicit_not_disclosed is True
+    assert rows[0].known_not_invested is True
+    assert rows[0].evidence_refs == ("p.nd", "p.kni")
+
+
+def test_build_risk_inputs_appends_evidence_without_numeric_field_match() -> None:
+    raw = _raw(
+        (
+            {
+                "label": "risk:derivatives:swaps:footnotes",
+                "value": "See footnote 14",
+                "evidence_ref": "p.70",
+            },
+        )
+    )
+    derivatives, securities = orchestration._build_risk_inputs(raw)
+    assert len(derivatives) == 1
+    assert derivatives[0].evidence_refs == ("p.70",)
+    assert securities == []
+
+
+def test_build_consultant_mentions_parses_attribution_and_skips_unknown_blocks() -> None:
+    raw = RawFundedActuarialInput(
+        source_document_id="doc:test",
+        source_url="https://example.test/report.pdf",
+        effective_date="2024-06-30",
+        ingestion_date="2026-01-01",
+        default_money_unit_scale="million_usd",
+        text_blocks=(
+            "footnote:ignored line",
+            "attribution:Jane Actuary|discount_rate|observed beat|strong",
+        ),
+        table_rows=(),
+    )
+    consultants, recommendations, attributions = orchestration._build_consultant_mentions(raw)
+    assert consultants == []
+    assert recommendations == []
+    assert len(attributions) == 1
+    assert attributions[0].consultant_name == "Jane Actuary"
+    assert attributions[0].strength == "strong"
