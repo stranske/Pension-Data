@@ -59,6 +59,7 @@ from pension_data.parser.doc_lineage_backend import DocLineagePages
 from pension_data.parser.hybrid_backend import HybridBackendConfig
 from pension_data.parser.pdf_pipeline import (
     PDFParserInput,
+    _collect_provenance_refs,
     _decode_pdf_string_token,
     _extract_page_lines,
     _extract_table_rows,
@@ -503,6 +504,29 @@ def test_pdf_complex_table_year_columns_and_percent_suffix() -> None:
     )
     assert result.raw is not None
     assert any(row.get("complex_table") == "true" for row in result.raw.table_rows)
+    funded_ratio = next(row for row in result.raw.table_rows if row["label"] == "Funded ratio")
+    assert funded_ratio["value"] == "81.2%"
+    assert funded_ratio["2023"] == "78.0"
+    assert funded_ratio["2024"] == "81.2%"
+
+
+def test_pdf_provenance_omits_blank_table_refs_and_preserves_order() -> None:
+    raw = RawFundedActuarialInput(
+        source_document_id="doc:provenance",
+        source_url="https://example.org/report.pdf",
+        effective_date="2024-06-30",
+        ingestion_date="2026-01-01",
+        default_money_unit_scale="million_usd",
+        text_blocks=("AAL $410 million",),
+        text_block_evidence_refs=(" p.2#text ", "p.2#text"),
+        table_rows=(
+            {"label": "AAL", "value": "$410 million", "evidence_ref": "  "},
+            {"label": "AVA", "value": "$333.7 million"},
+            {"label": "Funded ratio", "value": "81.2%", "evidence_ref": " p.3#table "},
+            {"label": "Discount rate", "value": "6.75%", "evidence_ref": "p.3#table"},
+        ),
+    )
+    assert _collect_provenance_refs(raw) == ("p.2#text", "p.3#table")
 
 
 def test_pdf_empty_text_arrays_do_not_hide_metric_text() -> None:
