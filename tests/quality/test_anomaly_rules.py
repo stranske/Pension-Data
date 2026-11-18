@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
@@ -457,6 +457,35 @@ def test_naive_datetimes_are_normalized_to_utc_in_evidence_and_queue() -> None:
     )
     assert queued
     assert queued[0].created_at == datetime(2026, 1, 2, 0, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("aware_index", [0, 1], ids=["aware-previous", "aware-current"])
+def test_same_period_observations_with_mixed_timezones_sort_by_utc(aware_index: int) -> None:
+    points = [
+        _point(
+            plan_id="mixed-timezones",
+            period="2025",
+            observed_at=(
+                datetime(2025, 1, 1, 4 + index, tzinfo=timezone(timedelta(hours=4)))
+                if index == aware_index
+                else datetime(2025, 1, 1, index)
+            ),
+            funded_ratio=0.75 - index * 0.25,
+            equity=0.5,
+            fixed_income=0.25,
+            confidence=0.9,
+        )
+        for index in range(2)
+    ]
+    # Reverse arrival order so stable input ordering cannot hide the timestamp tie-breaker.
+    anomalies = detect_anomalies(list(reversed(points)))
+
+    assert len(anomalies) == 1
+    anomaly = anomalies[0]
+    assert anomaly.metric == "funded_ratio"
+    assert anomaly.evidence_context["previous_observed_at"] == "2025-01-01T00:00:00+00:00"
+    assert anomaly.evidence_context["current_observed_at"] == "2025-01-01T01:00:00+00:00"
+    assert anomaly.evidence_context["metric_evidence"]["signed_delta"] == -0.25
 
 
 @pytest.mark.parametrize("corrupt_metric", ["funded_ratio", "allocation:public_equity"])

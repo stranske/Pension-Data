@@ -330,7 +330,15 @@ def detect_anomalies(
     """Detect funded and allocation shift anomalies in time-series points."""
     ordered = sorted(
         points,
-        key=lambda row: (row.plan_id, _period_sort_key(row.period), row.observed_at),
+        key=lambda row: (
+            row.plan_id,
+            _period_sort_key(row.period),
+            (
+                row.observed_at.replace(tzinfo=UTC)
+                if row.observed_at.tzinfo is None
+                else row.observed_at
+            ),
+        ),
     )
     anomalies: list[AnomalyRecord] = []
 
