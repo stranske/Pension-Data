@@ -1,7 +1,7 @@
 ## Summary
 
 Adds discriminating tests for the eight coverage targets in issue #1045's order.
-These follow-ups add 68 parameterized cases covering numeric period ordering,
+These follow-ups add 70 parameterized cases covering numeric period ordering,
 categorized fleet artifact selection, usage-total precedence, decoded evidence,
 ambiguous prompts, fleet trace/path/metadata handling, exact evidence persistence,
 historical assertion retries, incomplete holdings, workbook cleanup, and saved-view
@@ -10,11 +10,15 @@ invalid evidence-key rollback, empty-batch transaction isolation, legacy retries
 and preservation of the last usable trace when an SDK response contains missing
 or blank mapping references, plus exact anomaly warning/critical thresholds, equal-threshold scoring, and
 isolation of non-finite funded ratios and allocations in either observation.
-The only production change fixes an observed crash: sorting same-period observations
+The production changes fix two reproduced timestamp bugs. Sorting same-period observations
 with mixed naive and timezone-aware timestamps raised `TypeError`. The sort key now
 interprets naive timestamps as UTC, matching the existing evidence conversion.
 Two new regression cases reproduce the crash before the fix and verify chronological
 evidence and signed shift after it.
+Two further regression cases reproduce reversed ordering across a daylight-saving
+rollback. Aware timestamps are now converted to UTC before sorting, so both the
+repeated wall-clock time and a rollback preserve chronological evidence and the
+funded-ratio change's direction.
 
 The broader database suite establishes that historical retries without the stored
 supersession timestamp are intentionally rejected. The new persistence test verifies
@@ -29,12 +33,12 @@ verification is recorded in `docs/reports/issue-1045-coverage-verification.md`.
 ## Whole-CI baseline and verified result
 
 The original issue baseline is **89.95% blended line/branch coverage**. The latest
-[Gate run 44271298613](https://github.com/stranske/Pension-Data/actions/runs/44271298613)
-at PR head `cbef6c6cca2d1608023a3aa151609e1d9288a289` passed on Python 3.13 and
-3.14. The Python 3.14 coverage job reports **2,447 passed, 51 skipped; 92.49%**.
-This was re-read from job `134688577319`; it includes the six anomaly threshold
-and twelve corrupt-metric isolation cases. The mixed-timestamp fix and its two
-regression cases below still require CI on their eventual commit.
+[Gate run 44277089377](https://github.com/stranske/Pension-Data/actions/runs/44277089377)
+at PR head `b56128952c6a27119b7a20f8168a5ce0cb29c013` passed on Python 3.13 and
+3.14. The Python 3.14 coverage job reports **2,449 passed, 51 skipped; 92.49%**.
+This was re-read from job `134708231452`; it includes the mixed naive/aware timestamp
+fix and its two regression cases. The daylight-saving fix and its two new cases
+still require CI on their eventual commit.
 
 The ranked targets started with 186 uncovered statements plus branches according
 to the issue. Their Gate output now leaves 10, a **176-unit reduction**, four
@@ -122,7 +126,7 @@ pytest tests/quality/test_anomaly_rules.py tests/quant/test_scenarios.py \
   --cov=pension_data.query.saved_views.service --cov-report=term-missing
 ```
 
-Result after mutation restoration: **345 passed, 2 skipped; 99.50%** across the eight
+Result after mutation restoration: **347 passed, 2 skipped; 99.50%** across the eight
 targets. Both skips are pre-existing real-workbook tests because optional openpyxl
 is absent. The new workbook boundary tests use a fake reader and run without it.
 
@@ -395,29 +399,97 @@ for each command. Ruff's CI command, targeted mypy, and `git diff --check` passe
 The aggregate Black runner initially stalled; sequential single-file Black CLI
 checks populated its normal cache before the successful aggregate checks.
 
-## Delivery blocker
+## Daylight-saving timestamp regression and fix
 
-The previous corrupt-metric follow-up is committed in `cbef6c6`; its old staging
-blocker was recovered by the automation writer. This run's new source fix,
-regression test, and updated report still need delivery.
+The recent commits were reviewed before implementation. All eight ranked targets
+already have public-boundary tests; their CI gaps and deliberate-break proofs are
+reconciled above. The first unchecked live-PR task remains publication of that
+whole-CI reconciliation. Updating the PR body with this prepared report was
+attempted again and rejected: `MCP tool call requires approval, but approval
+policy is never`. No remote task checkbox was changed.
 
-Attempted `git add src/pension_data/quality/anomaly_rules.py
-tests/quality/test_anomaly_rules.py docs/reports/issue-1045-pr-body.md` before the intended commit
-`fix: sort mixed anomaly observation timestamps as UTC`. Staging failed with:
+The first ranked target still contained an observable ordering bug. Python
+compares aware datetimes sharing the same timezone by their local wall time,
+ignoring the DST fold. On the New York rollback, 01:45 in the first hour precedes
+01:15 in the second hour in UTC, yet the detector reversed them. Identical 01:30
+wall times also retained reversed arrival order despite distinct UTC instants.
+Both new parameterized cases failed against the original source because previous
+and current evidence timestamps were swapped; the signed funded-ratio change was
+also reversed. The one-line fix converts aware sort timestamps to UTC. The tests
+check chronological evidence, a -0.25 signed change, and unchanged input timezone
+and fold metadata.
 
-```text
-fatal: Unable to create '/home/runner/work/Pension-Data/Pension-Data/.git/index.lock': Read-only file system
+Focused verification:
+
+```sh
+pytest tests/quality/test_anomaly_rules.py -q -m 'not slow' \
+  --cov=pension_data.quality.anomaly_rules --cov-report=term-missing
 ```
 
-The environment exposes `.git` as read-only, so this run cannot commit or push.
-The three changed files remain in the working tree for the automation writer to
-commit on `codex/issue-1045`. No new branch or PR was created.
+Before: **50 passed; 98.91%**. After: **52 passed; 98.91%**. The table still
+reports 144 statements, one missing statement, 40 branches, and one missing branch
+at line 150. This follow-up claims **zero additional coverage units**. The CI
+ranked-target reduction remains **176 of about 180**, four units short; no focused
+counts are added to it.
 
-The remote PR-body/title update, blocker comment, and `needs-human` label were rejected with
-`MCP tool call requires approval, but approval policy is never`. This file is the
-prepared replacement body; the first task and delivery acceptance remain pending
-until a writer with Git and GitHub write access publishes the verified work.
-PR #1046 was checked again and remains open with `draft=false` at `cbef6c6`.
+For the real break-and-revert, `else row.observed_at.astimezone(UTC)` was replaced
+with the original `else row.observed_at` in the actual production file:
+
+```sh
+pytest tests/quality/test_anomaly_rules.py -q -m 'not slow' -k dst_fold \
+  --no-cov --junitxml=/tmp/pension-dst-mutation.xml
+```
+
+Exit 1, **2 failed, 50 deselected**. JUnit confirmed both new cases failed, with
+no errors or skips. The fixed source was restored byte-for-byte in a `finally`
+block. The restored eight-target command above passes **347 tests, 2 skipped;
+99.50%**. No production mutation remains.
+
+The complete suite was attempted without exclusions:
+
+```sh
+timeout 50s pytest tests/ -q -m 'not slow' --no-cov -o faulthandler_timeout=20
+```
+
+It collected **2,486 tests, one collection skip**, then hung in the same existing
+`tests/api/test_app_serving.py::test_health_and_config_routes` AnyIO
+`run_sync_from_thread` wait. The bounded run exited 124. Existing tests were not
+edited, skipped, or disabled. The successful hosted Gate above covers `b561289`,
+not this new fix.
+
+## Delivery blocker
+
+The earlier mixed-timestamp fix and report are committed in `b561289`; automation
+recovered the preceding run's read-only Git blocker. This run's daylight-saving
+fix, two new regression cases, and report are prepared on `codex/issue-1045`.
+No new branch or PR was created. The prepared task checklist below records local
+verification; the live PR body still needs publication by a permitted writer.
+
+Both changed Python files were formatted individually with Black at line length
+100. Black's multi-file worker initially failed because the sandbox prohibits its
+forkserver socket. Sequential single-file CLI checks populated Black's normal
+cache; both exact aggregate Black commands above then passed, **469 files
+unchanged** each. No formatter checks were bypassed. The current committed-head
+Gate lint logs confirm the recorded CI flags. The CI Ruff command, targeted mypy,
+and `git diff --check` also pass.
+
+The commit attempt ran after those checks:
+
+```sh
+git add src/pension_data/quality/anomaly_rules.py \
+  tests/quality/test_anomaly_rules.py docs/reports/issue-1045-pr-body.md
+git commit -m 'fix: order anomaly observations by UTC across DST folds'
+```
+
+Staging failed with `fatal: Unable to create
+'/home/runner/work/Pension-Data/Pension-Data/.git/index.lock': Read-only file system`.
+The commit command was therefore not reached. The three changes remain available
+for the automation writer; this run cannot commit or push with `.git` read-only.
+The remote body update was also rejected with `MCP tool call requires approval,
+but approval policy is never`. The blocker comment and `needs-human` label were
+rejected for the same reason. PR #1046 was verified open with `draft=false` at
+`b561289`; its live body and task checkboxes remain unchanged. Delivery remains
+incomplete.
 
 Closes #1045
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -486,6 +487,53 @@ def test_same_period_observations_with_mixed_timezones_sort_by_utc(aware_index: 
     assert anomaly.evidence_context["previous_observed_at"] == "2025-01-01T00:00:00+00:00"
     assert anomaly.evidence_context["current_observed_at"] == "2025-01-01T01:00:00+00:00"
     assert anomaly.evidence_context["metric_evidence"]["signed_delta"] == -0.25
+
+
+@pytest.mark.parametrize(
+    ("previous_minute", "current_minute"),
+    [(45, 15), (30, 30)],
+    ids=["wall-clock-rollback", "repeated-wall-time"],
+)
+def test_same_period_observations_across_dst_fold_sort_by_utc(
+    previous_minute: int, current_minute: int
+) -> None:
+    eastern = ZoneInfo("America/New_York")
+    previous = _point(
+        plan_id="dst-fold",
+        period="2025",
+        observed_at=datetime(2025, 11, 2, 1, previous_minute, tzinfo=eastern, fold=0),
+        funded_ratio=0.75,
+        equity=0.5,
+        fixed_income=0.25,
+        confidence=0.9,
+    )
+    current = _point(
+        plan_id="dst-fold",
+        period="2025",
+        observed_at=datetime(2025, 11, 2, 1, current_minute, tzinfo=eastern, fold=1),
+        funded_ratio=0.5,
+        equity=0.5,
+        fixed_income=0.25,
+        confidence=0.9,
+    )
+
+    anomalies = detect_anomalies([current, previous])
+
+    assert len(anomalies) == 1
+    anomaly = anomalies[0]
+    assert anomaly.metric == "funded_ratio"
+    assert anomaly.shift == 0.25
+    assert anomaly.evidence_context["previous_observed_at"] == (
+        f"2025-11-02T05:{previous_minute:02d}:00+00:00"
+    )
+    assert anomaly.evidence_context["current_observed_at"] == (
+        f"2025-11-02T06:{current_minute:02d}:00+00:00"
+    )
+    assert anomaly.evidence_context["metric_evidence"]["signed_delta"] == -0.25
+    assert previous.observed_at.tzinfo is eastern
+    assert previous.observed_at.fold == 0
+    assert current.observed_at.tzinfo is eastern
+    assert current.observed_at.fold == 1
 
 
 @pytest.mark.parametrize("corrupt_metric", ["funded_ratio", "allocation:public_equity"])

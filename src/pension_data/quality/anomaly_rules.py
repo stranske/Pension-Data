@@ -336,7 +336,7 @@ def detect_anomalies(
             (
                 row.observed_at.replace(tzinfo=UTC)
                 if row.observed_at.tzinfo is None
-                else row.observed_at
+                else row.observed_at.astimezone(UTC)
             ),
         ),
     )
