@@ -204,6 +204,34 @@ def test_trace_sink_constructs_default_client_and_preserves_last_trace(
     assert sink.latest_trace_url == "https://example.org/trace-one"
 
 
+@pytest.mark.parametrize(
+    "empty_run",
+    [{}, {"id": " ", "run_id": None, "trace_id": "\t", "url": "", "trace_url": " "}],
+    ids=["missing-references", "blank-references"],
+)
+def test_trace_sink_preserves_last_trace_when_mapping_has_no_usable_reference(
+    empty_run: dict[str, str | None],
+) -> None:
+    responses = iter(
+        [{"run_id": " trace-one ", "trace_url": " https://example.org/trace-one "}, empty_run]
+    )
+
+    class RecordingClient:
+        def create_run(self, **kwargs: Any) -> dict[str, str | None]:
+            return next(responses)
+
+    sink = langsmith_fleet.LangSmithClientTraceSink(client=RecordingClient())
+    event = LangSmithTraceEvent(stage="nl.sql.executed", payload={"row_count": 2})
+    sink.emit(event)
+    assert sink.latest_trace_id == "trace-one"
+    assert sink.latest_trace_url == "https://example.org/trace-one"
+
+    sink.emit(event)
+
+    assert sink.latest_trace_id == "trace-one"
+    assert sink.latest_trace_url == "https://example.org/trace-one"
+
+
 @pytest.mark.parametrize("project_marker", [False, True])
 def test_default_fleet_path_discovers_project_or_uses_working_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, project_marker: bool
