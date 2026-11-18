@@ -1,7 +1,7 @@
 ## Summary
 
 Adds discriminating tests for the eight coverage targets in issue #1045's order.
-These follow-ups add 70 parameterized cases covering numeric period ordering,
+These follow-ups add discriminating cases covering numeric period ordering,
 categorized fleet artifact selection, usage-total precedence, decoded evidence,
 ambiguous prompts, fleet trace/path/metadata handling, exact evidence persistence,
 historical assertion retries, incomplete holdings, workbook cleanup, and saved-view
@@ -9,7 +9,8 @@ missing-data behavior, fleet retention with optional or failing file locking,
 invalid evidence-key rollback, empty-batch transaction isolation, legacy retries,
 and preservation of the last usable trace when an SDK response contains missing
 or blank mapping references, plus exact anomaly warning/critical thresholds, equal-threshold scoring, and
-isolation of non-finite funded ratios and allocations in either observation.
+isolation of non-finite funded ratios and allocations in either observation,
+and conservative confidence selection when one source has lower confidence.
 The production changes fix two reproduced timestamp bugs. Sorting same-period observations
 with mixed naive and timezone-aware timestamps raised `TypeError`. The sort key now
 interprets naive timestamps as UTC, matching the existing evidence conversion.
@@ -33,12 +34,12 @@ verification is recorded in `docs/reports/issue-1045-coverage-verification.md`.
 ## Whole-CI baseline and verified result
 
 The original issue baseline is **89.95% blended line/branch coverage**. The latest
-[Gate run 44278666266](https://github.com/stranske/Pension-Data/actions/runs/44278666266)
-at PR head `fe8eba144138cc217fbddb044b44dbe45b0d8b1d` passed on Python 3.13 and
-3.14. The Python 3.14 coverage job reports **2,451 passed, 51 skipped; 92.49%**.
-This was re-read from job `134713638118`; it includes both timestamp fixes and
-their four regression cases. The new plan-boundary cases below still require CI
-on their eventual commit.
+[Gate run 44280200490](https://github.com/stranske/Pension-Data/actions/runs/44280200490)
+at PR head `74faee5505547a980b0582fd56e2ad050d1df5aa` passed on Python 3.13 and
+3.14. The Python 3.14 coverage job reports **2,453 passed, 51 skipped; 92.49%**.
+This was re-read from job `134718859694`; it includes both timestamp fixes,
+their four regression cases, and the two finite plan-boundary cases. The four
+new confidence-selection cases below still require CI after delivery.
 
 The ranked targets started with 186 uncovered statements plus branches according
 to the issue. Their Gate output now leaves 10, a **176-unit reduction**, four
@@ -126,7 +127,7 @@ pytest tests/quality/test_anomaly_rules.py tests/quant/test_scenarios.py \
   --cov=pension_data.query.saved_views.service --cov-report=term-missing
 ```
 
-Result after mutation restoration: **349 passed, 2 skipped; 99.50%** across the eight
+Result after mutation restoration: **353 passed, 2 skipped; 99.50%** across the eight
 targets. Both skips are pre-existing real-workbook tests because optional openpyxl
 is absent. The new workbook boundary tests use a fake reader and run without it.
 
@@ -543,6 +544,74 @@ were each rejected because connector writes require approval and approval policy
 is `never`. Final PR inspection confirmed #1046 remains open with `draft=false`
 at `fe8eba1`; its live body and task checkboxes remain unchanged. Delivery and
 remote reconciliation remain incomplete.
+
+## Conservative confidence follow-up
+
+Re-read issue #1045's ranking and the whole-suite Gate logs at the checked-out
+head `74faee5` before changing tests. The original CI baseline remains **89.95%**;
+Gate run `44280200490`, job `134718859694`, reports **92.49%** after the PR's
+existing work. Its ranked-target table still totals ten missing statements plus
+branches, a **176-unit reduction**, four short of 180. This is an existing PR
+continuation; the initial measurement preceded its coverage additions. No local
+focused gain is added to the whole-CI count.
+
+The first ranked target's remaining scorer path is filtered out by public anomaly
+detection. Four new cases instead strengthen the existing confidence contract:
+for warning and critical funded/allocation shifts, either the previous or current
+observation can be the weaker source. Both anomaly types must retain that lower
+confidence, its exact score, and its review-queue priority and reason. Earlier
+critical tests put both sources on the same side of the priority threshold and
+only bounded the score, so selecting the stronger source could pass them.
+Production code is unchanged; no defect was found.
+
+Changed-module coverage command:
+
+```sh
+pytest tests/quality/test_anomaly_rules.py -q -m 'not slow' \
+  --cov=pension_data.quality.anomaly_rules --cov-report=term-missing
+```
+
+Before: **54 passed; 98.91%**. After: **58 passed; 98.91%**. Both JSON summaries
+report one missing statement and one missing branch (line 150). This follow-up
+claims **zero additional coverage units**, and does not mark the CI acceptance
+criterion complete before the new tests are delivered and run there.
+
+Actual break-and-revert runs independently replaced `min(previous.confidence,
+current.confidence)` with `max(...)` in the funded and allocation detectors.
+Each run selected `-k weaker_observation --no-cov -m 'not slow' --tb=short` and
+failed all **four** cases (exit 1). JUnit confirmed every selected case failed
+in both experiments. The production file was restored byte-for-byte in `finally`.
+The restored eight-target command recorded above passes **353 tests, 2 skipped;
+99.50%**. Both skips are existing optional-openpyxl cases.
+
+A fresh full-suite attempt used the same bounded command recorded above:
+`timeout 50s pytest tests/ -q -m 'not slow' --no-cov -o faulthandler_timeout=20`.
+It collected **2,492 items / 1 skipped** and again stalled in the API serving
+TestClient test. The trace shows AnyIO's `run_sync_from_thread` waiting on the
+portal thread; the command exited **124**. No existing tests were skipped or
+changed to avoid this environment limitation.
+
+Black formatted the changed Python file at line length 100. After the first
+bounded aggregate check timed out, sequential single-file checks populated the
+normal writable cache. Both exact repository-wide Black checks recorded above
+then passed (**469 files unchanged** each). Ruff's CI command and
+`git diff --check` passed. No production diff remains.
+
+Delivery was attempted after these checks:
+
+```sh
+git add tests/quality/test_anomaly_rules.py docs/reports/issue-1045-pr-body.md
+git commit -m 'test: verify conservative anomaly confidence and triage'
+```
+
+Staging failed with `.git/index.lock: Read-only file system`; no commit was
+created and no push was possible. The prepared PR body update, blocker comment,
+and `needs-human` label each returned `MCP tool call requires approval, but
+approval policy is never`. The final remote read confirmed PR #1046 is still
+**open, draft=false**, at `74faee5`; its body and checkboxes remain unchanged.
+The locally checked statuses below remain prepared reconciliation, not a claim
+that those remote tasks were updated. The two verified files are ready for the
+automation writer to commit and push; remote reconciliation remains blocked.
 
 Closes #1045
 

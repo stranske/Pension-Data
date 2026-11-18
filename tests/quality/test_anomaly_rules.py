@@ -214,6 +214,52 @@ def test_low_confidence_anomaly_is_annotated_with_lower_priority() -> None:
     assert funded[0].score > 0.0
 
 
+@pytest.mark.parametrize("weak_index", [0, 1], ids=["weak-previous", "weak-current"])
+@pytest.mark.parametrize(
+    ("shift", "severity", "priority", "score"),
+    [(0.1875, "warning", "low", 0.3125), (0.25, "critical", "medium", 0.625)],
+)
+def test_weaker_observation_controls_anomaly_confidence_and_triage(
+    weak_index: int, shift: float, severity: str, priority: str, score: float
+) -> None:
+    points = [
+        _point(
+            plan_id="mixed-confidence",
+            period=str(2024 + index),
+            observed_at=datetime(2025 + index, 1, 1, tzinfo=UTC),
+            funded_ratio=0.75 - index * shift,
+            equity=0.25 + index * shift,
+            fixed_income=0.25,
+            confidence=0.25 if index == weak_index else 1.0,
+        )
+        for index in range(2)
+    ]
+
+    anomalies = detect_anomalies(
+        points,
+        thresholds=AnomalyThresholds(
+            funded_shift_warning=0.125,
+            funded_shift_critical=0.25,
+            allocation_shift_warning=0.125,
+            allocation_shift_critical=0.25,
+            min_confidence_for_medium_priority=0.5,
+        ),
+    )
+
+    assert {item.metric for item in anomalies} == {"funded_ratio", "allocation:public_equity"}
+    for anomaly in anomalies:
+        assert anomaly.confidence == 0.25
+        assert anomaly.severity == severity
+        assert anomaly.priority == priority
+        assert anomaly.score == score
+
+    queued = route_anomalies_to_review_queue(anomalies, queued_at=datetime(2026, 1, 2, tzinfo=UTC))
+    assert len(queued) == 2
+    for item in queued:
+        assert item.priority == priority
+        assert f"({severity}, confidence=0.25)" in item.reason
+
+
 def test_allocation_shift_thresholds_and_review_queue_routing() -> None:
     points = [
         _point(
