@@ -309,6 +309,61 @@ def test_anomaly_thresholds_require_warning_not_exceed_critical() -> None:
         AnomalyThresholds(allocation_shift_warning=0.13, allocation_shift_critical=0.12)
 
 
+@pytest.mark.parametrize("metric", ["funded_ratio", "allocation:public_equity"])
+@pytest.mark.parametrize(
+    ("shift", "critical", "severity", "priority", "score"),
+    [
+        pytest.param(0.125, 0.25, "warning", "medium", 0.0, id="at-warning"),
+        pytest.param(0.25, 0.25, "critical", "high", 0.75, id="at-critical"),
+        pytest.param(0.125, 0.125, "critical", "high", 0.75, id="equal-thresholds"),
+    ],
+)
+def test_exact_threshold_shifts_preserve_severity_priority_and_score(
+    metric: str,
+    shift: float,
+    critical: float,
+    severity: str,
+    priority: str,
+    score: float,
+) -> None:
+    # Binary-exact fractions isolate inclusive threshold behavior from rounding.
+    points = [
+        _point(
+            plan_id="threshold-boundary",
+            period=str(2024 + index),
+            observed_at=datetime(2025, 1, 1, tzinfo=UTC),
+            funded_ratio=0.5 - index * shift if metric == "funded_ratio" else 0.5,
+            equity=0.5 - index * shift if metric == "allocation:public_equity" else 0.5,
+            fixed_income=0.25,
+            confidence=0.5,
+        )
+        for index in range(2)
+    ]
+
+    anomalies = detect_anomalies(
+        points,
+        thresholds=AnomalyThresholds(
+            funded_shift_warning=0.125,
+            funded_shift_critical=critical,
+            allocation_shift_warning=0.125,
+            allocation_shift_critical=critical,
+            min_confidence_for_medium_priority=0.5,
+        ),
+    )
+
+    assert len(anomalies) == 1
+    anomaly = anomalies[0]
+    assert anomaly.metric == metric
+    assert anomaly.shift == shift
+    assert anomaly.severity == severity
+    assert anomaly.priority == priority
+    assert anomaly.score == score
+    assert anomaly.requires_review is True
+    queued = route_anomalies_to_review_queue(anomalies, queued_at=datetime(2025, 1, 2, tzinfo=UTC))
+    assert len(queued) == 1
+    assert queued[0].priority == priority
+
+
 def test_detect_anomalies_orders_by_period_before_observed_at() -> None:
     points = [
         _point(
