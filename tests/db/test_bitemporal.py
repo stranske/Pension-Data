@@ -60,6 +60,69 @@ def test_query_as_known_at_honors_open_ended_valid_windows() -> None:
     assert result == [row]
 
 
+def test_query_as_known_at_excludes_rows_on_valid_to_boundary() -> None:
+    """``valid_to`` is exclusive: ``valid_at`` equal to ``valid_to`` is out of window."""
+    row = _PlainTemporalRow(
+        valid_from="2020-01-01",
+        valid_to="2025-01-01",
+        asserted_at="2024-01-01T00:00:00Z",
+        superseded_at=None,
+    )
+    result = query_as_known_at(
+        [row],
+        valid_at="2025-01-01",
+        known_at="2025-06-01",
+        key=lambda item: "key",
+    )
+    assert result == []
+
+
+def test_query_as_known_at_excludes_assertions_after_known_at() -> None:
+    row = _PlainTemporalRow(
+        valid_from="2020-01-01",
+        valid_to=None,
+        asserted_at="2026-01-01T00:00:00Z",
+        superseded_at=None,
+    )
+    result = query_as_known_at(
+        [row],
+        valid_at="2025-06-01",
+        known_at="2025-01-01",
+        key=lambda item: "key",
+    )
+    assert result == []
+
+
+def test_query_as_known_at_excludes_rows_superseded_on_known_at_boundary() -> None:
+    row = _PlainTemporalRow(
+        valid_from="2020-01-01",
+        valid_to=None,
+        asserted_at="2024-01-01T00:00:00Z",
+        superseded_at="2025-06-01T00:00:00Z",
+    )
+    result = query_as_known_at(
+        [row],
+        valid_at="2025-01-01",
+        known_at="2025-06-01T00:00:00Z",
+        key=lambda item: "key",
+    )
+    assert result == []
+
+
+def test_bitemporal_assertion_is_restated_from_flag_without_superseded_at() -> None:
+    assertion = BitemporalAssertion(
+        entity_id="CA-PERS",
+        fact_name="funded_ratio",
+        value=0.8,
+        valid_from="2023-01-01",
+        valid_to="2024-01-01",
+        asserted_at="2024-02-01",
+        source_document_id="doc:restated-flag",
+        restated=True,
+    )
+    assert assertion.is_restated is True
+
+
 def test_query_as_known_at_keeps_newer_assertion_for_same_key() -> None:
     older = BitemporalAssertion(
         entity_id="CA-PERS",
