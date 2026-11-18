@@ -253,6 +253,23 @@ class TestEvidenceExcerptAndMethod:
         assert shared_plain.canonical == "d1#page=40"
         assert shared_plain.ref_id == shared_enriched.ref_id
 
+    def test_shared_conversion_drops_method_outside_shared_contract(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typing import Literal
+
+        ref = build_evidence_reference(
+            report_id="r1",
+            source_document_id="d1",
+            evidence_ref="table:schedule",
+            method="llm",
+        )
+        monkeypatch.setattr(evidence_module, "ExtractionMethod", Literal["text", "table"])
+
+        shared = to_shared_evidence_ref(ref)
+
+        assert shared.method is None
+
     def test_shared_conversion_tolerates_non_literal_method_alias(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

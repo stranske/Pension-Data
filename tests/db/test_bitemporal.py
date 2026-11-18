@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,138 @@ from pension_data.extract.investment.security_positions import (
     SecurityPositionInput,
     build_security_positions,
 )
+
+
+@dataclass
+class _PlainTemporalRow:
+    valid_from: str
+    valid_to: str | None
+    asserted_at: str
+    superseded_at: str | None
+
+
+def test_query_as_known_at_honors_open_ended_valid_windows() -> None:
+    row = _PlainTemporalRow(
+        valid_from="2020-01-01",
+        valid_to=None,
+        asserted_at="2024-01-01T00:00:00Z",
+        superseded_at=None,
+    )
+    result = query_as_known_at(
+        [row],
+        valid_at="2030-01-01",
+        known_at="2031-01-01",
+        key=lambda item: "key",
+    )
+    assert result == [row]
+
+
+def test_query_as_known_at_keeps_newer_assertion_for_same_key() -> None:
+    older = BitemporalAssertion(
+        entity_id="CA-PERS",
+        fact_name="funded_ratio",
+        value=0.7,
+        valid_from="2023-01-01",
+        valid_to="2024-01-01",
+        asserted_at="2024-01-01T00:00:00Z",
+        source_document_id="doc:old",
+    )
+    newer = BitemporalAssertion(
+        entity_id="CA-PERS",
+        fact_name="funded_ratio",
+        value=0.8,
+        valid_from="2023-01-01",
+        valid_to="2024-01-01",
+        asserted_at="2025-01-01T00:00:00Z",
+        source_document_id="doc:new",
+    )
+    result = query_as_known_at(
+        [newer, older],
+        valid_at="2023-06-30",
+        known_at="2025-06-01",
+        key=lambda row: (row.entity_id, row.fact_name),
+    )
+    assert [row.value for row in result] == [0.8]
+
+
+def test_active_overlap_guard_rejects_unbounded_prior_window() -> None:
+    rows = [
+        BitemporalAssertion(
+            entity_id="CA-PERS",
+            fact_name="funded_ratio",
+            value=0.74,
+            valid_from="2023-01-01",
+            valid_to=None,
+            asserted_at="2024-02-01",
+            source_document_id="doc:a",
+        ),
+        BitemporalAssertion(
+            entity_id="CA-PERS",
+            fact_name="funded_ratio",
+            value=0.75,
+            valid_from="2023-06-30",
+            valid_to="2024-06-30",
+            asserted_at="2024-02-02",
+            source_document_id="doc:b",
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="active valid-time overlap"):
+        assert_no_active_valid_overlaps(rows, key=lambda row: (row.entity_id, row.fact_name))
+
+
+def test_supersede_can_close_rows_without_restated_metadata() -> None:
+    original = _PlainTemporalRow(
+        valid_from="2023-06-30",
+        valid_to="2024-06-30",
+        asserted_at="2024-02-01T00:00:00Z",
+        superseded_at=None,
+    )
+    replacement = _PlainTemporalRow(
+        valid_from="2023-06-30",
+        valid_to="2024-06-30",
+        asserted_at="2025-03-01T00:00:00Z",
+        superseded_at=None,
+    )
+    updated = supersede_assertions(
+        [original],
+        [replacement],
+        key=lambda _row: "funded_ratio",
+        superseded_at="2025-03-01T00:00:00Z",
+    )
+    assert updated[0].superseded_at == "2025-03-01T00:00:00Z"
+    assert not hasattr(updated[1], "restated")
+
+
+def test_supersede_leaves_already_closed_rows_unchanged() -> None:
+    closed = BitemporalAssertion(
+        entity_id="CA-PERS",
+        fact_name="funded_ratio",
+        value=0.74,
+        valid_from="2023-06-30",
+        valid_to="2024-06-30",
+        asserted_at="2024-02-01T00:00:00Z",
+        superseded_at="2024-12-01T00:00:00Z",
+        source_document_id="doc:closed",
+    )
+    updated = supersede_assertions(
+        [closed],
+        [
+            BitemporalAssertion(
+                entity_id="CA-PERS",
+                fact_name="funded_ratio",
+                value=0.78,
+                valid_from="2023-06-30",
+                valid_to="2024-06-30",
+                asserted_at="2025-03-01T00:00:00Z",
+                source_document_id="doc:replacement",
+            )
+        ],
+        key=lambda row: (row.entity_id, row.fact_name),
+        superseded_at="2025-03-01T00:00:00Z",
+    )
+    assert updated[0].superseded_at == "2024-12-01T00:00:00Z"
+    assert updated[1].is_restated is False
 
 
 def test_metric_restatement_keeps_original_and_reproduces_known_at_views() -> None:

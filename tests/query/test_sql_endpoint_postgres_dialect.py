@@ -121,3 +121,92 @@ def test_postgresql_statement_timeout_maps_to_timeout_error() -> None:
     assert response.error.code == "TIMEOUT"
     assert connection.calls[0] == ("SET statement_timeout = 2000", ())
     assert connection.calls[-1] == ("SET statement_timeout = DEFAULT", ())
+
+
+class _AbortOnResetPostgresConnection:
+    """Simulates Postgres leaving the transaction aborted after a failed reset."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, Any] | tuple[str, ...]] = []
+        self._reset_attempts = 0
+
+    def execute(
+        self,
+        sql: str,
+        params: Mapping[str, Any] | tuple[Any, ...] | tuple[()] = (),
+    ) -> _FakeCursor:
+        self.calls.append((sql, params))
+        if sql == "SET statement_timeout = DEFAULT":
+            self._reset_attempts += 1
+            if self._reset_attempts == 1:
+                raise RuntimeError("current transaction is aborted")
+            return _FakeCursor(rows=[])
+        if "COUNT(*) AS _pd_total_rows" in sql:
+            return _FakeCursor(rows=[(2,)], description=(("_pd_total_rows",),))
+        return _FakeCursor(rows=[(1,)], description=(("id",),))
+
+    def rollback(self) -> None:
+        self.calls.append(("rollback", ()))
+
+
+def test_postgresql_clear_timeout_rolls_back_aborted_transaction() -> None:
+    connection = _AbortOnResetPostgresConnection()
+    response = execute_sql_query(
+        connection=connection,
+        request=SQLQueryRequest(
+            sql="SELECT id FROM sample_metrics",
+            page=1,
+            page_size=1,
+            max_rows=10,
+        ),
+        caller_key_id="key:test",
+        dialect="postgresql",
+    )
+
+    assert response.status == "ok"
+    assert response.rows == ((1,),)
+    reset_calls = [
+        call for call in connection.calls if call[0] == "SET statement_timeout = DEFAULT"
+    ]
+    assert len(reset_calls) == 2
+    assert ("rollback", ()) in connection.calls
+
+
+class _NoRollbackPostgresConnection:
+    """Postgres stub without rollback when statement_timeout reset fails."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, Any] | tuple[str, ...]] = []
+
+    def execute(
+        self,
+        sql: str,
+        params: Mapping[str, Any] | tuple[Any, ...] | tuple[()] = (),
+    ) -> _FakeCursor:
+        self.calls.append((sql, params))
+        if sql == "SET statement_timeout = DEFAULT":
+            raise RuntimeError("current transaction is aborted")
+        if "COUNT(*) AS _pd_total_rows" in sql:
+            return _FakeCursor(rows=[(1,)], description=(("_pd_total_rows",),))
+        return _FakeCursor(rows=[(1,)], description=(("id",),))
+
+
+def test_postgresql_clear_timeout_without_rollback_swallows_reset_failure() -> None:
+    connection = _NoRollbackPostgresConnection()
+    response = execute_sql_query(
+        connection=connection,
+        request=SQLQueryRequest(
+            sql="SELECT id FROM sample_metrics",
+            page=1,
+            page_size=1,
+            max_rows=10,
+        ),
+        caller_key_id="key:test",
+        dialect="postgresql",
+    )
+
+    assert response.status == "ok"
+    reset_calls = [
+        call for call in connection.calls if call[0] == "SET statement_timeout = DEFAULT"
+    ]
+    assert len(reset_calls) == 1

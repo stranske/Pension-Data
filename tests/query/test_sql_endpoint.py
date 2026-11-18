@@ -498,3 +498,130 @@ def test_sql_service_does_not_clear_timeout_when_installation_fails(
     assert response.error.message == "timeout installation failed"
     assert len(connection.method_calls) == 1
     setter.assert_called_once()
+
+
+def test_sql_service_accepts_list_params() -> None:
+    connection = _seed_connection(rows=4)
+    try:
+        response = execute_sql_query(
+            connection=connection,
+            request=SQLQueryRequest(
+                sql="SELECT id, metric FROM sample_metrics WHERE id >= ? ORDER BY id",
+                params=[2],
+                page=1,
+                page_size=2,
+            ),
+            caller_key_id="key:test",
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "ok"
+    assert response.rows == ((2, "m-002"), (3, "m-003"))
+
+
+def test_sql_service_sqlite_named_paging_placeholders() -> None:
+    connection = _seed_connection(rows=4)
+    try:
+        response = execute_sql_query(
+            connection=connection,
+            request=SQLQueryRequest(
+                sql="SELECT id, metric FROM sample_metrics WHERE id >= :min_id ORDER BY id",
+                params={"min_id": 2},
+                page=1,
+                page_size=2,
+            ),
+            caller_key_id="key:test",
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "ok"
+    assert response.metadata.executed_sql is not None
+    assert "LIMIT :_pd_limit OFFSET :_pd_offset" in response.metadata.executed_sql
+
+
+def test_sql_service_rejects_bytes_params_payload() -> None:
+    connection = _seed_connection(rows=2)
+    try:
+        response = execute_sql_query(
+            connection=connection,
+            request=SQLQueryRequest(
+                sql="SELECT id FROM sample_metrics",
+                params=b"m-001",  # type: ignore[arg-type]
+            ),
+            caller_key_id="key:test",
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+
+
+def test_sql_service_rejects_unsupported_params_type() -> None:
+    connection = _seed_connection(rows=2)
+    try:
+        response = execute_sql_query(
+            connection=connection,
+            request=SQLQueryRequest(
+                sql="SELECT id FROM sample_metrics",
+                params=42,  # type: ignore[arg-type]
+            ),
+            caller_key_id="key:test",
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "INVALID_REQUEST"
+    assert "mapping or positional list/tuple" in response.error.message
+
+
+def test_sql_service_returns_empty_page_when_offset_past_total() -> None:
+    connection = _seed_connection(rows=5)
+    try:
+        response = execute_sql_query(
+            connection=connection,
+            request=SQLQueryRequest(
+                sql="SELECT id FROM sample_metrics ORDER BY id",
+                page=10,
+                page_size=2,
+            ),
+            caller_key_id="key:test",
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "ok"
+    assert response.rows == ()
+    assert response.columns == ()
+    assert response.metadata.total_rows == 5
+    assert response.metadata.returned_rows == 0
+    assert response.metadata.has_more is False
+    assert response.metadata.executed_sql is None
+
+
+def test_sql_service_sqlite_without_progress_handler_skips_timeout_hooks() -> None:
+    """SQLite connections without set_progress_handler do not install cancel hooks."""
+    connection = Mock(spec=["execute"])
+    count_cursor = Mock()
+    count_cursor.fetchone.return_value = (1,)
+    page_cursor = Mock()
+    page_cursor.description = (("value",),)
+    page_cursor.fetchall.return_value = [(7,)]
+    connection.execute.side_effect = [count_cursor, page_cursor]
+
+    response = execute_sql_query(
+        connection=connection,
+        request=SQLQueryRequest(sql="SELECT 7 AS value", timeout_ms=500),
+        caller_key_id="key:test",
+        dialect="sqlite",
+    )
+
+    assert response.status == "ok"
+    assert response.rows == ((7,),)
+    assert len(connection.method_calls) == 2
+    assert not hasattr(connection, "set_progress_handler")
