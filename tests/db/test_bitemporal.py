@@ -28,6 +28,22 @@ class _PlainTemporalRow:
     superseded_at: str | None
 
 
+def test_query_as_known_at_excludes_rows_when_valid_from_is_after_valid_at() -> None:
+    future = _PlainTemporalRow(
+        valid_from="2030-01-01",
+        valid_to=None,
+        asserted_at="2024-01-01T00:00:00Z",
+        superseded_at=None,
+    )
+    result = query_as_known_at(
+        [future],
+        valid_at="2025-01-01",
+        known_at="2025-06-01",
+        key=lambda item: "key",
+    )
+    assert result == []
+
+
 def test_query_as_known_at_honors_open_ended_valid_windows() -> None:
     row = _PlainTemporalRow(
         valid_from="2020-01-01",
@@ -72,6 +88,32 @@ def test_query_as_known_at_keeps_newer_assertion_for_same_key() -> None:
     assert [row.value for row in result] == [0.8]
 
 
+def test_active_overlap_guard_rejects_adjacent_bounded_windows_when_prior_is_open() -> None:
+    rows = [
+        BitemporalAssertion(
+            entity_id="CA-PERS",
+            fact_name="funded_ratio",
+            value=0.74,
+            valid_from="2023-01-01",
+            valid_to="2024-01-01",
+            asserted_at="2024-02-01",
+            source_document_id="doc:a",
+        ),
+        BitemporalAssertion(
+            entity_id="CA-PERS",
+            fact_name="funded_ratio",
+            value=0.75,
+            valid_from="2023-09-01",
+            valid_to="2024-06-30",
+            asserted_at="2024-02-02",
+            source_document_id="doc:b",
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="active valid-time overlap"):
+        assert_no_active_valid_overlaps(rows, key=lambda row: (row.entity_id, row.fact_name))
+
+
 def test_active_overlap_guard_rejects_unbounded_prior_window() -> None:
     rows = [
         BitemporalAssertion(
@@ -96,6 +138,36 @@ def test_active_overlap_guard_rejects_unbounded_prior_window() -> None:
 
     with pytest.raises(ValueError, match="active valid-time overlap"):
         assert_no_active_valid_overlaps(rows, key=lambda row: (row.entity_id, row.fact_name))
+
+
+def test_supersede_marks_bitemporal_assertion_restated_when_closed() -> None:
+    active = BitemporalAssertion(
+        entity_id="CA-PERS",
+        fact_name="funded_ratio",
+        value=0.74,
+        valid_from="2023-06-30",
+        valid_to="2024-06-30",
+        asserted_at="2024-02-01T00:00:00Z",
+        source_document_id="doc:active",
+    )
+    replacement = BitemporalAssertion(
+        entity_id="CA-PERS",
+        fact_name="funded_ratio",
+        value=0.78,
+        valid_from="2023-06-30",
+        valid_to="2024-06-30",
+        asserted_at="2025-03-01T00:00:00Z",
+        source_document_id="doc:replacement",
+    )
+    updated = supersede_assertions(
+        [active],
+        [replacement],
+        key=lambda row: (row.entity_id, row.fact_name),
+        superseded_at="2025-03-01T00:00:00Z",
+    )
+    assert updated[0].restated is True
+    assert updated[0].superseded_at == "2025-03-01T00:00:00Z"
+    assert updated[1].restated is True
 
 
 def test_supersede_can_close_rows_without_restated_metadata() -> None:

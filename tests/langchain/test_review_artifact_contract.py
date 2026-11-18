@@ -837,6 +837,76 @@ def test_build_marks_not_found_resolution_as_not_official_ready(tmp_path: Path) 
     assert finding["severity"] == "info"
 
 
+def test_build_from_sources_rejects_unreadable_contract_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text("{}", encoding="utf-8")
+    readiness = tmp_path / "readiness.csv"
+    readiness.write_text(
+        "plan_id,plan_period,is_extraction_ready\nA,FY2024,true\n", encoding="utf-8"
+    )
+
+    def fail_read_text(*_args: object, **_kwargs: object) -> str:
+        raise OSError(13, "permission denied")
+
+    monkeypatch.setattr(Path, "read_text", fail_read_text)
+    with pytest.raises(ReviewableFindingsArtifactError, match="unreadable"):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness,
+        )
+
+
+def test_build_from_sources_rejects_unreadable_readiness_csv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contract_path, readiness_path = _write_real_sources(tmp_path)
+
+    real_open = Path.open
+
+    def fail_open(self: Path, *args: object, **kwargs: object):
+        if self == readiness_path:
+            raise OSError(13, "permission denied")
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_open)
+    with pytest.raises(ReviewableFindingsArtifactError, match="unreadable"):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness_path,
+        )
+
+
+def test_build_from_sources_rejects_contract_missing_readiness_column_descriptions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    contract_path = tmp_path / "contract.json"
+    contract_path.write_text(
+        json.dumps({"staging_core_metrics": ["plan_id", "plan_period", "cohort"]}),
+        encoding="utf-8",
+    )
+    readiness = tmp_path / "readiness.csv"
+    readiness.write_text(
+        "plan_id,plan_period,is_extraction_ready\nA,FY2024,true\n", encoding="utf-8"
+    )
+
+    def sparse_columns(contract: dict[str, object], *, contract_path: Path) -> frozenset[str]:
+        return frozenset({"cohort"})
+
+    monkeypatch.setattr(
+        "pension_data.langchain.review_artifact._readiness_contract_columns",
+        sparse_columns,
+    )
+    with pytest.raises(
+        ReviewableFindingsArtifactError, match="does not describe required readiness columns"
+    ):
+        build_extraction_quality_dashboard_artifact(
+            persistence_contract_path=contract_path,
+            readiness_csv_path=readiness,
+        )
+
+
 def test_build_from_sources_skips_rows_without_plan_identity(tmp_path: Path) -> None:
     contract_path, readiness_path = _write_real_sources(tmp_path)
     readiness_path.write_text(
