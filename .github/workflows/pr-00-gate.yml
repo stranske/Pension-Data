@@ -46,7 +46,6 @@ jobs:
       pull-requests: read
     outputs:
       pull_request: ${{ steps.resolve.outputs.pull_request }}
-      pull_request_classifier: ${{ steps.resolve.outputs.pull_request_classifier }}
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         id: resolve
@@ -82,29 +81,6 @@ jobs:
                 state: data.state };
             }
             core.setOutput('pull_request', JSON.stringify(pr));
-            const stableDeliveryBranches = new Set([
-              'sync/workflows-candidate',
-              'sync/workflows-delivery',
-            ]);
-            const classifierPr = {
-              state: pr.state,
-              number: pr.number,
-              head: {
-                sha: pr.head.sha,
-                ref: pr.head.ref,
-                repo: { full_name: pr.head.repo.full_name },
-              },
-              base: {
-                sha: pr.base.sha,
-                ref: pr.base.ref,
-                repo: { full_name: pr.base.repo.full_name },
-              },
-              labels: pr.labels,
-            };
-            if (stableDeliveryBranches.has(pr.head?.ref)) {
-              classifierPr.body = pr.body;
-            }
-            core.setOutput('pull_request_classifier', JSON.stringify(classifierPr));
 
   detect:
     needs: ["resolve-pr"]
@@ -117,15 +93,14 @@ jobs:
       is_security_relevant: ${{ steps.classify.outputs.is-security-relevant || 'true' }}
       classification_rationale: ${{ steps.classify.outputs.classification-rationale || 'path classifier unavailable' }}
     env:
-      # Full PR JSON (~100KB+ bodies) exceeds runner env limits and truncates JSON.parse.
-      GATE_PR_JSON: ${{ needs.resolve-pr.outputs.pull_request_classifier }}
+      GATE_PR_JSON: ${{ needs.resolve-pr.outputs.pull_request }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
       - name: Classify changed paths
         id: classify
-        uses: ./.github/actions/path-classifier
+        uses: stranske/Workflows/.github/actions/path-classifier@40e80e510f61e81f5612064b035a77e9b8d28756
         with:
           force-full: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'verify:full') || github.event_name == 'schedule' }}
 

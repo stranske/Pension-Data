@@ -195,119 +195,39 @@ function loadConfig(configPath) {
   return { categories, configPath: resolved, usedDefault: false };
 }
 
-function parseResolvedPullRequest(resolvedJson) {
-  let resolved;
-  try {
-    resolved = JSON.parse(resolvedJson);
-  } catch {
-    throw new Error('Resolved Gate PR metadata is malformed');
-  }
-  if (
-    !resolved
-    || resolved.state !== 'open'
-    || !Number.isSafeInteger(resolved.number)
-    || resolved.number <= 0
-    || !resolved.head?.sha
-    || !resolved.head?.repo?.full_name
-  ) {
-    throw new Error('Resolved Gate PR metadata is incomplete');
-  }
-  return resolved;
-}
-
-function loadEventPayload() {
-  const eventPath = process.env.GITHUB_EVENT_PATH;
-  if (!eventPath) {
-    throw new Error('Original Gate event payload is unavailable');
-  }
-  let raw;
-  try {
-    raw = fs.readFileSync(eventPath, 'utf8');
-  } catch (error) {
-    throw new Error(`Original Gate event payload is unavailable: ${error.message}`);
-  }
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`Original Gate event payload is malformed: ${error.message}`);
-  }
-}
-
-function buildGithubContextFromRunner() {
-  return {
-    event_name: process.env.GITHUB_EVENT_NAME || '',
-    sha: process.env.GITHUB_SHA || '',
-    ref: process.env.GITHUB_REF || '',
-    base_ref: process.env.GITHUB_BASE_REF || '',
-    repository: process.env.GITHUB_REPOSITORY || '',
-    event: loadEventPayload(),
-  };
-}
-
-function loadGithubContextJson() {
-  const contextJson = process.env.GITHUB_CONTEXT_JSON;
-  if (contextJson) {
-    try {
-      return JSON.parse(contextJson);
-    } catch {
-      throw new Error('Original Gate context is unavailable');
-    }
-  }
-  return buildGithubContextFromRunner();
-}
-
-function eventPullRequestIdentityBinding(pullRequest) {
-  if (!pullRequest) {
-    return null;
-  }
-  const number = pullRequest.number;
-  const headSha = pullRequest.head?.sha;
-  const headRepo = pullRequest.head?.repo?.full_name;
-  if (
-    !Number.isSafeInteger(number)
-    || number <= 0
-    || !headSha
-    || !headRepo
-  ) {
-    return null;
-  }
-  return { number, headSha, headRepo };
-}
-
 function parseGithubContext() {
   let context;
-  const resolvedJson = process.env.GATE_PR_JSON;
   try {
-    context = loadGithubContextJson();
-  } catch (error) {
-    if (resolvedJson && resolvedJson !== 'null') {
-      throw error;
+    context = JSON.parse(process.env.GITHUB_CONTEXT_JSON || '{}');
+  } catch {
+    if (process.env.GATE_PR_JSON && process.env.GATE_PR_JSON !== 'null') {
+      throw new Error('Original Gate context is unavailable');
     }
     return {};
   }
+  const resolvedJson = process.env.GATE_PR_JSON;
   if (!resolvedJson || resolvedJson === 'null') return context;
-  const resolved = parseResolvedPullRequest(resolvedJson);
+  let resolved;
+  try { resolved = JSON.parse(resolvedJson); } catch {
+    throw new Error('Resolved Gate PR metadata is malformed');
+  }
   const original = context.event?.pull_request;
-  const originalBinding = eventPullRequestIdentityBinding(original);
-  if (originalBinding) {
-    if (
-      resolved.number !== originalBinding.number
-      || resolved.head.sha !== originalBinding.headSha
-      || resolved.head.repo.full_name !== originalBinding.headRepo
-    ) {
+  if (!resolved || resolved.state !== 'open' || !Number.isSafeInteger(resolved.number) || resolved.number <= 0
+      || !resolved.head?.sha || !resolved.head?.repo?.full_name) {
+    throw new Error('Resolved Gate PR metadata is incomplete');
+  }
+  if (original) {
+    if (resolved.number !== original.number || resolved.head.sha !== original.head?.sha
+        || resolved.head.repo.full_name !== original.head?.repo?.full_name) {
       throw new Error('Resolved Gate PR identity differs from the event');
     }
-  } else if (context.event_name === 'workflow_dispatch') {
-    if (resolved.head.sha !== context.sha
-        || resolved.head.repo.full_name !== context.repository) {
-      throw new Error('Resolved Gate PR identity differs from the dispatched head');
-    }
+  } else if (context.event_name !== 'workflow_dispatch'
+      || resolved.head.sha !== context.sha
+      || resolved.head.repo.full_name !== context.repository) {
+    throw new Error('Resolved Gate PR identity differs from the dispatched head');
   }
-  // The event file remains the original event; the compact resolve-pr
-  // snapshot replaces only the pull_request payload so oversized bodies
-  // never transit an environment variable. Composite toJSON(github) can omit
-  // pull_request on large bodies; resolve-pr remains authoritative when binding
-  // fields are absent.
+  // toJSON(github) remains the original event even after GITHUB_EVENT_PATH is
+  // restored. Both classifier and seal must use the same resolved snapshot.
   return { ...context, event: { ...context.event,
     pull_request: resolved, number: resolved.number } };
 }
@@ -647,10 +567,6 @@ module.exports = {
   matchesAny,
   normalizePath,
   parseClassificationConfig,
-  buildGithubContextFromRunner,
-  eventPullRequestIdentityBinding,
-  loadEventPayload,
-  loadGithubContextJson,
   parseGithubContext,
   stableDeliverySealStatus,
 };
