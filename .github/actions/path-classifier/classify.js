@@ -253,14 +253,13 @@ function parseGithubContext() {
         || resolved.head.repo.full_name !== original.head?.repo?.full_name) {
       throw new Error('Resolved Gate PR identity differs from the event');
     }
-  } else if (context.event_name === 'workflow_dispatch') {
-    if (resolved.head.sha !== context.sha
-        || resolved.head.repo.full_name !== context.repository) {
-      throw new Error('Resolved Gate PR identity differs from the dispatched head');
-    }
+  } else if (context.event_name !== 'workflow_dispatch'
+      || resolved.head.sha !== context.sha
+      || resolved.head.repo.full_name !== context.repository) {
+    throw new Error('Resolved Gate PR identity differs from the dispatched head');
   }
-  // Composite toJSON(github) can omit pull_request on large PR bodies. Both
-  // classifier and seal use the resolve-pr snapshot when event binding is absent.
+  // toJSON(github) remains the original event even after GITHUB_EVENT_PATH is
+  // restored. Both classifier and seal must use the same resolved snapshot.
   return { ...context, event: { ...context.event,
     pull_request: resolved, number: resolved.number } };
 }
