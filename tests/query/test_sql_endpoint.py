@@ -342,6 +342,37 @@ def test_sql_service_persists_serialized_run_record(tmp_path: Path) -> None:
     assert rows_payload["rows"] == [[1, "m-001"], [2, "m-002"]]
 
 
+def test_sql_service_persists_error_run_record(tmp_path: Path) -> None:
+    connection = _seed_connection(rows=2)
+    run_records: list[SQLExecutionRunRecord] = []
+    try:
+        response = execute_sql_query(
+            connection=connection,
+            request=SQLQueryRequest(
+                sql="SELECT id FROM sample_metrics ORDER BY id",
+                max_rows=1,
+            ),
+            caller_key_id="key:service-test",
+            run_record_store=run_records,
+            run_record_root=tmp_path,
+        )
+    finally:
+        connection.close()
+
+    assert response.status == "error"
+    assert response.error is not None
+    assert response.error.code == "ROW_LIMIT_EXCEEDED"
+    assert len(run_records) == 1
+    payload = run_records[0].to_dict()
+    assert payload["status"] == "error"
+    assert payload["error"] == {
+        "code": "ROW_LIMIT_EXCEEDED",
+        "message": response.error.message,
+    }
+    assert payload["record_artifact"]["row_count"] is None
+    assert payload["rows_artifact"]["row_count"] == 0
+
+
 @pytest.mark.parametrize("field", ["page", "page_size", "timeout_ms", "max_rows"])
 @pytest.mark.parametrize(
     "value", [float("nan"), float("inf"), float("-inf"), 1.5, 1.0, True, False, "1", None]
