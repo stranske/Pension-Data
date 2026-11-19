@@ -215,31 +215,21 @@ function parseResolvedPullRequest(resolvedJson) {
   return resolved;
 }
 
-function minimalContextFromResolvedPullRequest(resolved) {
-  const repository =
-    resolved.base?.repo?.full_name || resolved.head.repo.full_name || process.env.GITHUB_REPOSITORY || '';
-  return {
-    event_name: process.env.GITHUB_EVENT_NAME || 'pull_request',
-    sha: resolved.head.sha,
-    ref: process.env.GITHUB_REF || '',
-    base_ref: resolved.base?.ref || process.env.GITHUB_BASE_REF || '',
-    repository,
-    event: { pull_request: resolved, number: resolved.number },
-  };
-}
-
 function loadEventPayload() {
   const eventPath = process.env.GITHUB_EVENT_PATH;
   if (!eventPath) {
-    return {};
+    throw new Error('Original Gate event payload is unavailable');
+  }
+  let raw;
+  try {
+    raw = fs.readFileSync(eventPath, 'utf8');
+  } catch (error) {
+    throw new Error(`Original Gate event payload is unavailable: ${error.message}`);
   }
   try {
-    if (!fs.existsSync(eventPath)) {
-      return {};
-    }
-    return JSON.parse(fs.readFileSync(eventPath, 'utf8'));
-  } catch {
-    return {};
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Original Gate event payload is malformed: ${error.message}`);
   }
 }
 
@@ -257,7 +247,11 @@ function buildGithubContextFromRunner() {
 function loadGithubContextJson() {
   const contextJson = process.env.GITHUB_CONTEXT_JSON;
   if (contextJson) {
-    return JSON.parse(contextJson);
+    try {
+      return JSON.parse(contextJson);
+    } catch {
+      throw new Error('Original Gate context is unavailable');
+    }
   }
   return buildGithubContextFromRunner();
 }
@@ -285,44 +279,28 @@ function parseGithubContext() {
   const resolvedJson = process.env.GATE_PR_JSON;
   try {
     context = loadGithubContextJson();
-  } catch {
+  } catch (error) {
     if (resolvedJson && resolvedJson !== 'null') {
-      const resolved = parseResolvedPullRequest(resolvedJson);
-      return minimalContextFromResolvedPullRequest(resolved);
+      throw error;
     }
     return {};
   }
   if (!resolvedJson || resolvedJson === 'null') return context;
-  let resolved;
-  try {
-    resolved = parseResolvedPullRequest(resolvedJson);
-  } catch (error) {
-    if (!eventPullRequestIdentityBinding(context.event?.pull_request)) {
-      throw error;
-    }
-    console.warn(
-      `::warning::Ignoring malformed GATE_PR_JSON; using workflow event metadata: ${error.message}`,
-    );
-    return context;
-  }
+  const resolved = parseResolvedPullRequest(resolvedJson);
   const original = context.event?.pull_request;
-  const originalBinding = eventPullRequestIdentityBinding(original);
-  if (originalBinding) {
-    if (
-      resolved.number !== originalBinding.number
-      || resolved.head.sha !== originalBinding.headSha
-      || resolved.head.repo.full_name !== originalBinding.headRepo
-    ) {
+  if (original) {
+    if (resolved.number !== original.number || resolved.head.sha !== original.head?.sha
+        || resolved.head.repo.full_name !== original.head?.repo?.full_name) {
       throw new Error('Resolved Gate PR identity differs from the event');
     }
-  } else if (context.event_name === 'workflow_dispatch') {
-    if (resolved.head.sha !== context.sha
-        || resolved.head.repo.full_name !== context.repository) {
-      throw new Error('Resolved Gate PR identity differs from the dispatched head');
-    }
+  } else if (context.event_name !== 'workflow_dispatch'
+      || resolved.head.sha !== context.sha
+      || resolved.head.repo.full_name !== context.repository) {
+    throw new Error('Resolved Gate PR identity differs from the dispatched head');
   }
-  // Large PR bodies exceed runner env limits when passed through toJSON(github).
-  // The resolve-pr snapshot is authoritative; runner event metadata supplies binding.
+  // The event file remains the original event; the compact resolve-pr
+  // snapshot replaces only the pull_request payload so oversized bodies
+  // never transit an environment variable.
   return { ...context, event: { ...context.event,
     pull_request: resolved, number: resolved.number } };
 }
