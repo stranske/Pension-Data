@@ -165,11 +165,11 @@ def test_postgresql_clear_timeout_rolls_back_aborted_transaction() -> None:
 
     assert response.status == "ok"
     assert response.rows == ((1,),)
-    reset_calls = [
-        call for call in connection.calls if call[0] == "SET statement_timeout = DEFAULT"
+    assert connection.calls[-3:] == [
+        ("SET statement_timeout = DEFAULT", ()),
+        ("rollback", ()),
+        ("SET statement_timeout = DEFAULT", ()),
     ]
-    assert len(reset_calls) == 2
-    assert ("rollback", ()) in connection.calls
 
 
 class _NoRollbackPostgresConnection:

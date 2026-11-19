@@ -123,7 +123,8 @@ def test_bitemporal_assertion_is_restated_from_flag_without_superseded_at() -> N
     assert assertion.is_restated is True
 
 
-def test_query_as_known_at_keeps_newer_assertion_for_same_key() -> None:
+@pytest.mark.parametrize("newer_first", [True, False])
+def test_query_as_known_at_keeps_newer_assertion_for_same_key(newer_first: bool) -> None:
     older = BitemporalAssertion(
         entity_id="CA-PERS",
         fact_name="funded_ratio",
@@ -143,7 +144,7 @@ def test_query_as_known_at_keeps_newer_assertion_for_same_key() -> None:
         source_document_id="doc:new",
     )
     result = query_as_known_at(
-        [newer, older],
+        [newer, older] if newer_first else [older, newer],
         valid_at="2023-06-30",
         known_at="2025-06-01",
         key=lambda row: (row.entity_id, row.fact_name),
@@ -177,14 +178,17 @@ def test_active_overlap_guard_rejects_adjacent_bounded_windows_when_prior_is_ope
         assert_no_active_valid_overlaps(rows, key=lambda row: (row.entity_id, row.fact_name))
 
 
-def test_active_overlap_guard_accepts_non_overlapping_bounded_sequence() -> None:
+@pytest.mark.parametrize("first_valid_to", ["2023-12-31", "2024-01-01"])
+def test_active_overlap_guard_accepts_non_overlapping_bounded_sequence(
+    first_valid_to: str,
+) -> None:
     rows = [
         BitemporalAssertion(
             entity_id="CA-PERS",
             fact_name="funded_ratio",
             value=0.74,
             valid_from="2023-01-01",
-            valid_to="2023-12-31",
+            valid_to=first_valid_to,
             asserted_at="2024-02-01",
             source_document_id="doc:a",
         ),

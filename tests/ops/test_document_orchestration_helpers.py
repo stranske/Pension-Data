@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import builtins
-from collections.abc import Mapping
-
 import pytest
 
 from pension_data.db.models.artifacts import RawArtifactRecord
@@ -197,7 +194,7 @@ def test_active_artifact_by_key_keeps_only_active_rows() -> None:
         first_seen_at=record.first_seen_at,
         last_seen_at=record.last_seen_at,
     )
-    active = orchestration._active_artifact_by_key((inactive, record))
+    active = orchestration._active_artifact_by_key((record, inactive))
     assert list(active.values()) == [record]
 
 
@@ -359,21 +356,6 @@ def test_jsonable_serializes_builtin_dict_and_list() -> None:
         ["pair"],
         {"key": "value"},
     ]
-
-
-def test_jsonable_builtin_dict_branch_when_not_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Exercise the redundant ``dict`` branch guarded after ``Mapping``."""
-
-    payload = {"only_dict_branch": {"nested": 1}}
-    real_isinstance = isinstance
-
-    def patched_isinstance(obj: object, classinfo: object) -> bool:
-        if obj is payload and classinfo is Mapping:
-            return False
-        return real_isinstance(obj, classinfo)
-
-    monkeypatch.setattr(builtins, "isinstance", patched_isinstance)
-    assert orchestration._jsonable(payload) == {"only_dict_branch": {"nested": 1}}
 
 
 def test_build_financial_flow_input_collects_evidence_from_matched_rows() -> None:

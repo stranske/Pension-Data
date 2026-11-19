@@ -9,7 +9,7 @@ from dataclasses import fields
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 from scripts.langchain import build_reviewable_findings_artifact as artifact_cli
@@ -335,6 +335,7 @@ def test_build_from_sources_fills_utc_timestamps_when_omitted(tmp_path: Path) ->
         )
 
     validate_reviewable_findings_artifact(artifact)
+    assert mock_datetime.now.call_args_list == [call(UTC), call(UTC)]
     assert artifact["generated_at"] == "2026-11-18T22:30:00Z"
     assert artifact["artifact_id"] == "extraction-quality-dashboard:2026-11-18"
 
@@ -851,7 +852,8 @@ def test_build_marks_not_found_resolution_as_not_official_ready(tmp_path: Path) 
         "plan_id,plan_period,cohort,system_type,official_resolution_state,"
         "source_authority_tier,mismatch_reason,extraction_blocker_reason,"
         "is_extraction_ready,readiness_state\n"
-        "CA-PERS,FY2024,state,public,not_found,official,,,true,ready\n",
+        "CA-PERS,FY2024,state,public,not_found,official,,,true,ready\n"
+        "CA-PERS,FY2024,state,public,not_found,official,,,false,blocked\n",
         encoding="utf-8",
     )
     artifact = build_extraction_quality_dashboard_artifact(
@@ -859,8 +861,8 @@ def test_build_marks_not_found_resolution_as_not_official_ready(tmp_path: Path) 
         readiness_csv_path=readiness_path,
     )
     finding = artifact["findings"][0]
-    assert finding["value"] == 1.0
-    assert finding["severity"] == "info"
+    assert finding["value"] == 0.0
+    assert finding["severity"] == "warning"
 
 
 def test_build_from_sources_rejects_unreadable_contract_file(
