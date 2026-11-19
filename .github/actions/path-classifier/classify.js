@@ -228,6 +228,40 @@ function minimalContextFromResolvedPullRequest(resolved) {
   };
 }
 
+function loadEventPayload() {
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (!eventPath) {
+    return {};
+  }
+  try {
+    if (!fs.existsSync(eventPath)) {
+      return {};
+    }
+    return JSON.parse(fs.readFileSync(eventPath, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function buildGithubContextFromRunner() {
+  return {
+    event_name: process.env.GITHUB_EVENT_NAME || '',
+    sha: process.env.GITHUB_SHA || '',
+    ref: process.env.GITHUB_REF || '',
+    base_ref: process.env.GITHUB_BASE_REF || '',
+    repository: process.env.GITHUB_REPOSITORY || '',
+    event: loadEventPayload(),
+  };
+}
+
+function loadGithubContextJson() {
+  const contextJson = process.env.GITHUB_CONTEXT_JSON;
+  if (contextJson) {
+    return JSON.parse(contextJson);
+  }
+  return buildGithubContextFromRunner();
+}
+
 function eventPullRequestIdentityBinding(pullRequest) {
   if (!pullRequest) {
     return null;
@@ -250,7 +284,7 @@ function parseGithubContext() {
   let context;
   const resolvedJson = process.env.GATE_PR_JSON;
   try {
-    context = JSON.parse(process.env.GITHUB_CONTEXT_JSON || '{}');
+    context = loadGithubContextJson();
   } catch {
     if (resolvedJson && resolvedJson !== 'null') {
       const resolved = parseResolvedPullRequest(resolvedJson);
@@ -259,7 +293,18 @@ function parseGithubContext() {
     return {};
   }
   if (!resolvedJson || resolvedJson === 'null') return context;
-  const resolved = parseResolvedPullRequest(resolvedJson);
+  let resolved;
+  try {
+    resolved = parseResolvedPullRequest(resolvedJson);
+  } catch (error) {
+    if (!eventPullRequestIdentityBinding(context.event?.pull_request)) {
+      throw error;
+    }
+    console.warn(
+      `::warning::Ignoring malformed GATE_PR_JSON; using workflow event metadata: ${error.message}`,
+    );
+    return context;
+  }
   const original = context.event?.pull_request;
   const originalBinding = eventPullRequestIdentityBinding(original);
   if (originalBinding) {
@@ -276,8 +321,8 @@ function parseGithubContext() {
       throw new Error('Resolved Gate PR identity differs from the dispatched head');
     }
   }
-  // Composite toJSON(github) can omit pull_request on large PR bodies. Both
-  // classifier and seal use the resolve-pr snapshot when event binding is absent.
+  // Large PR bodies exceed runner env limits when passed through toJSON(github).
+  // The resolve-pr snapshot is authoritative; runner event metadata supplies binding.
   return { ...context, event: { ...context.event,
     pull_request: resolved, number: resolved.number } };
 }
@@ -617,7 +662,10 @@ module.exports = {
   matchesAny,
   normalizePath,
   parseClassificationConfig,
+  buildGithubContextFromRunner,
   eventPullRequestIdentityBinding,
+  loadEventPayload,
+  loadGithubContextJson,
   parseGithubContext,
   stableDeliverySealStatus,
 };

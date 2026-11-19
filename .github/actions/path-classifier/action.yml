@@ -50,5 +50,4 @@ runs:
         INPUT_BASE_REF: ${{ inputs.base-ref }}
         INPUT_CONFIG_PATH: ${{ inputs.config-path }}
         INPUT_FORCE_FULL: ${{ inputs.force-full }}
-        GITHUB_CONTEXT_JSON: ${{ toJSON(github) }}
       run: node "$GITHUB_ACTION_PATH/classify.js"
