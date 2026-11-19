@@ -95,12 +95,23 @@ jobs:
     env:
       GATE_PR_JSON: ${{ needs.resolve-pr.outputs.pull_request }}
     steps:
+      - name: Restore resolved PR event for Gate helpers
+        if: ${{ needs.resolve-pr.result == 'success' && needs.resolve-pr.outputs.pull_request != 'null' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const fs = require('fs');
+            const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+            event.pull_request = JSON.parse(process.env.GATE_PR_JSON);
+            event.number = event.pull_request.number;
+            fs.writeFileSync(process.env.GITHUB_EVENT_PATH, JSON.stringify(event));
+
       - name: Checkout repository
         uses: actions/checkout@v7
 
       - name: Classify changed paths
         id: classify
-        uses: stranske/Workflows/.github/actions/path-classifier@40e80e510f61e81f5612064b035a77e9b8d28756
+        uses: ./.github/actions/path-classifier
         with:
           force-full: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'verify:full') || github.event_name == 'schedule' }}
 

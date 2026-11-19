@@ -3,7 +3,8 @@ categories:
     require-all: true
     paths:
       - docs/**
-      - "*.md"
+      - agents/**
+      - "**/*.md"
       - README.md
   python-code:
     require-all: false
