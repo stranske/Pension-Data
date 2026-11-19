@@ -46,6 +46,7 @@ jobs:
       pull-requests: read
     outputs:
       pull_request: ${{ steps.resolve.outputs.pull_request }}
+      pull_request_classifier: ${{ steps.resolve.outputs.pull_request_classifier }}
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         id: resolve
@@ -81,6 +82,21 @@ jobs:
                 state: data.state };
             }
             core.setOutput('pull_request', JSON.stringify(pr));
+            const stableDeliveryBranches = new Set([
+              'sync/workflows-candidate',
+              'sync/workflows-delivery',
+            ]);
+            const classifierPr = {
+              state: pr.state,
+              number: pr.number,
+              head: pr.head,
+              base: pr.base,
+              labels: pr.labels,
+            };
+            if (stableDeliveryBranches.has(pr.head?.ref)) {
+              classifierPr.body = pr.body;
+            }
+            core.setOutput('pull_request_classifier', JSON.stringify(classifierPr));
 
   detect:
     needs: ["resolve-pr"]
@@ -93,7 +109,8 @@ jobs:
       is_security_relevant: ${{ steps.classify.outputs.is-security-relevant || 'true' }}
       classification_rationale: ${{ steps.classify.outputs.classification-rationale || 'path classifier unavailable' }}
     env:
-      GATE_PR_JSON: ${{ needs.resolve-pr.outputs.pull_request }}
+      # Full PR JSON (~100KB+ bodies) exceeds runner env limits and truncates JSON.parse.
+      GATE_PR_JSON: ${{ needs.resolve-pr.outputs.pull_request_classifier }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
