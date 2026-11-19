@@ -228,6 +228,24 @@ function minimalContextFromResolvedPullRequest(resolved) {
   };
 }
 
+function eventPullRequestIdentityBinding(pullRequest) {
+  if (!pullRequest) {
+    return null;
+  }
+  const number = pullRequest.number;
+  const headSha = pullRequest.head?.sha;
+  const headRepo = pullRequest.head?.repo?.full_name;
+  if (
+    !Number.isSafeInteger(number)
+    || number <= 0
+    || !headSha
+    || !headRepo
+  ) {
+    return null;
+  }
+  return { number, headSha, headRepo };
+}
+
 function parseGithubContext() {
   let context;
   const resolvedJson = process.env.GATE_PR_JSON;
@@ -243,9 +261,13 @@ function parseGithubContext() {
   if (!resolvedJson || resolvedJson === 'null') return context;
   const resolved = parseResolvedPullRequest(resolvedJson);
   const original = context.event?.pull_request;
-  if (original) {
-    if (resolved.number !== original.number || resolved.head.sha !== original.head?.sha
-        || resolved.head.repo.full_name !== original.head?.repo?.full_name) {
+  const originalBinding = eventPullRequestIdentityBinding(original);
+  if (originalBinding) {
+    if (
+      resolved.number !== originalBinding.number
+      || resolved.head.sha !== originalBinding.headSha
+      || resolved.head.repo.full_name !== originalBinding.headRepo
+    ) {
       throw new Error('Resolved Gate PR identity differs from the event');
     }
   } else if (context.event_name === 'workflow_dispatch') {
@@ -595,6 +617,7 @@ module.exports = {
   matchesAny,
   normalizePath,
   parseClassificationConfig,
+  eventPullRequestIdentityBinding,
   parseGithubContext,
   stableDeliverySealStatus,
 };
