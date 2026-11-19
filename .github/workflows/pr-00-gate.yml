@@ -100,7 +100,7 @@ jobs:
 
       - name: Classify changed paths
         id: classify
-        uses: stranske/Workflows/.github/actions/path-classifier@40e80e510f61e81f5612064b035a77e9b8d28756
+        uses: ./.github/actions/path-classifier
         with:
           force-full: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'verify:full') || github.event_name == 'schedule' }}
 

@@ -195,39 +195,67 @@ function loadConfig(configPath) {
   return { categories, configPath: resolved, usedDefault: false };
 }
 
+function parseResolvedPullRequest(resolvedJson) {
+  let resolved;
+  try {
+    resolved = JSON.parse(resolvedJson);
+  } catch {
+    throw new Error('Resolved Gate PR metadata is malformed');
+  }
+  if (
+    !resolved
+    || resolved.state !== 'open'
+    || !Number.isSafeInteger(resolved.number)
+    || resolved.number <= 0
+    || !resolved.head?.sha
+    || !resolved.head?.repo?.full_name
+  ) {
+    throw new Error('Resolved Gate PR metadata is incomplete');
+  }
+  return resolved;
+}
+
+function minimalContextFromResolvedPullRequest(resolved) {
+  const repository =
+    resolved.base?.repo?.full_name || resolved.head.repo.full_name || process.env.GITHUB_REPOSITORY || '';
+  return {
+    event_name: process.env.GITHUB_EVENT_NAME || 'pull_request',
+    sha: resolved.head.sha,
+    ref: process.env.GITHUB_REF || '',
+    base_ref: resolved.base?.ref || process.env.GITHUB_BASE_REF || '',
+    repository,
+    event: { pull_request: resolved, number: resolved.number },
+  };
+}
+
 function parseGithubContext() {
   let context;
+  const resolvedJson = process.env.GATE_PR_JSON;
   try {
     context = JSON.parse(process.env.GITHUB_CONTEXT_JSON || '{}');
   } catch {
-    if (process.env.GATE_PR_JSON && process.env.GATE_PR_JSON !== 'null') {
-      throw new Error('Original Gate context is unavailable');
+    if (resolvedJson && resolvedJson !== 'null') {
+      const resolved = parseResolvedPullRequest(resolvedJson);
+      return minimalContextFromResolvedPullRequest(resolved);
     }
     return {};
   }
-  const resolvedJson = process.env.GATE_PR_JSON;
   if (!resolvedJson || resolvedJson === 'null') return context;
-  let resolved;
-  try { resolved = JSON.parse(resolvedJson); } catch {
-    throw new Error('Resolved Gate PR metadata is malformed');
-  }
+  const resolved = parseResolvedPullRequest(resolvedJson);
   const original = context.event?.pull_request;
-  if (!resolved || resolved.state !== 'open' || !Number.isSafeInteger(resolved.number) || resolved.number <= 0
-      || !resolved.head?.sha || !resolved.head?.repo?.full_name) {
-    throw new Error('Resolved Gate PR metadata is incomplete');
-  }
   if (original) {
     if (resolved.number !== original.number || resolved.head.sha !== original.head?.sha
         || resolved.head.repo.full_name !== original.head?.repo?.full_name) {
       throw new Error('Resolved Gate PR identity differs from the event');
     }
-  } else if (context.event_name !== 'workflow_dispatch'
-      || resolved.head.sha !== context.sha
-      || resolved.head.repo.full_name !== context.repository) {
-    throw new Error('Resolved Gate PR identity differs from the dispatched head');
+  } else if (context.event_name === 'workflow_dispatch') {
+    if (resolved.head.sha !== context.sha
+        || resolved.head.repo.full_name !== context.repository) {
+      throw new Error('Resolved Gate PR identity differs from the dispatched head');
+    }
   }
-  // toJSON(github) remains the original event even after GITHUB_EVENT_PATH is
-  // restored. Both classifier and seal must use the same resolved snapshot.
+  // Composite toJSON(github) can omit pull_request on large PR bodies. Both
+  // classifier and seal use the resolve-pr snapshot when event binding is absent.
   return { ...context, event: { ...context.event,
     pull_request: resolved, number: resolved.number } };
 }
